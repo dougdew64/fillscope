@@ -20,6 +20,7 @@ Newest first. "Who caught it" is the check, not the author of the fix.
 
 | Date | Defect | Who caught it |
 |---|---|---|
+| 2026-10-19 | The second sweep's 32 items, over all the code, after the first sweep's fixes: a viewer stopped by a signal still claiming to run, a run wiped by an empty connection, the test checks overwriting edits, a program with no tests recorded as passed, and more ([TECH-DEBT.md](TECH-DEBT.md)) | Four independent AI reviews and a document pass. Every item reproduced or confirmed in the code; one reported defect, reproduced by its reviewer, was false and was dropped |
 | 2026-10-19 | Turning on warnings as errors for CI would have made five mutants fail to compile (deliberately broken code draws warnings), so the mutation check would have failed on every CI run | Running CI's configuration locally before pushing. `mutants.py` now builds mutants with warnings allowed and restores the setting |
 | 2026-10-19 | Changing the anchor's stored index to `std::optional` (and trying `[[gnu::noipa]]`) moved GDB's breakpoint, in the sanitizer build only, to before the argument was stored: every stop read `frame_index` as 0 | `LockstepDebugger.GdbBreakpointByName` in the sanitizer build. The fix: plain stores; the comment and DEBUGGER-LOCKSTEP.md rule 2 record why |
 | 2026-10-19 | A new test assumed a listener's queue holds exactly its backlog; Linux holds one more | The test, failing on correct code |
