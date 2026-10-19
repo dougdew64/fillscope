@@ -8,6 +8,7 @@ Newest first.
 
 | Date | Decision |
 |---|---|
+| 2026-10-19 | Fillscope also demonstrates judgement in using AI to write code: AI output is trusted only through a check independent of the AI, and each use is documented with its check (charter §1, decision 7). |
 | 2026-10-19 | MIT license. |
 | 2026-10-19 | Repository created, public from the first commit. Tagline: "An explainable order-book backtester: click any order, ask why it filled." |
 | 2026-10-16 | The name Fillscope: "fill" is the trading term for an executed order, and "scope" an instrument for looking inside. No product or repository with the name was found (checked 2026-10-16 and 2026-10-19). |
