@@ -25,6 +25,8 @@ JS_PROBE = "\n// selection probe\n"
 # (file changed, probe, the programs that must be reported affected, and no others)
 CASES = [
     ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"}),
+    # The loop main.cpp runs is in ViewerApp, which the UI tests run too.
+    ("src/viewer/viewer_app.cpp", CPP_PROBE, {"viewer_ui_tests"}),
     ("src/channel/frame.h", CPP_PROBE,
      {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_tests", "viewer_ui_tests"}),
     # The viewer's core is linked by both of the viewer's test programs, and by nothing else.

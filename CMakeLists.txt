@@ -73,12 +73,15 @@ target_link_libraries(imgui_app PUBLIC glfw OpenGL::GL)
 # The viewer's core, without Dear ImGui: what it has received, what the user has pointed at and
 # followed, and the context it publishes. Unit-tested on its own.
 add_library(fillscope_viewer_core STATIC
-  src/viewer/viewer_state.cpp src/viewer/context.cpp src/viewer/context_publisher.cpp)
+  src/viewer/viewer_state.cpp src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp)
 target_include_directories(fillscope_viewer_core PUBLIC src)
 target_link_libraries(fillscope_viewer_core PUBLIC fillscope_channel nlohmann_json::nlohmann_json)
 target_compile_options(fillscope_viewer_core PRIVATE ${FILLSCOPE_WARNINGS})
 
-add_executable(viewer src/viewer/main.cpp src/viewer/viewer_view.cpp)
+# The parts that draw with Dear ImGui are compiled into each program that uses them (the viewer, and
+# its UI tests, which use a Dear ImGui built with the Test Engine's hooks).
+set(VIEWER_UI_SOURCES ${PROJECT_SOURCE_DIR}/src/viewer/viewer_view.cpp ${PROJECT_SOURCE_DIR}/src/viewer/viewer_app.cpp)
+add_executable(viewer src/viewer/main.cpp ${VIEWER_UI_SOURCES})
 target_link_libraries(viewer PRIVATE fillscope_viewer_core imgui_app)
 target_compile_options(viewer PRIVATE ${FILLSCOPE_WARNINGS})
 

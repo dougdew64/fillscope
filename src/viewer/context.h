@@ -7,7 +7,8 @@
 // it, kept apart because they mean different things:
 //   - point at: one frame, the subject of a question;
 //   - follow:   one id across every frame where it appears, a lens on the question.
-// Each has its own sequence number, so the assistant can tell which the user did last.
+// Each has its own sequence number, taken only when the user changes it, so the assistant can tell
+// which the user did last.
 #pragma once
 
 #include "channel/message.h"
@@ -33,7 +34,8 @@ public:
     void clear_follow();
 
     // A new run has started: the frame pointed at belonged to the old one, so it is cleared. What is
-    // followed is an id, which is just as meaningful in the new run, so it stays.
+    // followed is an id, which is just as meaningful in the new run, so it stays. The viewer did
+    // this, not the user, so it takes no sequence number: the numbers say what the user did.
     void new_run();
 
     [[nodiscard]] const std::optional<Frame>& pointed() const noexcept { return pointed_; }
@@ -71,6 +73,7 @@ struct Context {
         std::optional<SourceHello> run;      // the run's description; empty if none was given
         std::size_t frames_received = 0;     // in the current run
         std::optional<std::uint64_t> latest_frame_index;
+        std::optional<std::string> error;    // why the last source was dropped, if it was
 
         friend bool operator==(const Source&, const Source&) = default;
     };
@@ -101,10 +104,24 @@ struct Context {
 
 [[nodiscard]] Context make_context(const ViewerState& state, const Selection& selection);
 
-// The context as the JSON written to the file. `seq` increases with every write; the timestamp is
+// Who wrote the file. The file outlives the viewer, so a reader needs to tell a current file from
+// one a viewer left behind: `running` is false in the last file a viewer writes as it exits, and
+// `pid` names the process (if it is still running, /proc/<pid> exists). A viewer that crashes
+// can't write its last file, so `running: true` with a pid that no longer exists means it crashed.
+struct Writer {
+    std::int64_t pid = 0;
+    std::int64_t started_at_ms = 0;  // milliseconds since the Unix epoch
+    bool running = true;
+
+    friend bool operator==(const Writer&, const Writer&) = default;
+};
+
+// The context as the JSON written to the file. `seq` increases with every write by one writer (a
+// new viewer starts again at 1; its writer section says it is a new one); the timestamp is
 // milliseconds since the Unix epoch. nlohmann::ordered_json keeps the fields in the order written,
 // which makes the file easier to read than alphabetical order would.
-[[nodiscard]] nlohmann::ordered_json to_json(const Context& context, std::uint64_t seq, std::int64_t written_at_ms);
+[[nodiscard]] nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std::uint64_t seq,
+                                             std::int64_t written_at_ms);
 
 // The context bar's lines, as text. Separate from drawing, so tests can check what the bar says.
 struct ContextBarText {

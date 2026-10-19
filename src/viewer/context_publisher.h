@@ -1,5 +1,5 @@
 // Publishes the viewer's context (viewer/context.h) to a file the assistant reads, by default
-// .fillscope/context.json in the viewer's working directory.
+// .fillscope/context.json in the viewer's working directory (viewer_options.h).
 #pragma once
 
 #include "viewer/context.h"
@@ -14,28 +14,38 @@
 
 namespace fillscope {
 
-inline constexpr std::string_view kDefaultContextFile = ".fillscope/context.json";
-
-// Replaces `file` with `text` atomically: written to a temporary file in the same directory, then
-// renamed over the old one. Rename within one filesystem is atomic on Linux, so a reader sees the
-// whole old file or the whole new one, never half of either. Creates the directory if needed.
+// Replaces `file` with `text` atomically: written to a temporary file in the same directory, flushed
+// to disk, then renamed over the old one. Rename within one filesystem is atomic on Linux, so a
+// reader sees the whole old file or the whole new one, never part of either. Creates the file's
+// directory if it has one and it doesn't exist. On failure, says what failed and why, and leaves no
+// temporary file behind.
 [[nodiscard]] std::expected<void, std::string> write_atomically(const std::filesystem::path& file,
                                                                 std::string_view text);
+
+// Why a context is being published: the user did something, or something else changed (frames
+// arrived). An enum rather than a bool, so a call reads update(context, PublishTrigger::user_action,
+// now) instead of update(context, true, now), whose `true` says nothing at the call site.
+enum class PublishTrigger { user_action, background };
 
 class ContextPublisher {
 public:
     using Clock = std::chrono::steady_clock;
 
-    // `min_interval` limits how often a change the user didn't make (frames arriving) is written.
+    // `min_interval` limits how often a background change is written. This process is the file's
+    // writer from construction on (Writer, in context.h).
     explicit ContextPublisher(std::filesystem::path file,
-                              std::chrono::milliseconds min_interval = std::chrono::milliseconds{100})
-        : file_{std::move(file)}, min_interval_{min_interval} {}
+                              std::chrono::milliseconds min_interval = std::chrono::milliseconds{100});
 
     // Called once per paint with the current context. Writes it if it differs from what was last
-    // published: at once after a user action, so the file is current by the time the user can ask
-    // about it; otherwise at most once per min_interval. A change held back is written by a later
-    // call once the interval has passed, so the file always catches up.
-    void update(const Context& context, bool user_action, Clock::time_point now);
+    // published, or retries if the last write failed: at once after a user action, so the file is
+    // current by the time the user can ask about it; otherwise at most once per min_interval. A
+    // change held back is written by a later call once the interval has passed, so the file
+    // catches up within min_interval plus one paint, if writing works.
+    void update(const Context& context, PublishTrigger trigger, Clock::time_point now);
+
+    // Called once, as the viewer exits: writes the context marked as from a writer that is no longer
+    // running, so a reader can tell this file from a running viewer's.
+    void finish(const Context& context);
 
     // What the file holds now, which is what the context bar draws: the last context written
     // successfully, never one that failed to write.
@@ -44,14 +54,18 @@ public:
     // Why the last write failed, or empty if it succeeded. Cleared by the next successful write.
     [[nodiscard]] const std::optional<std::string>& error() const noexcept { return error_; }
 
-    // The sequence number of the last successful write.
+    // The sequence number of the last successful write by this writer.
     [[nodiscard]] std::uint64_t seq() const noexcept { return seq_; }
 
+    [[nodiscard]] const Writer& writer() const noexcept { return writer_; }
     [[nodiscard]] const std::filesystem::path& file() const noexcept { return file_; }
 
 private:
+    void write(const Context& context);
+
     std::filesystem::path file_;
     std::chrono::milliseconds min_interval_;
+    Writer writer_;
     std::optional<Context> published_;
     std::optional<std::string> error_;
     std::uint64_t seq_ = 0;

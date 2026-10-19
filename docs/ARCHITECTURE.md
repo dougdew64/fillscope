@@ -122,33 +122,42 @@ what you've assembled for the assistant, without ever claiming more than it has 
 ### The loop
 Dear ImGui is an immediate-mode UI: no tree of widget objects persists between paints. Every paint
 the code calls the widget functions again, and a widget function returns `true` on the paint it is
-clicked. So the viewer is one loop, once per paint (`main.cpp`):
+clicked. So the viewer is one loop, once per paint. `ViewerApp` (`viewer_app.h`) holds it, and both
+`main.cpp` and the UI tests run it, so the tests take exactly the program's steps:
 
-1. **Take in messages:** `receiver.drain(...)`, then `state.apply(message)` for each. A
-   `SourceHello` starts a new run; when it does, `selection.new_run()` drops the point, which
-   belonged to the old run.
-2. **Draw, and collect clicks:** `draw_viewer(state, selection, publisher.published(),
-   publisher.error())` draws everything and returns `ViewerActions`: what you clicked, if anything.
-   It changes nothing itself.
+1. **Take in messages** (`ViewerApp::receive`): `receiver.drain(...)`. If a new source has
+   connected, `begin_connection()` drops the old run and the point first, so a new source's frames
+   never join an old run (and never claim its seed). Then `apply(message)` for each; a
+   `SourceHello` starts a new run (so does a first frame, when there is no run), and when one
+   starts, `selection.new_run()` drops the point, which belonged to the old run. The follow stays:
+   an id can mean something in the next run too.
+2. **Draw, and collect clicks** (`ViewerApp::paint`): `draw_viewer(ViewerView{...})` draws
+   everything from the state, the viewer's timing, and what was published, and returns
+   `ViewerActions`: what you clicked, if anything. It changes nothing itself.
 3. **Apply the clicks:** `apply(actions, selection)`.
-4. **Publish:** `publisher.update(make_context(state, selection), actions.any(), now)`.
+4. **Publish:** `publisher.update(make_context(state, selection), trigger, now)`, where the trigger
+   is `PublishTrigger::user_action` if you clicked anything and `background` otherwise.
 
-Because drawing only reads state and returns actions, a test can draw the viewer with any state
-and check what it shows and what a click returns, without the rest of the program.
+When the viewer exits, `ViewerApp::finish()` publishes once more with the writer marked as no
+longer running, so a reader can tell a stale file from a live one.
+
+Because drawing only reads what it is given and returns actions, a test can draw the viewer with
+any state and check what it shows and what a click returns.
 
 ### The pieces
 | Type (file) | Holds | Why it is shaped this way |
 |---|---|---|
-| `Run` (`viewer_state.h`) | One run's description, frames, and prices as floats for the plot | A class, so the frames and prices can only change together through `append` and can't fall out of step |
-| `ViewerState` (`viewer_state.h`) | The current run, whether the source is connected, timing | Replaced run by run: frame indices restart at 0 in every run, so frames of two runs never mix |
+| `Run` (`viewer_state.h`) | One run's description, frames, each id's frame indices, and the price envelope | A class, so all of these can only change together through `append` and can't fall out of step |
+| `PriceEnvelope` (`viewer_state.h`) | The prices as at most 4,096 buckets, each a low and a high | Bounded however long the run: when full, neighbouring buckets merge in pairs, so no spike is lost; the plot draws it reduced to its own width |
+| `ViewerState` (`viewer_state.h`) | The current run, whether the source is connected, why the last one was dropped | Replaced run by run: frame indices restart at 0 in every run, so frames of two runs never mix |
 | `Selection` (`context.h`) | What is pointed at and what is followed, each with a sequence number | Both numbers come from one counter, so whichever is higher is what you did last |
 | `Context` (`context.h`) | One value: everything published at one moment | Built by `make_context`; a plain value with `==`, so "has anything changed?" is one comparison |
 | `ContextPublisher` (`context_publisher.h`) | The file, what it last wrote successfully, the last error | Keeps the *published* context separately from the live one; see below |
 
 **Point and follow are kept apart** because they ask different things: a point is the subject of a
 question ("why didn't *this* fill?"), a follow is a lens on it (this id, across every frame).
-`make_context` builds the follow section with a ranges pipeline over the run's frames: keep the
-frames with the followed id, take their indices. It lists up to 1,000 and always counts all.
+`make_context` builds the follow section from the run's index of each id's frames, kept as frames
+arrive, so it costs the same however long the run. It lists up to 1,000 and always counts all.
 
 **A replay address** is the run's seed plus a frame's index. Running the frame source with that
 seed reproduces that frame exactly. A run whose source didn't describe itself has no seed, so its
@@ -156,20 +165,26 @@ frames have no replay address, and the file says why.
 
 ### Publishing, and why the bar can't lie
 `ContextPublisher::update` is called every paint:
-- If the context equals what was last published, nothing is written.
+- If the context equals what was last published, and the last write succeeded, nothing is
+  written.
 - **After a click** it writes at once, so the file is current by the time you can ask about it.
 - **Otherwise** (frames arriving) it writes at most once per 100 ms of real time; a change held
   back is written by a later paint, so the file always catches up.
-- A write goes to a temporary file, then `rename`s it over the old one: a reader sees the whole
-  old file or the whole new one, never half.
+- A write goes to a temporary file, is flushed to disk, then `rename`d over the old one: a reader
+  sees the whole old file or the whole new one, never half. A failed write removes its temporary
+  file, and its error says why (the system's reason, not just the fact).
+- A failed write is retried on later paints, even if nothing has changed, until one succeeds.
+- The file names its writer: the program, its process id, when it started, and whether it is
+  still running.
 
-The context bar is drawn from `publisher.published()`, the last context **written successfully**,
-never from the live selection. If a write fails, the bar keeps showing what the file actually
-holds and adds the error in red. So the bar never claims the assistant has something it doesn't.
+The context bar, and the table's highlights, are drawn from `publisher.published()`, the last
+context **written successfully**, never from the live selection. If a write fails, the bar keeps
+showing what the file actually holds and adds the error in red, and the tooltips say a click won't
+reach the assistant. So nothing on screen claims the assistant has something it doesn't.
 
 **One consequence you can see:** a click is published in the same paint, at the end of the loop,
 and the bar shows it on the next paint, about 16 ms later. Frames arriving reach the bar within
-100 ms.
+100 ms plus a paint, if the write succeeds.
 
 ## 7. The debug-state extension (`tools/vscode-debug-state/`)
 VS Code's debugger talks to GDB or LLDB through the Debug Adapter Protocol. The extension listens
@@ -188,7 +203,8 @@ Code, so its tests drive it with fake sessions; `extension.js` connects it to VS
    holding a `Frame`, and `ViewerState::apply` appends it to the run.
 5. `draw_viewer` shows it in the table and the plot; `make_context` counts it in the background,
    and in the follow if its id is followed.
-6. Within 100 ms, `ContextPublisher` writes the new context, and the bar shows it on the next paint.
+6. Within 100 ms plus a paint, `ContextPublisher` writes the new context, and the bar shows it on
+   the next paint.
 
 ## 9. One click, end to end
 1. You click frame 12's row. That paint, `ImGui::Selectable` for the row returns `true`, and
@@ -196,7 +212,7 @@ Code, so its tests drive it with fake sessions; `extension.js` connects it to VS
 2. `draw_viewer` returns the actions; `apply` calls `selection.point_at(frame)`, which takes the
    next sequence number.
 3. `make_context` builds a `Context` whose point holds frame 12 and its replay address.
-4. `publisher.update(..., user_action = true, ...)` writes the file at once, through a temporary
+4. `publisher.update(..., PublishTrigger::user_action, ...)` writes the file at once, through a temporary
    file and a rename.
 5. On the next paint the bar, drawn from the newly published context, shows "Pointing at frame
    #12".
@@ -211,7 +227,7 @@ and checked is in [RUNNING.md](RUNNING.md).
 ## 11. A reading order for the code
 1. `src/channel/frame.h`, then `message.h`: the data, and the variant that carries it.
 2. `tools/frame_source/frame_source.cpp`: the loop that sends it.
-3. `src/viewer/main.cpp`: the viewer's loop, top to bottom.
+3. `src/viewer/main.cpp`, then `viewer_app.cpp`: the viewer's setup, and its loop.
 4. `src/viewer/viewer_state.h`, `context.h`, `context_publisher.h`: what the loop works on.
 5. `src/viewer/viewer_view.cpp`: drawing and clicks.
 6. `src/channel/net.cpp` and `message.cpp`: the socket and the bytes underneath.

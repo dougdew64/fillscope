@@ -2,8 +2,12 @@
 
 #include <imgui.h>
 
-#include <cfloat>
-#include <format>
+#include <algorithm>
+#include <concepts>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace fillscope {
 namespace {
@@ -16,23 +20,32 @@ constexpr ImVec4 kFollowedRowColor{0.45f, 0.38f, 0.10f, 0.65f};
 // printf-style % processing, so a '%' in the text can't be misread as a format directive.
 void text(std::string_view s) { ImGui::TextUnformatted(s.data(), s.data() + s.size()); }
 
-// A tooltip for the item just drawn, shown while it is hovered.
-void tooltip(const std::string& what) {
+// A tooltip for the item just drawn, while it is hovered. `describe` builds the text, and is called
+// only while hovered, so no tooltip text is built for the rows nobody is pointing at.
+// std::invocable<F> is a C++20 concept: it accepts anything callable with no arguments.
+template <std::invocable F>
+void tooltip(F&& describe) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+        const std::string what = describe();
         ImGui::SetTooltip("%s", what.c_str());
     }
 }
 
+// What a click does, for a tooltip: sent at once, unless writes are failing.
+std::string_view sends(const std::optional<std::string>& publish_error) {
+    return publish_error ? "but publishing is failing (see the context bar), so the assistant won't receive it"
+                         : "sends it to the assistant now";
+}
+
 // The context bar: what the assistant has been given, drawn from the last published context and
 // never from the live selection, so the bar and the file can't disagree.
-void draw_context_bar(const std::optional<Context>& published, const std::optional<std::string>& error,
-                      ViewerActions& actions) {
+void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
     ImGui::TextUnformatted("Context");
     ImGui::SameLine();
-    if (!published) {
+    if (!view.published) {
         text("nothing published yet");
     } else {
-        const ContextBarText bar = bar_text(*published);
+        const ContextBarText bar = bar_text(*view.published);
         text(bar.background);
         ImGui::Indent();
         if (bar.point) {
@@ -41,7 +54,7 @@ void draw_context_bar(const std::optional<Context>& published, const std::option
             if (ImGui::SmallButton(kClearPointButton)) {
                 actions.clear_point = true;
             }
-            tooltip("Stop pointing at it: sends that to the assistant now");
+            tooltip([&] { return std::format("Stop pointing at it: {}", sends(view.publish_error)); });
         }
         if (bar.follow) {
             text(*bar.follow);
@@ -49,34 +62,68 @@ void draw_context_bar(const std::optional<Context>& published, const std::option
             if (ImGui::SmallButton(kClearFollowButton)) {
                 actions.clear_follow = true;
             }
-            tooltip("Stop following it: sends that to the assistant now");
+            tooltip([&] { return std::format("Stop following it: {}", sends(view.publish_error)); });
         }
         ImGui::Unindent();
     }
-    if (error) {
+    if (view.publish_error) {
         // Push and pop must pair; the style stack is checked at the end of the frame.
         ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
-        text(std::format("NOT published: {}", *error));
+        text(std::format("NOT published: {}", *view.publish_error));
         ImGui::PopStyleColor();
     }
 }
 
 // The source's state, the latest frame and the viewer's own liveness.
-void draw_status(const ViewerState& state) {
-    text(std::format("source: {}", state.source_connected ? "connected" : "waiting"));
+void draw_status(const ViewerView& view) {
+    const ViewerState& state = view.state;
+    if (state.source_connected) {
+        text("source: connected");
+    } else if (state.source_error) {
+        text(std::format("source: waiting (the last source was dropped: {})", *state.source_error));
+    } else {
+        text("source: waiting");
+    }
     const std::size_t received = state.run ? state.run->frames().size() : 0;
     text(std::format("frames received: {}", received));
     if (received > 0) {
         const Frame& last = state.run->frames().back();
         text(std::format("last frame: #{}  id {}  price {}  qty {}", last.index, last.id, last.price, last.qty));
     }
-    text(std::format("seconds since last frame: {:.1f}", state.seconds_since_frame));
-    text(std::format("viewer paints: {} (keeps rising while the source is stopped)", state.paints));
+    if (view.timing.seconds_since_frame) {
+        text(std::format("seconds since last frame: {:.1f}", *view.timing.seconds_since_frame));
+    }
+    text(std::format("viewer paints: {} (keeps rising while the source is stopped)", view.timing.paints));
+}
+
+// The prices, as their min/max envelope reduced to half the plot's width in buckets: each bucket is
+// drawn as its low then its high, two points, so the line passes through every bucket's extremes
+// and no spike is lost, at a cost set by the plot's width rather than the run's length.
+void draw_price_plot(const PriceEnvelope& prices) {
+    const float width = ImGui::GetContentRegionAvail().x;
+    const auto buckets = prices.reduced(static_cast<std::size_t>(std::max(width / 2.0f, 1.0f)));
+    std::vector<float> points;
+    points.reserve(buckets.size() * 2);
+    float low = buckets.front().low;
+    float high = buckets.front().high;
+    for (const PriceEnvelope::Bucket& bucket : buckets) {
+        points.push_back(bucket.low);
+        points.push_back(bucket.high);
+        low = std::min(low, bucket.low);
+        high = std::max(high, bucket.high);
+    }
+    // An explicit scale, so PlotLines doesn't scan the points for it; a flat run gets a unit range.
+    if (low == high) {
+        low -= 0.5f;
+        high += 0.5f;
+    }
+    ImGui::PlotLines(kPricePlot, points.data(), static_cast<int>(points.size()), 0, nullptr, low, high,
+                     ImVec2{-1.0f, kPlotHeight});
 }
 
 // The frames, one row each. Clicking a row points at its frame; clicking its id follows the id.
-// Rows with the followed id are highlighted.
-void draw_frame_table(const Run& run, const Selection& selection, ViewerActions& actions) {
+// The pointed row and the followed id's rows are highlighted as published, like the bar.
+void draw_frame_table(const ViewerView& view, ViewerActions& actions) {
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
                                       ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit;
     // The table takes the rest of the window's height and scrolls within it.
@@ -90,40 +137,42 @@ void draw_frame_table(const Run& run, const Selection& selection, ViewerActions&
     ImGui::TableSetupColumn("qty");
     ImGui::TableHeadersRow();
 
-    const std::span<const Frame> frames = run.frames();
-    // The clipper asks for only the rows that are visible, so a run of a million frames costs no
-    // more per paint than one of fifty.
+    const std::span<const Frame> frames = view.state.run->frames();
+    // The clipper asks for only the rows that are visible, so the table costs the same per paint
+    // whatever the run's length.
     ImGuiListClipper clipper;
     clipper.Begin(static_cast<int>(frames.size()));
     while (clipper.Step()) {
         for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
             const Frame& frame = frames[static_cast<std::size_t>(row)];
+            const RowMarks marks = row_marks(frame, view.published);
             ImGui::TableNextRow();
-            if (selection.followed() == frame.id) {  // an empty optional compares unequal to any value
+            if (marks.followed) {
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, ImGui::GetColorU32(kFollowedRowColor));
             }
 
             ImGui::TableNextColumn();
-            const bool pointed = selection.pointed() && selection.pointed()->index == frame.index;
             // SpanAllColumns makes the whole row the click target; AllowOverlap lets the id's
             // button, drawn on top of it, take its own clicks.
-            if (ImGui::Selectable(point_label(frame).c_str(), pointed,
+            if (ImGui::Selectable(point_label(frame).c_str(), marks.pointed,
                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
                 actions.point_at = frame;
             }
-            tooltip(std::format("Point at frame #{}: sends it to the assistant now", frame.index));
+            tooltip([&] { return std::format("Point at frame #{}: {}", frame.index, sends(view.publish_error)); });
 
             ImGui::TableNextColumn();
             if (ImGui::SmallButton(follow_label(frame).c_str())) {
                 actions.follow = frame.id;
             }
-            tooltip(std::format("Follow id {}: sends it to the assistant now, and highlights every frame with it",
-                                frame.id));
+            tooltip([&] {
+                return std::format("Follow id {}: highlights every frame with it, and {}", frame.id,
+                                   sends(view.publish_error));
+            });
 
             ImGui::TableNextColumn();
-            text(std::format("{}", frame.price));
+            text(Label{"{}", frame.price}.c_str());
             ImGui::TableNextColumn();
-            text(std::format("{}", frame.qty));
+            text(Label{"{}", frame.qty}.c_str());
         }
     }
     ImGui::EndTable();
@@ -146,25 +195,32 @@ void apply(const ViewerActions& actions, Selection& selection) {
     }
 }
 
-std::string point_label(const Frame& frame) { return std::format("{}##point", frame.index); }
+RowMarks row_marks(const Frame& frame, const std::optional<Context>& published) {
+    if (!published) {
+        return {};
+    }
+    return {
+        .pointed = published->point && published->point->frame.index == frame.index,
+        .followed = published->follow && published->follow->id == frame.id,
+    };
+}
 
-std::string follow_label(const Frame& frame) { return std::format("{}##follow{}", frame.id, frame.index); }
+Label point_label(const Frame& frame) { return Label{"{}##point", frame.index}; }
 
-ViewerActions draw_viewer(const ViewerState& state, const Selection& selection,
-                          const std::optional<Context>& published, const std::optional<std::string>& publish_error) {
+Label follow_label(const Frame& frame) { return Label{"{}##follow{}", frame.id, frame.index}; }
+
+ViewerActions draw_viewer(const ViewerView& view) {
     ViewerActions actions;
     ImGui::SetNextWindowPos({0.0f, 0.0f});
     ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
     ImGui::Begin(kViewerWindow, nullptr, ImGuiWindowFlags_NoDecoration);
 
-    draw_context_bar(published, publish_error, actions);
+    draw_context_bar(view, actions);
     ImGui::Separator();
-    draw_status(state);
-    if (state.run && !state.run->prices().empty()) {
-        const std::span<const float> prices = state.run->prices();
-        ImGui::PlotLines(kPricePlot, prices.data(), static_cast<int>(prices.size()), 0, nullptr, FLT_MAX, FLT_MAX,
-                         ImVec2{-1.0f, kPlotHeight});
-        draw_frame_table(*state.run, selection, actions);
+    draw_status(view);
+    if (view.state.run && !view.state.run->frames().empty()) {
+        draw_price_plot(view.state.run->prices());
+        draw_frame_table(view, actions);
     }
 
     ImGui::End();
