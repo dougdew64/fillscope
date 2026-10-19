@@ -86,8 +86,9 @@ command line, then VS Code with CodeLLDB):
 - **The code under study builds at `-O0`.**
 - **A breakpoint by name lands on the function's first statement,** so that statement must be in
   our own source. The anchor's first statement was a `std::atomic` store, which libstdc++ inlines
-  even at `-O0`, and the breakpoint opened in `atomic_base.h` (found in VS Code, 2026-10-19). With
-  a plain store, GDB stops on the store's line and LLDB on the line after it, both in `engine.cpp`.
+  even at `-O0`, and LLDB's breakpoint opened in `atomic_base.h` (found in VS Code, 2026-10-19;
+  GDB's stayed in our file). With a plain store, GDB stops on the store's line and LLDB on the line
+  after it, both in our source. A debugger test and a mutant of the original code guard it.
 - **The extension is still needed** to publish the stack and locals for the assistant.
 
 ## Processes, threads and deterministic replay
