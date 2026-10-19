@@ -21,10 +21,11 @@ inspectable.
   view updates with each line.
 
 ## How it's built
-- **The core is hand-written C++:** the order book, matching, replay and the fill models, readable
-  and tested.
-- **The UI and tooling are built with AI assistance (Claude):** Dear ImGui and ImPlot for the
-  interface, plus the replay command-line tool and test infrastructure.
+- **The code that shows modern C++ design is hand-written,** readable and tested. Which code that
+  is gets decided stage by stage.
+- **The rest is built with AI assistance (Claude):** the Dear ImGui and ImPlot interface, the
+  replay command-line tool, test infrastructure, and tests of all the code, the hand-written code
+  included.
 - **No AI runs inside the app.** The app makes its state exactly observable and writes the context
   of whatever is selected to a log; an assistant working beside it in the editor can read that
   context, the source, and run counterfactual replays from the command line.

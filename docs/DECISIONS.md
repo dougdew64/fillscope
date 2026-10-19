@@ -8,6 +8,9 @@ Newest first.
 
 | Date | Decision |
 |---|---|
+| 2026-10-19 | Who writes what: the owner hand-writes the code that demonstrates modern C++ design, decided stage by stage as the owner learns each stage's domain (the owner is new to it); Claude writes the rest. Replaces "the core (book, matching, replay, fill models) is hand-written". |
+| 2026-10-19 | Claude tests all the code aggressively, the owner's included, so that later stages are never built on undetected defects; the owner writes some tests too. Tasking AI with tests is itself one of the judgements Fillscope demonstrates. |
+| 2026-10-19 | Polish: as much as compelling demo videos need, and no more (was "polish, last"). |
 | 2026-10-19 | Fillscope also demonstrates judgement in using AI to write code: AI output is trusted only through a check independent of the AI, and each use is documented with its check (charter §1, decision 7). |
 | 2026-10-19 | MIT license. |
 | 2026-10-19 | Repository created, public from the first commit. Tagline: "An explainable order-book backtester: click any order, ask why it filled." |

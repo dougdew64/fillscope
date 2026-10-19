@@ -15,10 +15,10 @@ Everything committed is published, history included. So:
 - Nothing here links to material that isn't public.
 
 ## Who writes what
-The core (the order book, matching, replay, fill models) is **hand-written by the owner**; Claude
-reviews it, catches defects and suggests, but doesn't write it. Claude may write the UI, tooling,
-build and test infrastructure. Where the boundary falls is still being settled (charter §4); until
-it is, Claude asks before writing anything that might be core.
+The owner **hand-writes the code that demonstrates modern C++ design**; Claude reviews it, catches
+defects and suggests, but doesn't write it. Claude writes everything else, and **tests all the
+code aggressively, the owner's included**. Which code is the owner's is decided stage by stage
+(charter §4); until a stage's split is decided, Claude asks before writing any of that stage's code.
 
 ## Every session
 1. `git pull`; commit and push every commit at once, without asking.

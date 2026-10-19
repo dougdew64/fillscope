@@ -15,11 +15,12 @@ isn't, and how its output is checked (decision 7).
 ## 2. Priorities, in order
 1. **Correctness and explainability.** A claim, an explanation or a display that isn't exactly true
    is a defect, however good it looks. Every explanation is grounded in the simulator's exact state.
-2. **A hand-written core.** The order book, matching, replay and fill models are written by hand,
-   readable and tested. The UI and tooling may be AI-generated.
+2. **Hand-written C++ where it shows modern C++ design.** The owner writes the code that
+   demonstrates modern C++ design, readable and tested; which code that is gets decided stage by
+   stage (§4). Claude writes the rest, including the UI and tooling.
 3. **Every feature demonstrable.** Each feature is shown by a scripted demo, which is part of the
    test suite.
-4. **Polish, last.**
+4. **Polish: as much as compelling demo videos need, and no more.**
 
 Where two priorities conflict, the higher wins.
 
@@ -35,7 +36,9 @@ Where two priorities conflict, the higher wins.
    build with GCC on Linux, with AddressSanitizer and UndefinedBehaviorSanitizer (ThreadSanitizer
    when there are threads). The UI's platform is being settled.
 5. **Tests below the UI first:** core unit tests, replay fidelity checks, the command-line tool. UI
-   tests and demo recordings with the Dear ImGui Test Engine.
+   tests and demo recordings with the Dear ImGui Test Engine. **Claude tests all the code
+   aggressively, the owner's included,** so that nothing is built on undetected defects; the owner
+   writes some tests too.
 6. **Market data is never committed.** Hand-made message files for unit tests, a small synthetic
    generator for demos, real days downloaded locally.
 7. **AI output is trusted only through a check that doesn't depend on the AI.** Each use of AI
@@ -48,6 +51,6 @@ Where two priorities conflict, the higher wins.
    message of a real trading day.
 
 ## 4. Open questions
-- Where exactly the hand-written core ends and the AI-built tooling begins.
+- Which code the owner writes: decided stage by stage, as the owner learns each stage's domain.
 - The ITCH parser: hand-written for the messages the book needs, the rest generated from a model of
   the specification checked against it (proposed).
