@@ -59,8 +59,8 @@ an assistant working beside the debugger can't see where the program is.
 **The same shape.** The matching engine pushes one frame per event (an order added, a fill, a
 cancel); the UI animates frames; an anchor carries the breakpoint.
 
-**Hypotheses, and what the experiment found** (2026-10-19, GCC 16.2.1, GDB 17.2, LLDB, from the
-command line; VS Code itself is still **verify**):
+**Hypotheses, and what the experiment found** (2026-10-19, GCC 16.2.1; GDB 17.2 and LLDB from the
+command line, then VS Code with CodeLLDB):
 - **A separate UI process removes the sleep window: confirmed.** A breakpoint freezes only the
   process being debugged. With the engine stopped for four seconds, the viewer kept painting at 60
   frames a second, and each Continue delivered exactly one more frame. No sleep, and no
@@ -72,8 +72,8 @@ command line; VS Code itself is still **verify**):
   Without a debugger nothing happens. **`raise(SIGTRAP)` was rejected:** under GDB it stops two
   frames down inside libc.
 - **A breakpoint set by name at launch also works,** under GDB (`break fillscope_frame_anchor`) and
-  LLDB (`breakpoint set -n`): it binds on the first run, so no pre-warm is needed. Whether VS Code
-  shows a breakpoint set this way is **verify**.
+  LLDB (`breakpoint set -n`): it binds on the first run, so no pre-warm is needed. In VS Code,
+  set from the launch configuration, it stops and opens the anchor's source.
 - **GDB lets other threads run during a step,** which matters if the UI and the engine share a
   process. The `scheduler-locking` default is `replay` (confirmed on GDB 17.2), which GDB documents
   as letting other threads run during normal execution; whether that gives the UI enough time to
@@ -104,11 +104,10 @@ decisions for the owner.
 
 ## The experiment
 [experiments/lockstep/](../experiments/lockstep/README.md): an engine process sending frames over a
-Unix socket to a Dear ImGui viewer process, built at `-O0`. The first two questions are answered
-above from the command line. Still open, in VS Code with CodeLLDB:
-- Do both stop methods behave as they do on the command line?
-- Does stepping with F10 from the anchor advance the animation when `send` runs?
-- Does the viewer survive a pause of several minutes?
+Unix socket to a Dear ImGui viewer process, built at `-O0`. **Confirmed in VS Code with CodeLLDB**
+(2026-10-19, by the owner): both stop methods behave as on the command line; each Continue adds
+one frame to the viewer; Step Over from the anchor returns to the loop, and the next frame appears
+when `send` runs; the viewer keeps painting through a pause of several minutes.
 
 In the `-O2` build the anchor keeps its own address and its store (checked with `nm` and
 `objdump`).
