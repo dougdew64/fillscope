@@ -47,7 +47,7 @@ Nasdaq's public ITCH samples, downloaded locally.
 
 ## Documents
 [docs/CHARTER.md](docs/CHARTER.md) (purpose, priorities, decisions) ·
-[docs/DECISIONS.md](docs/DECISIONS.md) (the record) ·
+[docs/DECISIONS.md](docs/DECISIONS.md) (the record) · [docs/PLAN.md](docs/PLAN.md) (next steps) ·
 [docs/debugger-lockstep.md](docs/debugger-lockstep.md) (stepping the engine while the animation
 follows) · [CLAUDE.md](CLAUDE.md) (how the AI assistant
 works in this repository).
