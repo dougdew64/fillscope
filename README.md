@@ -2,7 +2,10 @@
 
 **An explainable order-book backtester: click any order, ask why it filled.**
 
-> **Status:** just started (October 2026). Nothing is built yet; this README describes the plan.
+> **Status:** just started (October 2026). The plumbing is built: a stand-in source of frames, a
+> viewer, the socket between them, stepping both in a debugger in lockstep, and publishing what you
+> point at for an assistant. The order book is not built yet; the rest of this README describes the
+> plan.
 
 A backtest replays history and simulates how a strategy's orders would have been filled. Its results
 rest on assumptions that are usually invisible: where an order sat in the queue at its price, how
@@ -23,13 +26,15 @@ inspectable.
 ## How it's built
 - **The code that shows modern C++ design is hand-written,** readable and tested. Which code that
   is gets decided stage by stage.
-- **The rest is built with AI assistance (Claude):** the Dear ImGui and ImPlot interface, the
-  replay command-line tool, test infrastructure, and tests of all the code, the hand-written code
-  included.
+- **The rest is built with AI assistance (Claude):** so far the Dear ImGui viewer, the test
+  infrastructure, and tests of all the code, the hand-written code included; later, the replay
+  command-line tool.
 - **No AI runs inside the app.** The app makes its state exactly observable and writes the context
-  of whatever is selected to a log; an assistant working beside it in the editor can read that
-  context, the source, and run counterfactual replays from the command line.
-- **Every feature is demonstrable:** scripted UI tests that also record the demo videos.
+  of whatever you point at to a file, `.fillscope/context.json`, replaced on every change; an
+  assistant working beside it in the editor reads that context and the source, and will run
+  counterfactual replays from the command line.
+- **Every feature is demonstrable:** scripted UI tests drive the viewer with real clicks; they are
+  planned to record the demo videos too.
 
 ## Roadmap
 1. A book with resting limit orders on both sides; top of book and depth.

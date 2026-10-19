@@ -4,6 +4,8 @@
 # fails. Between edits, tests/scripts/iterate.py runs only the affected fast tests.
 #
 #   tests/scripts/run-tests.sh            from anywhere in the repository
+#
+# FILLSCOPE_WERROR=ON (as CI sets it) makes a warning in our own code fail both builds.
 set -euo pipefail
 
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -15,7 +17,8 @@ build() {  # build BUILD_DIR [CMAKE OPTIONS...]
     local build_dir=$1
     shift
     echo "== $build_dir"
-    cmake -S "$root" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug "$@" > /dev/null
+    cmake -S "$root" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+          -DFILLSCOPE_WERROR="${FILLSCOPE_WERROR:-OFF}" "$@" > /dev/null
     cmake --build "$build_dir"
 }
 

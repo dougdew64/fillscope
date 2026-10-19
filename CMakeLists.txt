@@ -2,6 +2,7 @@
 #
 #   -DFILLSCOPE_SANITIZE=ON   AddressSanitizer and UndefinedBehaviorSanitizer on everything
 #   -DFILLSCOPE_TESTS=OFF     skip the tests and their dependencies
+#   -DFILLSCOPE_WERROR=ON     warnings in our own code fail the build (CI sets this)
 cmake_minimum_required(VERSION 3.24)
 project(fillscope LANGUAGES CXX)
 
@@ -14,6 +15,7 @@ endif()
 
 option(FILLSCOPE_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(FILLSCOPE_TESTS "Build the tests" ON)
+option(FILLSCOPE_WERROR "Treat warnings in our own code as errors" OFF)
 
 if(FILLSCOPE_SANITIZE)
   # Applied before any target, so the dependencies are instrumented too. UB stops the program
@@ -23,7 +25,10 @@ if(FILLSCOPE_SANITIZE)
 endif()
 
 include(FetchContent)
-FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git GIT_TAG v1.93.0)
+# Each dependency is fetched as the release's archive and checked against its SHA-256, so a moved
+# tag or a tampered download fails the build rather than changing what is built.
+FetchContent_Declare(imgui URL https://github.com/ocornut/imgui/archive/refs/tags/v1.93.0.tar.gz
+  URL_HASH SHA256=f7bf6bc76e5d79d40d751096663e6c5d18daf08129dd52e7f7b09e4251c8eeee)
 FetchContent_MakeAvailable(imgui)
 # nlohmann/json: the context file the viewer publishes is JSON.
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
@@ -42,6 +47,9 @@ set(IMGUI_SOURCES
 
 # Our own code gets warnings; the fetched dependencies don't.
 set(FILLSCOPE_WARNINGS -Wall -Wextra)
+if(FILLSCOPE_WERROR)
+  list(APPEND FILLSCOPE_WARNINGS -Werror)
+endif()
 
 # src/channel: the messages a frame source sends the viewer, and the socket that carries them.
 add_library(fillscope_channel STATIC src/channel/message.cpp src/channel/net.cpp)

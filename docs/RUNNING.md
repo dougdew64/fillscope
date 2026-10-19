@@ -20,10 +20,12 @@ procedure. **Read when:** building, running or changing it.
 cmake -S . -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/debug
 ```
-Needs GCC, CMake, Ninja, `glfw-devel` and `mesa-libGL-devel`, and Node.js with npm for the
-extension's tests. Dear ImGui, GoogleTest and the Dear ImGui Test Engine are fetched at pinned tags;
-the extension's development tools are installed by `npm ci` during the build. In VS Code, the
-default build task does the same and links `compile_commands.json` for clangd.
+Needs GCC, CMake, Ninja, `glfw-devel` and `mesa-libGL-devel`; for the tests, also Python 3, GDB,
+LLDB with `python3-lldb`, `flock` (util-linux), and Node.js with npm. Dear ImGui, GoogleTest and
+the Dear ImGui Test Engine are fetched as release archives checked against their SHA-256; the
+extension's development tools are installed by `npm ci` during the build. In VS Code, the default
+build task does the same and links `compile_commands.json` for clangd. `-DFILLSCOPE_WERROR=ON`
+makes a warning in our own code fail the build, as it does in CI.
 
 ## Test
 **Iterating and gating are different acts.** Between edits, run only what the edit affects; before
@@ -39,7 +41,7 @@ when its binary, one of those files, a shared library it loads, the Node.js that
 `FILLSCOPE_` environment variable, or any `CMakeLists.txt` differs from its last passing run, so
 the selection follows the build's own dependencies rather than a hand-kept map. `docs_tests` runs
 every time, since a link can name any file. `--list` shows what's affected without running it;
-`--all` runs every fast program. Fingerprints are taken before the tests run, so a file edited
+`--all` runs every fast program. Every form builds first. Fingerprints are taken before the tests run, so a file edited
 during a run is re-tested next time. `run-tests.sh` records a full pass, except programs whose
 tests were all skipped, so `iterate.py` starts from there.
 
@@ -56,22 +58,22 @@ frame source's path and makes the frame source one of its run-time files:
 
 | Tier | Timeout per test | Run by |
 |---|---|---|
-| `unit` | 2 s | `iterate.py`, `run-tests.sh` |
+| `unit` | 2 s (the extension's Node tests: the whole program) | `iterate.py`, `run-tests.sh` |
 | `ui` | 10 s (the whole program) | `iterate.py`, `run-tests.sh` |
 | `check` | 30 s (a whole checker run, e.g. a type check) | `iterate.py`, `run-tests.sh` |
 | `debugger` | 30 s | `run-tests.sh` |
 
-Every run prints its five slowest tests.
+Every passing run prints its five slowest tests. To run one program's tests by hand, select it by
+its label: `ctest --test-dir build/debug -L exe:viewer_tests`. (`-R` matches test names, which in a
+GoogleTest program are its tests' own names, such as `Publisher.AUserActionIsWrittenAtOnce`.)
 
-**The test programs:**
+**The test programs.** Programs are named for the area they test; when an area's tests span tiers,
+the slower program adds the tier to its name.
 - **`channel_tests`, `lockstep_tests`, `frame_source_tests` (GoogleTest, `unit`):** the socket;
   the anchor and the debugger check; the frame source (generation, the command line, a whole run).
 - **`lockstep_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** the anchor under GDB and LLDB, driven through the frame source, by breakpoint and
   by self-stop; every stop is in the anchor, in `anchor.cpp`, with the right frame index.
-
-Programs are named for the area they test; when an area's tests span tiers, the slower program
-adds the tier to its name.
 - **`viewer_tests` (GoogleTest, `unit`):** the viewer's core without Dear ImGui: what it has
   received, the price envelope, the selection, the context built from them, its JSON and bar text,
   publishing (including failure and recovery), and the command line.
@@ -79,19 +81,20 @@ adds the tier to its name.
   `ViewerApp` runs it for the program, with real clicks: pointing at and following, clearing, a new
   run, the bar and the table's highlights saying exactly what the file holds, a failed write shown
   in the bar and the tooltips, and frames from a real frame source process followed by a second
-  source that never describes itself. Text is checked through Dear
-  ImGui's logging, since plain text items have no ID for the Test Engine to find; rows, buttons and
-  the plot are found by their IDs.
+  source that never describes itself. Text is checked through Dear ImGui's logging, since plain
+  text items have no ID for the Test Engine to find; rows, buttons and the plot are found by their
+  IDs.
 - **`docs_tests` (GoogleTest, `unit`):** every relative link in the repository's Markdown documents
-  resolves. Each document is a run-time file of the test, so editing any document re-runs it.
+  resolves. A link can name any file, so `iterate.py` runs it every time.
 - **`vscode_debug_state_tests` (Node's test runner, `unit`) and `vscode_debug_state_typecheck`
   (the TypeScript compiler, `check`):** the debug-state extension's logic, driven by fake debug
   sessions; its VS Code side, run against a fake `vscode` module; and its JavaScript checked
   against VS Code's and the Debug Adapter Protocol's types.
 
 **CI** ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) runs `run-tests.sh` and both checks
-below on every push, in a Fedora container, with `FILLSCOPE_REQUIRE_DEBUGGERS` set so a missing
-debugger fails the debugger tests instead of skipping them.
+below on every push to `main` and every pull request, in a Fedora container pinned by digest,
+with warnings as errors and `FILLSCOPE_REQUIRE_DEBUGGERS` set so a missing debugger fails the
+debugger tests instead of skipping them.
 
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh

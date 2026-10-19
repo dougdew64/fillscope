@@ -258,10 +258,31 @@ def stop_on_signal(signum, _frame):
     raise SystemExit(128 + signum)
 
 
+def werror(build_dir):
+    """The build's FILLSCOPE_WERROR setting, from its cache."""
+    cache = (build_dir / "CMakeCache.txt").read_text()
+    return "ON" if "FILLSCOPE_WERROR:BOOL=ON" in cache else "OFF"
+
+
+def set_werror(build_dir, value):
+    return run(["cmake", "-S", str(ROOT), "-B", str(build_dir), f"-DFILLSCOPE_WERROR={value}"]).returncode == 0
+
+
 def main():
     for signum in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, stop_on_signal)
     build_dir = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "debug"
+    # A mutant is broken code, which may well draw a warning (an unused parameter, say); what is
+    # checked here is the tests, so warnings don't fail a mutant's build. The setting is restored.
+    previous = werror(build_dir)
+    try:
+        set_werror(build_dir, "OFF")
+        check(build_dir)
+    finally:
+        set_werror(build_dir, previous)
+
+
+def check(build_dir):
     if run(["cmake", "--build", str(build_dir)]).returncode != 0:
         print("PROBLEM: the real code does not build")
         sys.exit(1)

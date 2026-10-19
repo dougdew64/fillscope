@@ -79,9 +79,10 @@ struct DrainResult {
     bool new_sender = false;   // a new sender was accepted; its messages start a new connection
 };
 
-// The viewer's side: accepts one sender at a time and drains its messages, never blocking, so it
-// can be called once per paint. While one sender is connected, later senders wait in the
-// listener's queue (one place) and are accepted when it leaves.
+// The viewer's side: accepts one sender at a time and drains its messages without waiting for any,
+// taking at most kMaxMessagesPerDrain per call, so it can be called once per paint. While one
+// sender is connected, later senders wait in the listener's queue (one place); the next is
+// accepted by the first call after the current sender leaves.
 class MessageReceiver {
 public:
     // At most this many messages are taken per call, so one call's time is bounded even if a
