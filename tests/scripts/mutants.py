@@ -16,6 +16,7 @@ CHANNEL = "src/channel/net.cpp"
 SOURCE = "tools/frame_source/frame_source.cpp"
 VIEW = "src/viewer/viewer_view.cpp"
 DOC_LINKS = "tests/docs/doc_links_test.cpp"
+DEBUG_STATE = "tools/vscode-debug-state/src/debug_state.js"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -79,6 +80,23 @@ MUTANTS = [
     ("links inside code blocks are followed", DOC_LINKS,
      [("        if (in_code_block) {\n            continue;\n        }\n", "")],
      "DocLinks.FindsRelativeLinksOnly"),
+    ("a stale stop is published", DEBUG_STATE,
+     [("            if (this.generations.get(session.id) !== generation) {\n"
+       "                return; // the program resumed while the details were being read: this stop is stale\n"
+       "            }\n", "")],
+     "vscode_debug_state_tests"),
+    ("resuming requests are ignored", DEBUG_STATE,
+     [("if (message?.type === 'request' && RESUMING_REQUESTS.has(message.command)) {",
+       "if (message?.type === 'request' && message.command === 'continue') {")],
+     "vscode_debug_state_tests"),
+    ("unread locals published as none", DEBUG_STATE,
+     [("        details.variables = null;\n        details.variablesError = messageOf(error);",
+       "        details.variables = [];\n        details.variablesError = messageOf(error);")],
+     "vscode_debug_state_tests"),
+    # Only the type check can catch this one: at run time the misspelt property is just undefined.
+    ("a misspelt property", DEBUG_STATE,
+     [("description: body?.description ?? body?.text ?? null", "description: body?.descripton ?? body?.text ?? null")],
+     "vscode_debug_state_typecheck"),
 ]
 
 

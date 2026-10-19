@@ -12,13 +12,15 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+EXTENSION = {"vscode_debug_state_tests", "vscode_debug_state_typecheck"}
 ALL = {"channel_tests", "docs_tests", "lockstep_tests", "frame_source_tests", "lockstep_debugger_tests",
-       "viewer_ui_tests"}
+       "viewer_ui_tests"} | EXTENSION
 
 # A change that reaches the binary: an extra string in the .comment section. (A comment in the
 # source would change nothing the build produces, which is the point of building from the output.)
 CPP_PROBE = '\nasm(".pushsection .comment\\n.asciz \\"fillscope selection probe\\"\\n.popsection");\n'
 TEXT_PROBE = "\n# selection probe\n"
+JS_PROBE = "\n// selection probe\n"
 
 # (file changed, probe, the programs that must be reported affected, and no others)
 CASES = [
@@ -26,7 +28,9 @@ CASES = [
     ("src/channel/frame.h", CPP_PROBE, {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
     ("src/lockstep/anchor.cpp", CPP_PROBE, {"lockstep_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
     ("tools/frame_source/frame_source.cpp", CPP_PROBE, {"frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
-    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests", "docs_tests"}),
+    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests", "docs_tests"} - EXTENSION),
+    ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
+    ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
     ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
     ("tests/lockstep/lldb_self_stop.py", TEXT_PROBE, {"lockstep_debugger_tests"}),
     ("CMakeLists.txt", TEXT_PROBE, ALL),

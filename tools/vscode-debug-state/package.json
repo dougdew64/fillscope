@@ -1,0 +1,26 @@
+{
+  "name": "fillscope-debug-state",
+  "displayName": "Fillscope debug state",
+  "description": "Writes each debug session's stack and locals to .fillscope/debug-state.json on every stop, so an assistant working beside the debugger can see where the program is.",
+  "publisher": "fillscope",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.140.0"
+  },
+  "activationEvents": [
+    "workspaceContains:tools/vscode-debug-state/package.json"
+  ],
+  "main": "./src/extension.js",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test ../../tests/vscode-debug-state/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/vscode": "1.140.0",
+    "@vscode/debugprotocol": "1.68.0",
+    "typescript": "6.0.3"
+  }
+}

@@ -29,7 +29,7 @@ run "$root/build/asan" -DFILLSCOPE_SANITIZE=ON
 
 # The sanitizer build only means something if the sanitizers are really in it: every test program
 # (from the manifest, so a new one is covered without editing this) and the two programs.
-for binary in $(awk '{print $3}' "$root/build/asan/test-manifest.txt") \
+for binary in $(awk '$3 != "-" {print $3}' "$root/build/asan/test-manifest.txt") \
               "$root/build/asan/frame_source" "$root/build/asan/viewer"; do
     if ! ldd "$binary" | grep -q libasan; then
         echo "FAILED: $binary in the sanitizer build is not linked with AddressSanitizer" >&2

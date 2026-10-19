@@ -11,7 +11,8 @@ reads the trading domain; the stage-by-stage split of who writes what (charter Â
 ## 1. Publishing the debugger's state
 A VS Code extension that writes the stack and locals to a file on every stop, so the assistant can
 explain what is being stepped through. Its requirements are in
-[DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md).
+[DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md). **Built and tested; left: the owner's check in VS Code**
+(the assistant reads the file while the owner steps).
 
 ## 2. The viewer shell
 The viewer grown from its one window into the shell later views live in. **Generic parts first,

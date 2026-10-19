@@ -64,15 +64,23 @@ decisions for the owner.
 
 ## Publishing the debugger's state
 An assistant working beside the debugger can't see the debug session: a stop gives it no location,
-no stack and no values. So a VS Code extension will write the stack and the innermost frame's
-locals to a file on every stop ([PLAN.md](PLAN.md)), using the Debug Adapter Protocol's
-`stackTrace`, `scopes` and `variables` requests. A wrong file means an explanation of a program
-state that never existed, so it must meet four requirements:
-- **"Not fetched" is distinct from "fetched, and empty":** no variables with a reason, versus an
-  empty list.
-- **Resuming publishes too:** a "running" state on continue and at session end, so the last stop
-  isn't taken for the current one.
-- **A shortened stack says so,** with the true frame count.
-- **Every write carries a sequence number and a timestamp,** and readers check staleness before
-  trusting anything else. Writes go through a temporary file and a rename, so a read never sees
-  half a write.
+no stack and no values. So a VS Code extension, `tools/vscode-debug-state/`, writes
+`.fillscope/debug-state.json` on every change, using the Debug Adapter Protocol's `stackTrace`,
+`scopes` and `variables` requests. A wrong file means an explanation of a program state that never
+existed, so it meets these requirements, each checked by its tests:
+- **One entry per debug session.** A lockstep run debugs two programs at once; the viewer's
+  "running" must not overwrite the frame source's stop.
+- **"Not fetched" is distinct from "fetched, and empty":** `variables: null` with
+  `variablesError`, versus an empty list.
+- **Resuming publishes too:** "running" on a `continued` event *and* on any resuming request from
+  VS Code (continue, next, step...), which debuggers are not expected to announce; "ended" at
+  session end. A stop whose details arrive after the program resumed is dropped.
+- **A shortened stack, or list of locals, says so,** with the true frame count, or `null` when the
+  debugger doesn't give it.
+- **Every write carries a sequence number and a timestamp,** and each session entry those of its
+  last change, so a reader can tell what is current. Writes go through a temporary file and a
+  rename, so a read never sees half a write.
+
+It acts only in a workspace that contains its own source, since VS Code extensions are installed
+per user. Its JavaScript is type-checked by the TypeScript compiler in the tests; it runs from its
+source, so there is no compiled copy to fall out of date.

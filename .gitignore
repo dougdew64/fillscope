@@ -4,6 +4,10 @@ build-*/
 out/
 compile_commands.json
 .cache/
+node_modules/
+
+# What the viewer and the debug-state extension publish for the assistant
+.fillscope/
 
 # Market data: never committed (size, and exchange licensing)
 data/

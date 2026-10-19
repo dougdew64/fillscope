@@ -13,7 +13,8 @@ set(TEST_DEFINES FILLSCOPE_FRAME_SOURCE="$<TARGET_FILE:frame_source>")
 
 # Every test program is registered through fillscope_test_program, which gives its tests:
 #   - a cost tier, as a label and a per-test timeout, so a slow test fails as slow the day it
-#     is added: unit (2 s), ui (10 s, the whole program), debugger (30 s);
+#     is added: unit (2 s), ui (10 s, the whole program), check (30 s, a whole checker run such
+#     as a type check), debugger (30 s);
 #   - a label naming the program, exe:<name>, so tests/scripts/iterate.py can run one program's
 #     tests;
 #   - a line in test-manifest.txt: the program, its tier, and the files it uses at run time.
@@ -24,9 +25,13 @@ set(TEST_DEFINES FILLSCOPE_FRAME_SOURCE="$<TARGET_FILE:frame_source>")
 set(FILLSCOPE_TIMEOUT_unit 2)
 set(FILLSCOPE_TIMEOUT_ui 10)
 set(FILLSCOPE_TIMEOUT_debugger 30)
+set(FILLSCOPE_TIMEOUT_check 30)
 
+# Registers test program `name`: a GoogleTest program (GTEST), a program built here (neither
+# option), or a command that isn't built here (COMMAND, e.g. Node running the extension's tests;
+# its RUNTIME_DEPS are then everything it reads, since there is no binary to fingerprint).
 function(fillscope_test_program name tier)
-  cmake_parse_arguments(ARG "GTEST" "" "RUNTIME_DEPS" ${ARGN})
+  cmake_parse_arguments(ARG "GTEST" "" "RUNTIME_DEPS;COMMAND" ${ARGN})
   if(NOT DEFINED FILLSCOPE_TIMEOUT_${tier})
     message(FATAL_ERROR "${name}: unknown test tier '${tier}'")
   endif()
@@ -35,12 +40,20 @@ function(fillscope_test_program name tier)
     gtest_discover_tests(${name} DISCOVERY_MODE PRE_TEST
       PROPERTIES LABELS "${labels}" TIMEOUT ${FILLSCOPE_TIMEOUT_${tier}})
   else()
-    add_test(NAME ${name} COMMAND ${name})
+    if(ARG_COMMAND)
+      add_test(NAME ${name} COMMAND ${ARG_COMMAND})
+    else()
+      add_test(NAME ${name} COMMAND ${name})
+    endif()
     set_tests_properties(${name} PROPERTIES LABELS "${tier};exe:${name}" TIMEOUT ${FILLSCOPE_TIMEOUT_${tier}})
   endif()
+  if(TARGET ${name})
+    set(program $<TARGET_FILE:${name}>)
+  else()
+    set(program "-")  # a command, not a program built here
+  endif()
   list(JOIN ARG_RUNTIME_DEPS " " runtime_deps)
-  set_property(GLOBAL APPEND PROPERTY FILLSCOPE_TEST_MANIFEST
-    "${name} ${tier} $<TARGET_FILE:${name}> ${runtime_deps}")
+  set_property(GLOBAL APPEND PROPERTY FILLSCOPE_TEST_MANIFEST "${name} ${tier} ${program} ${runtime_deps}")
 endfunction()
 
 # A GoogleTest program: its sources, the libraries it tests, and the files it uses at run time.
@@ -78,8 +91,10 @@ add_subdirectory(docs)
 add_subdirectory(lockstep)
 add_subdirectory(frame_source)
 add_subdirectory(viewer)
+add_subdirectory(vscode-debug-state)
 
-# One line per test program: name, tier, program, run-time files. Read by scripts/iterate.py.
+# One line per test program: name, tier, program ("-" for a command), run-time files. Read by
+# scripts/iterate.py and scripts/run-tests.sh.
 get_property(manifest GLOBAL PROPERTY FILLSCOPE_TEST_MANIFEST)
 list(JOIN manifest "\n" manifest)
 file(GENERATE OUTPUT ${PROJECT_BINARY_DIR}/test-manifest.txt CONTENT "${manifest}\n")

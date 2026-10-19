@@ -26,7 +26,8 @@ MANIFEST = BUILD / "test-manifest.txt"
 # selection_check.py points this elsewhere, so checking the selection never touches the real
 # record of what has passed.
 STATE = pathlib.Path(os.environ.get("FILLSCOPE_ITERATE_STATE", BUILD / "last-pass.json"))
-FAST_TIERS = {"unit", "ui"}
+# Run between edits when affected. The debugger tier waits for run-tests.sh.
+FAST_TIERS = {"unit", "ui", "check"}
 
 
 def build():
@@ -37,12 +38,12 @@ def build():
 
 
 def programs():
-    """[(name, tier, [files])] from the manifest."""
+    """[(name, tier, [files])] from the manifest; the program, when there is one, is the first file."""
     result = []
     for line in MANIFEST.read_text().splitlines():
         if line.strip():
-            name, tier, *files = line.split()
-            result.append((name, tier, files))
+            name, tier, program, *runtime = line.split()
+            result.append((name, tier, ([] if program == "-" else [program]) + runtime))
     return result
 
 
