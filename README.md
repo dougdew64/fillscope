@@ -47,7 +47,8 @@ Nasdaq's public ITCH samples, downloaded locally.
 
 ## Documents
 [docs/CHARTER.md](docs/CHARTER.md) (purpose, priorities, decisions) ·
-[docs/DECISIONS.md](docs/DECISIONS.md) (the record) · [docs/PLAN.md](docs/PLAN.md) (next steps) · [docs/RUNNING.md](docs/RUNNING.md) (build, run, test) ·
+[docs/DECISIONS.md](docs/DECISIONS.md) (the record) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (how the code works) ·
+[docs/PLAN.md](docs/PLAN.md) (next steps) · [docs/RUNNING.md](docs/RUNNING.md) (build, run, test) ·
 [docs/AI-USE.md](docs/AI-USE.md) (how AI is used here, and what checks it) ·
 [docs/DEBUGGER-LOCKSTEP.md](docs/DEBUGGER-LOCKSTEP.md) (stepping the engine while the animation
 follows) · [CLAUDE.md](CLAUDE.md) (how the AI assistant
