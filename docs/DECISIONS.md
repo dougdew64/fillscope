@@ -8,6 +8,8 @@ Newest first.
 
 | Date | Decision |
 |---|---|
+| 2026-10-19 | The context the viewer captures for the assistant: two ways to assemble it from the start, **point at** (one thing) and **follow** (one identity across frames), in separate sections; **published eagerly** on every change, since the question is asked in another program; the context bar renders exactly what is published; the context includes a **replay address**, so the state can be rebuilt exactly; written to `.fillscope/context.json`, git-ignored, atomically, with a sequence number and timestamp. |
+| 2026-10-19 | CI: GitHub Actions in a Fedora container, running every test in both builds and the checks of the tests; debugger tests fail there rather than skip. Publishing the debugger's state comes before the viewer shell. |
 | 2026-10-19 | Plumbing starts now, before the domain reading is done: the processes, the frame channel, the animation and debugger lockstep, starting with the experiment in [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md). The owner reads the domain in parallel. |
 | 2026-10-19 | Several processes and threads, not one: the parts communicate over sockets, so the system shows networking and concurrency. The split is decided as the design develops. |
 | 2026-10-19 | Linux is the platform for everything, the UI included (was: the UI's platform being settled). |
