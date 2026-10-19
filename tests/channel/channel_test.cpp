@@ -6,9 +6,13 @@
 
 #include <gtest/gtest.h>
 
+#include <sys/resource.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #include <array>
+#include <expected>
+#include <optional>
 #include <cstring>
 #include <future>
 #include <thread>
@@ -125,6 +129,9 @@ TEST(Channel, ReceiverReportsConnectAndDisconnect) {
         EXPECT_TRUE(receiver.drain(messages).new_sender);
         EXPECT_TRUE(receiver.connected());
         EXPECT_FALSE(receiver.drain(messages).new_sender) << "only the first drain after a connect reports it";
+        // Read the acknowledgement, as the frame source does: a socket closed with unread data
+        // reaches the receiver as a reset rather than an orderly end, and this is the orderly end.
+        ASSERT_TRUE(wait_until_accepted(sender, 1s).has_value());
     }  // the sender closes here
     receiver.drain(messages);
     EXPECT_FALSE(receiver.connected());
@@ -211,6 +218,111 @@ TEST(Channel, ANewSenderClearsTheLastOnesError) {
     EXPECT_FALSE(receiver.error());
 }
 
+TEST(Channel, AnEmptyDatagramIsAnErrorEvenWhenTheSenderThenCloses) {
+    // Closed, the sender looks as if it had just disconnected; the frame still queued after the
+    // empty datagram says otherwise.
+    const std::string name = test::unique_socket_name();
+    MessageReceiver receiver = test::listen(name);
+    {
+        const Fd sender = connect(name);
+        ASSERT_TRUE(send_message(sender, frame(0)).has_value());
+        send_raw(sender, std::span<const std::byte>{});
+        ASSERT_TRUE(send_message(sender, frame(1)).has_value());
+    }
+    const auto messages = drain_until_dropped(receiver);
+    EXPECT_EQ(messages.size(), 1u);
+    ASSERT_TRUE(receiver.error());
+    EXPECT_EQ(*receiver.error(), "an empty message");
+}
+
+TEST(Channel, ASecondSenderIsRefusedWhileOneIsConnected) {
+    const std::string name = test::unique_socket_name();
+    MessageReceiver receiver = test::listen(name);
+    const Fd first = connect(name);
+    ASSERT_TRUE(send_message(first, frame(0, 1)).has_value());
+    ASSERT_EQ(drain_count(receiver, 1).size(), 1u);
+
+    const Fd second = connect(name);  // queued: the connect itself succeeds
+    std::vector<Message> messages;
+    receiver.drain(messages);  // refuses it
+    // Its sends now fail, so it can't believe they reached the viewer. (The first may still
+    // succeed, into the closed socket's buffer, before the close is seen.)
+    std::expected<void, std::error_code> sent;
+    for (int i = 0; i < 100 && sent; ++i) {
+        sent = send_message(second, frame(0, 2));
+    }
+    ASSERT_FALSE(sent.has_value());
+    EXPECT_TRUE(receiver_gone(sent.error())) << sent.error().message();
+    EXPECT_TRUE(receiver.connected()) << "the first sender is still connected";
+    ASSERT_TRUE(send_message(first, frame(1, 1)).has_value());
+    EXPECT_EQ(drain_count(receiver, 1).size(), 1u);
+}
+
+TEST(Channel, ASenderLearnsWhetherItWasAcceptedRefusedOrIgnored) {
+    const std::string name = test::unique_socket_name();
+    MessageReceiver receiver = test::listen(name);
+    const Fd first = connect(name);
+    EXPECT_EQ(wait_until_accepted(first, 10ms).error(), std::errc::timed_out) << "no drain yet";
+    std::vector<Message> messages;
+    receiver.drain(messages);
+    EXPECT_TRUE(wait_until_accepted(first, 1s).has_value());
+
+    const Fd second = connect(name);
+    receiver.drain(messages);  // refuses it: the first is still connected
+    EXPECT_EQ(wait_until_accepted(second, 1s).error(), std::errc::connection_refused);
+}
+
+TEST(Channel, ADrainTakesAtMostItsBound) {
+    const std::string name = test::unique_socket_name();
+    auto listener = listen_on(name);
+    ASSERT_TRUE(listener.has_value());
+    MessageReceiver receiver{std::move(*listener), 5};
+    const Fd sender = connect(name);
+    for (std::uint64_t i = 0; i < 12; ++i) {
+        ASSERT_TRUE(send_message(sender, frame(i)).has_value());
+    }
+    std::vector<Message> messages;
+    EXPECT_EQ(receiver.drain(messages).received, 5u);
+    EXPECT_EQ(receiver.drain(messages).received, 5u);
+    EXPECT_EQ(receiver.drain(messages).received, 2u);
+}
+
+TEST(Channel, AFailedAcceptIsReported) {
+    // With no file descriptor left for it, accepting a waiting sender fails. That is a fault to
+    // report, not "nobody waiting".
+    const std::string name = test::unique_socket_name();
+    MessageReceiver receiver = test::listen(name);
+    const Fd sender = connect(name);
+    rlimit original{};
+    ASSERT_EQ(::getrlimit(RLIMIT_NOFILE, &original), 0);
+    std::vector<Fd> filler;
+    rlimit lowered = original;
+    lowered.rlim_cur = 64;
+    ASSERT_EQ(::setrlimit(RLIMIT_NOFILE, &lowered), 0);
+    while (true) {
+        Fd fd{::dup(0)};
+        if (!fd) {
+            break;  // EMFILE: the table is full
+        }
+        filler.push_back(std::move(fd));
+    }
+    std::vector<Message> messages;
+    const DrainResult result = receiver.drain(messages);
+    filler.clear();
+    ASSERT_EQ(::setrlimit(RLIMIT_NOFILE, &original), 0);
+    EXPECT_FALSE(result.new_sender);
+    ASSERT_TRUE(receiver.error());
+    EXPECT_NE(receiver.error()->find("can't accept a source"), std::string::npos) << *receiver.error();
+    EXPECT_TRUE(receiver.drain(messages).new_sender) << "once descriptors are free, it is accepted";
+    EXPECT_FALSE(receiver.error());
+}
+
+TEST(Channel, AnEmptyNameAndNoAttemptsAreRefused) {
+    EXPECT_EQ(listen_on("").error(), std::errc::invalid_argument);
+    EXPECT_EQ(connect_to("", 1, 0ms).error(), std::errc::invalid_argument);
+    EXPECT_EQ(connect_to(test::unique_socket_name(), 0, 0ms).error(), std::errc::invalid_argument);
+}
+
 TEST(Channel, ConnectFailsWithNoListenerAndSaysWhy) {
     const auto result = connect_to(test::unique_socket_name(), 2, 1ms);
     ASSERT_FALSE(result.has_value());
@@ -222,11 +334,17 @@ TEST(Channel, ConnectDoesNotBlockWhenTheListenersQueueIsFull) {
     // (Linux holds one more than the backlog). Once it is full, a connect must fail promptly rather
     // than block until there is room.
     const std::string name = test::unique_socket_name();
-    MessageReceiver receiver = test::listen(name);
+    std::optional<MessageReceiver> receiver{test::listen(name)};
     std::vector<Fd> queued;
     for (int attempt = 0; attempt < 10; ++attempt) {
         auto pending = std::async(std::launch::async, [&] { return connect_to(name, 1, 0ms); });
-        ASSERT_EQ(pending.wait_for(1s), std::future_status::ready) << "connect blocked on attempt " << attempt;
+        if (pending.wait_for(1s) != std::future_status::ready) {
+            // Closing the listener makes the blocked connect fail, so the future's destructor,
+            // which waits for it, returns and the test fails instead of hanging.
+            receiver.reset();
+            pending.wait();
+            FAIL() << "connect blocked on attempt " << attempt;
+        }
         auto connection = pending.get();
         if (!connection) {
             EXPECT_EQ(connection.error(), std::errc::resource_unavailable_try_again) << connection.error().message();

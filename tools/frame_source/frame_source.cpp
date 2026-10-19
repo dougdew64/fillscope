@@ -4,7 +4,6 @@
 #include "lockstep/anchor.h"
 
 #include <format>
-#include <optional>
 #include <print>
 #include <string_view>
 #include <thread>
@@ -39,6 +38,9 @@ std::expected<SourceOptions, std::string> parse_source_args(std::span<const char
         }
         const std::string_view value{args[++i]};
         if (option == "--socket") {
+            if (value.empty()) {
+                return std::unexpected{"--socket needs a name"};
+            }
             options.socket_name = value;
             continue;
         }
@@ -56,7 +58,11 @@ std::expected<SourceOptions, std::string> parse_source_args(std::span<const char
         if (!number) {
             return std::unexpected{std::format("{}: {}", option, number.error())};
         }
-        (option == "--frames" ? options.frames : options.seed) = *number;
+        if (option == "--frames") {
+            options.frames = *number;
+        } else if (option == "--seed") {
+            options.seed = *number;
+        }
     }
     return options;
 }
@@ -70,12 +76,29 @@ int run_frame_source(const SourceOptions& options) {
         return 1;
     }
 
-    // Says why a send failed: the viewer going away is the usual reason, but not the only one.
-    const auto report_failed_send = [](std::error_code error, std::string_view when) {
-        if (receiver_gone(error)) {
-            std::println(stderr, "frame_source: the viewer went away {}", when);
+    // A connect succeeds once the connection is queued; only the viewer's acknowledgement says it
+    // took it, so nothing is sent before that.
+    if (const auto accepted = wait_until_accepted(*viewer, options.accept_timeout); !accepted) {
+        if (accepted.error() == std::errc::connection_refused) {
+            std::println(stderr, "frame_source: the viewer on '{}' refused the connection: it has another source connected",
+                         options.socket_name);
+        } else if (accepted.error() == std::errc::timed_out) {
+            std::println(stderr, "frame_source: the viewer on '{}' didn't accept the connection within {} ms",
+                         options.socket_name, options.accept_timeout.count());
         } else {
-            std::println(stderr, "frame_source: can't send {}: {}", when, error.message());
+            std::println(stderr, "frame_source: can't tell whether the viewer accepted the connection: {}",
+                         accepted.error().message());
+        }
+        return 1;
+    }
+
+    // Says why a send of `what` failed: the viewer going away is the usual reason, but not the
+    // only one.
+    const auto report_failed_send = [](std::error_code error, std::string_view what) {
+        if (receiver_gone(error)) {
+            std::println(stderr, "frame_source: the viewer went away before {} was sent", what);
+        } else {
+            std::println(stderr, "frame_source: can't send {}: {}", what, error.message());
         }
     };
 
@@ -84,19 +107,20 @@ int run_frame_source(const SourceOptions& options) {
         return 1;
     }
     FrameGenerator generator{options.seed};
-    std::optional<std::uint64_t> last_sent;
     for (std::uint64_t i = 0; i < options.frames; ++i) {
         const Frame frame = generator.next();
         if (const auto sent = send_message(*viewer, frame); !sent) {
-            report_failed_send(sent.error(), std::format("at frame {}", frame.index));
+            report_failed_send(sent.error(), std::format("frame {}", frame.index));
             return 1;
         }
-        last_sent = frame.index;
         fillscope_frame_anchor(frame.index);
-        std::this_thread::sleep_for(options.interval);
+        if (i + 1 < options.frames) {
+            std::this_thread::sleep_for(options.interval);  // between frames, not after the last
+        }
     }
-    if (last_sent) {
-        std::println("frame_source: sent {} frames, the last #{}", options.frames, *last_sent);
+    // Every frame was sent, or the loop returned; frame indices count from 0.
+    if (options.frames > 0) {
+        std::println("frame_source: sent {} frames, the last #{}", options.frames, options.frames - 1);
     } else {
         std::println("frame_source: sent no frames");
     }

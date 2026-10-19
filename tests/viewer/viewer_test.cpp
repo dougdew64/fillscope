@@ -5,6 +5,7 @@
 
 #include "viewer/context.h"
 #include "viewer/context_publisher.h"
+#include "viewer/stop_signals.h"
 #include "viewer/viewer_options.h"
 #include "viewer/viewer_state.h"
 
@@ -13,7 +14,9 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
+#include <csignal>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -61,7 +64,8 @@ TEST(ParseViewerArgs, DefaultsAndEveryOption) {
 TEST(ParseViewerArgs, RefusesWhatIsntAnOptionOrANumberOfSeconds) {
     EXPECT_EQ(parse_viewer_args(std::array{"--bogus"}).error(), "unknown option '--bogus'");
     EXPECT_EQ(parse_viewer_args(std::array{"--socket"}).error(), "--socket needs a value");
-    for (const char* bad : {"abc", "2s", "-1", "nan", ""}) {
+    EXPECT_EQ(parse_viewer_args(std::array{"--socket", ""}).error(), "--socket needs a name");
+    for (const char* bad : {"abc", "2s", "-1", "nan", "", "inf", "-inf", "1e309"}) {
         const std::array args{"--exit-after", bad};
         EXPECT_FALSE(parse_viewer_args(args).has_value()) << "--exit-after '" << bad << "'";
     }
@@ -105,6 +109,40 @@ TEST(ViewerState, ANewConnectionNeverInheritsTheLastSourcesRun) {
     EXPECT_EQ(state.run->frames().size(), 1u);
 }
 
+TEST(ViewerState, EachRunHasTheNextNumber) {
+    ViewerState state;
+    state.apply(frame(0, 1));
+    EXPECT_EQ(state.run->number(), 1u);
+    state.apply(SourceHello{.seed = 1, .frame_count = 1});
+    EXPECT_EQ(state.run->number(), 2u);
+    state.begin_connection();
+    state.apply(frame(0, 1));
+    EXPECT_EQ(state.run->number(), 3u) << "a new connection's run is a new run";
+}
+
+TEST(Run, HasReplayAddressesOnlyWhileItsIndicesCountFromZero) {
+    ViewerState state = described_run({frame(0, 1), frame(1, 1)});
+    EXPECT_FALSE(state.run->no_replay_reason());
+    state.apply(frame(5, 1));  // a gap
+    ASSERT_TRUE(state.run->no_replay_reason());
+    EXPECT_EQ(*state.run->no_replay_reason(),
+              "the run's frame indices didn't count 0, 1, 2, ...: frame 3 of the run arrived numbered #5");
+    state.apply(frame(3, 1));
+    EXPECT_TRUE(state.run->no_replay_reason()) << "for the rest of the run";
+}
+
+TEST(Run, ARepeatedIndexEndsReplayAddressesToo) {
+    const ViewerState state = described_run({frame(0, 1), frame(0, 1)});
+    EXPECT_TRUE(state.run->no_replay_reason());
+}
+
+TEST(Run, PlotsLargePricesExactly) {
+    const ViewerState state = described_run({frame(0, 1, 16'777'217), frame(1, 1, 16'777'216)});
+    const auto buckets = state.run->prices().buckets();
+    EXPECT_EQ(buckets[0].high, 16'777'217);
+    EXPECT_EQ(buckets[1].high, 16'777'216);
+}
+
 TEST(Run, IndexesEachIdsFrames) {
     const ViewerState state = described_run({frame(0, 7), frame(1, 2), frame(2, 7)});
     EXPECT_EQ(std::vector(std::from_range, state.run->indices_of(7)), (std::vector<std::uint64_t>{0, 2}));
@@ -123,31 +161,68 @@ TEST(PriceEnvelope, OneBucketPerPriceUntilFull) {
     EXPECT_EQ(envelope.frames_per_bucket(), 1u);
 }
 
-TEST(PriceEnvelope, StaysBoundedAndKeepsEverySpike) {
-    PriceEnvelope envelope;
-    constexpr std::size_t kPrices = 100'000;
-    for (std::size_t i = 0; i < kPrices; ++i) {
-        // A flat line with one spike up and one down, far apart.
-        const float price = i == 31'337 ? 500.0f : i == 77'777 ? -400.0f : 10.0f;
-        envelope.append(price);
+// Every price is in the bucket its position says, after any number of merges: each bucket but the
+// last holds frames_per_bucket() prices, and the last the rest.
+TEST(PriceEnvelope, EveryPriceStaysInTheBucketItsPositionNames) {
+    for (const std::size_t count : {std::size_t{4097}, std::size_t{8195}, std::size_t{100'003}}) {
+        PriceEnvelope envelope;
+        const std::array spikes{std::size_t{0}, count / 3, count / 2 + 1, count - 1};
+        for (std::size_t i = 0; i < count; ++i) {
+            envelope.append(std::ranges::contains(spikes, i) ? 1'000 + static_cast<std::int64_t>(i) : 10);
+        }
+        const std::size_t per_bucket = envelope.frames_per_bucket();
+        EXPECT_LE(envelope.buckets().size(), PriceEnvelope::kMaxBuckets) << count;
+        EXPECT_EQ((envelope.buckets().size() - 1) * per_bucket + envelope.frames_in_last_bucket(), count) << count;
+        for (const std::size_t spike : spikes) {
+            EXPECT_EQ(envelope.buckets()[spike / per_bucket].high, 1'000 + static_cast<std::int64_t>(spike))
+                << "spike at " << spike << " of " << count;
+        }
     }
-    EXPECT_LE(envelope.buckets().size(), PriceEnvelope::kMaxBuckets);
-    // Every price is in exactly one bucket: the buckets cover all of them.
-    EXPECT_GE(envelope.buckets().size() * envelope.frames_per_bucket(), kPrices);
-    const auto highest = std::ranges::max(envelope.buckets(), {}, &PriceEnvelope::Bucket::high).high;
-    const auto lowest = std::ranges::min(envelope.buckets(), {}, &PriceEnvelope::Bucket::low).low;
-    EXPECT_EQ(highest, 500.0f);
-    EXPECT_EQ(lowest, -400.0f);
 }
 
-TEST(PriceEnvelope, ReducedKeepsTheExtremesInFewerBuckets) {
+TEST(PriceEnvelope, KeepsEveryLowAndHigh) {
     PriceEnvelope envelope;
-    for (int i = 0; i < 1000; ++i) {
-        envelope.append(i == 500 ? 99.0f : 0.0f);
+    for (std::size_t i = 0; i < 100'000; ++i) {
+        envelope.append(i == 31'337 ? 500 : i == 77'777 ? -400 : 10);  // one spike up and one down
     }
-    const auto reduced = envelope.reduced(10);
-    EXPECT_LE(reduced.size(), 10u);
-    EXPECT_EQ(std::ranges::max(reduced, {}, &PriceEnvelope::Bucket::high).high, 99.0f);
+    EXPECT_EQ(std::ranges::max(envelope.buckets(), {}, &PriceEnvelope::Bucket::high).high, 500);
+    EXPECT_EQ(std::ranges::min(envelope.buckets(), {}, &PriceEnvelope::Bucket::low).low, -400);
+}
+
+TEST(PriceEnvelope, KeepsLargePricesExactly) {
+    // 2^24 + 1 is the first integer a float can't hold: as floats these two would be equal.
+    PriceEnvelope envelope;
+    envelope.append(16'777'217);
+    envelope.append(16'777'216);
+    EXPECT_EQ(envelope.buckets()[0].high, 16'777'217);
+    EXPECT_EQ(envelope.buckets()[1].high, 16'777'216);
+}
+
+// The plot draws at most one reduced bucket per pixel, so a spike anywhere must survive the
+// reduction to any width, including a last group shorter than the others.
+TEST(PriceEnvelope, ReducedToAnyWidthKeepsEverySpike) {
+    PriceEnvelope envelope;
+    constexpr std::size_t kCount = 1'003;
+    for (std::size_t i = 0; i < kCount; ++i) {
+        envelope.append(i == 441 ? 200 : i == kCount - 1 ? 300 : 100);
+    }
+    for (std::size_t width = 1; width <= 1'100; ++width) {
+        const auto reduced = envelope.reduced(width);
+        ASSERT_LE(reduced.size(), width);
+        // Each reduced bucket covers `group` consecutive frames (one frame per bucket here), the last
+        // whatever is left; the one covering frame 441 must reach its spike.
+        const std::size_t group = kCount <= width ? 1 : (kCount + width - 1) / width;
+        ASSERT_GE(reduced[441 / group].high, 200) << "at width " << width;
+        ASSERT_EQ(reduced.back().high, 300) << "the newest frame is in the last group, at width " << width;
+    }
+}
+
+TEST(PriceEnvelope, ReduceIntoReplacesWhatTheVectorHeld) {
+    PriceEnvelope envelope;
+    envelope.append(4);
+    std::vector<PriceEnvelope::Bucket> out{{.low = 1, .high = 1}, {.low = 2, .high = 2}};
+    envelope.reduce_into(10, out);
+    EXPECT_EQ(out, (std::vector<PriceEnvelope::Bucket>{{.low = 4, .high = 4}}));
 }
 
 // ---- Selection ----
@@ -204,6 +279,20 @@ TEST(MakeContext, WithoutADescriptionThereIsNoReplayAddress) {
     const Context context = make_context(state, selection);
     EXPECT_FALSE(context.point->replay);
     EXPECT_FALSE(context.follow->seed);
+}
+
+TEST(MakeContext, IndicesThatDontCountFromZeroGiveNoReplayAddressAndSayWhy) {
+    const ViewerState state = described_run({frame(0, 1), frame(2, 1)});
+    Selection selection;
+    selection.point_at(frame(2, 1));
+    selection.follow(1);
+    const Context context = make_context(state, selection);
+    EXPECT_FALSE(context.point->replay);
+    EXPECT_FALSE(context.follow->seed);
+    EXPECT_EQ(context.source.no_replay_reason, state.run->no_replay_reason());
+    const nlohmann::ordered_json json = to_json(context, kWriter, 1, 0);
+    EXPECT_EQ(json["point"]["replayAddressMissing"], *state.run->no_replay_reason());
+    EXPECT_EQ(json["background"]["noReplayAddress"], *state.run->no_replay_reason());
 }
 
 TEST(MakeContext, FollowListsEveryFrameWithTheIdAndCountsThem) {
@@ -267,6 +356,9 @@ TEST(ContextJson, EmptySectionsAreNullAndEveryFieldIsThere) {
     EXPECT_TRUE(json["background"]["source"]["error"].is_null());
     EXPECT_EQ(json["background"]["framesReceived"], 0);
     EXPECT_TRUE(json["background"]["latestFrameIndex"].is_null());
+    EXPECT_TRUE(json["background"]["runNumber"].is_null());
+    EXPECT_EQ(json["background"]["moreFramesThanDescribed"], false);
+    EXPECT_TRUE(json["background"]["noReplayAddress"].is_null());
 }
 
 TEST(ContextJson, SaysWhoWroteItAndWhetherItIsStillRunning) {
@@ -323,6 +415,17 @@ TEST(ContextBar, SaysWhatTheContextHolds) {
     EXPECT_EQ(text.background, "source seed 42 · 3 of 100 frames · connected");
     EXPECT_EQ(text.point, "Pointing at frame #0 (id 7, price 10003, qty 5)");
     EXPECT_EQ(text.follow, "Following id 7: 2 frames");
+}
+
+TEST(ContextBar, SaysWhenASourceSentMoreFramesThanItSaidItWould) {
+    ViewerState state;
+    state.apply(SourceHello{.seed = 1, .frame_count = 3});
+    for (std::uint64_t i = 0; i < 5; ++i) {
+        state.apply(frame(i, 1));
+    }
+    const Context context = make_context(state, Selection{});
+    EXPECT_EQ(bar_text(context).background, "source seed 1 · 5 frames (the source said 3) · not connected");
+    EXPECT_EQ(to_json(context, kWriter, 1, 0)["background"]["moreFramesThanDescribed"], true);
 }
 
 TEST(ContextBar, ShowsNoPointOrFollowLineWhenThereIsNone) {
@@ -491,10 +594,48 @@ TEST_F(Publisher, AFailedWriteIsRetriedAndRecovers) {
     EXPECT_EQ(entries_in(file().parent_path()), 1) << "no temporary file left after the failed rename";
 
     std::filesystem::remove_all(file());
-    publisher.update(pointing_at(1), PublishTrigger::background, t0_ + 1s);  // retried, though unchanged
+    publisher.update(pointing_at(1), PublishTrigger::background, t0_ + 1s);  // the context that failed, retried
     EXPECT_FALSE(publisher.error());
     EXPECT_EQ(publisher.seq(), 2u) << "one more successful write";
     EXPECT_EQ(read_file()["point"]["frame"]["index"], 1);
+}
+
+TEST_F(Publisher, AFailedWriteIsRetriedWhenTheContextReturnsToWhatWasPublished) {
+    ContextPublisher publisher{file()};
+    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
+    std::filesystem::remove(file());
+    std::filesystem::create_directories(file() / "blocker");
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    ASSERT_TRUE(publisher.error());
+
+    // The user goes back to what was published. The context equals published(), but the last write
+    // failed, so it is written again; otherwise the error would stay on screen for good.
+    std::filesystem::remove_all(file());
+    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_ + 1s);
+    EXPECT_FALSE(publisher.error());
+    EXPECT_EQ(publisher.seq(), 2u);
+    EXPECT_TRUE(std::filesystem::exists(file()));
+}
+
+TEST_F(Publisher, AFailedWriteRemovesTheOldFileWhenItCan) {
+    ContextPublisher publisher{file()};
+    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
+    ASSERT_TRUE(publisher.published_bar());
+    // The temporary file's place is taken by a directory, so the write fails, but the directory is
+    // writable, so the old file can be removed.
+    std::filesystem::create_directories(std::format("{}.{}.tmp", file().string(), ::getpid()));
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    ASSERT_TRUE(publisher.error());
+    EXPECT_FALSE(std::filesystem::exists(file())) << "no file, rather than one the user has since changed";
+    EXPECT_FALSE(publisher.published()) << "and nothing claims it is published";
+    EXPECT_FALSE(publisher.published_bar());
+}
+
+TEST_F(Publisher, TheBarTextIsThePublishedContexts) {
+    ContextPublisher publisher{file()};
+    EXPECT_FALSE(publisher.published_bar());
+    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
+    EXPECT_EQ(publisher.published_bar(), bar_text(*publisher.published()));
 }
 
 TEST_F(Publisher, ABareFileNameIsWrittenInTheWorkingDirectory) {
@@ -505,6 +646,15 @@ TEST_F(Publisher, ABareFileNameIsWrittenInTheWorkingDirectory) {
     std::filesystem::current_path(previous);
     ASSERT_TRUE(written.has_value()) << written.error();
     EXPECT_TRUE(std::filesystem::exists(dir_ / "bare.json"));
+}
+
+// ---- stop signals ----
+
+TEST(StopSignals, SigtermAsksTheLoopToStopInsteadOfEndingTheProcess) {
+    ASSERT_TRUE(install_stop_signals().has_value());
+    EXPECT_FALSE(stop_requested());
+    ASSERT_EQ(std::raise(SIGTERM), 0);  // without the handler, this would end the test program
+    EXPECT_TRUE(stop_requested());
 }
 
 }  // namespace

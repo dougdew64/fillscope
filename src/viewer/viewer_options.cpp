@@ -2,6 +2,7 @@
 
 #include "common/parse.h"
 
+#include <cmath>
 #include <format>
 #include <string_view>
 
@@ -19,6 +20,10 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
         }
         const std::string_view value{args[++i]};
         if (option == "--socket") {
+            // An empty name would bind a name the kernel chooses (autobind), which no source can know.
+            if (value.empty()) {
+                return std::unexpected{"--socket needs a name"};
+            }
             options.socket_name = value;
         } else if (option == "--context-file") {
             if (value.empty()) {
@@ -31,8 +36,8 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
                 return std::unexpected{std::format("--exit-after: {}", seconds.error())};
             }
             // `!(x >= 0)` rather than `x < 0`, so a NaN (which compares false with everything) is
-            // refused too.
-            if (!(*seconds >= 0)) {
+            // refused too; infinity is refused because 0 already means "never".
+            if (!(*seconds >= 0) || std::isinf(*seconds)) {
                 return std::unexpected{std::format("--exit-after: '{}' is not a number of seconds", value)};
             }
             options.exit_after_seconds = *seconds;

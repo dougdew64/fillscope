@@ -30,7 +30,9 @@ run_tests() {  # run_tests BUILD_DIR LOG: runs every test, keeping CTest's outpu
     fi
     grep -E 'tests passed' "$log"
     echo "slowest:"
-    grep -E 'Test +#' "$log" | sed -E 's/.*Test +#[0-9]+: ([^ ]+) .* ([0-9.]+) sec/  \2s \1/' | sort -rn | head -5
+    # sed -n, not head: head stops reading after five lines, and with pipefail the SIGPIPE that
+    # gives sort would fail the whole run.
+    grep -E 'Test +#' "$log" | sed -E 's/.*Test +#[0-9]+: ([^ ]+) .* ([0-9.]+) sec/  \2s \1/' | sort -rn | sed -n 1,5p
 }
 
 # Every test program in a build's manifest (the fourth tab-separated field is the program, "-" for

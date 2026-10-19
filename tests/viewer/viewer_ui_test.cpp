@@ -28,6 +28,7 @@
 #include <imgui_app.h>
 #include <nlohmann/json.hpp>
 
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <chrono>
@@ -37,6 +38,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace {
 
@@ -67,6 +69,12 @@ bool contains(const std::string& text, std::string_view part) { return text.find
 nlohmann::json read_context(const UiVars& vars) {
     std::ifstream in{vars.app->publisher().file()};
     return nlohmann::json::parse(in);
+}
+
+// Whether the item `ref` was drawn marked (the pointed row, a followed id): viewer_view.cpp reports
+// it to the Test Engine as a checkbox's tick.
+bool marked(ImGuiTestContext* ctx, const char* ref) {
+    return (ctx->ItemInfo(ref).StatusFlags & ImGuiItemStatusFlags_Checked) != 0;
 }
 
 // A path every write to fails: a directory can't be created inside a regular file.
@@ -300,11 +308,11 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(contains(vars.text, bar.background));
         IM_CHECK(bar.point && contains(vars.text, *bar.point));
         IM_CHECK(bar.follow && contains(vars.text, *bar.follow));
-        // ...as are the table's marks.
-        const Frame pointed{.index = 3, .price = 10'002, .qty = 8, .id = 9};
-        IM_CHECK(fillscope::row_marks(pointed, publisher.published()) == (fillscope::RowMarks{.pointed = true, .followed = false}));
-        const Frame followed{.index = 0, .price = 10'001, .qty = 5, .id = 7};
-        IM_CHECK(fillscope::row_marks(followed, publisher.published()) == (fillscope::RowMarks{.pointed = false, .followed = true}));
+        // ...as are the table's marks, as drawn: frame #3 pointed at, and every id 7 followed.
+        IM_CHECK(marked(ctx, "**/3##point"));
+        IM_CHECK(!marked(ctx, "**/2##point"));
+        IM_CHECK(marked(ctx, "**/7##follow0") && marked(ctx, "**/7##follow2") && marked(ctx, "**/7##follow4"));
+        IM_CHECK(!marked(ctx, "**/9##follow3"));
     });
 
     viewer_test(engine, "a_new_run_drops_the_point_and_keeps_the_follow", [](ImGuiTestContext* ctx) {
@@ -316,6 +324,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->ItemClick("**/7##follow0");
         ctx->Yield(2);
         const auto point_seq = read_context(vars)["point"]["seq"].get<int>();
+        const auto follow_seq = read_context(vars)["follow"]["seq"].get<int>();
 
         // The source starts again: the old frames, and the frame pointed at, are gone.
         add_run(vars, {Frame{.index = 0, .price = 9'000, .qty = 1, .id = 7}});
@@ -325,9 +334,10 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         const nlohmann::json context = read_context(vars);
         IM_CHECK(context["point"].is_null());
         IM_CHECK_EQ(context["follow"]["frameCount"].get<int>(), 1);
-        // The user didn't act, so nothing about the follow claims they did.
-        IM_CHECK_GT(context["follow"]["seq"].get<int>(), point_seq);
+        // The user didn't act, so neither sequence number moved.
+        IM_CHECK_EQ(context["follow"]["seq"].get<int>(), follow_seq);
         IM_CHECK_EQ(vars.app->selection().point_seq(), static_cast<std::uint64_t>(point_seq));
+        IM_CHECK(!marked(ctx, "**/0##point"));
     });
 
     viewer_test(engine, "a_failed_write_shows_in_the_bar_and_the_table", [](ImGuiTestContext* ctx) {
@@ -344,8 +354,29 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         // claim it did.
         IM_CHECK(vars.app->selection().pointed().has_value());
         IM_CHECK(!contains(vars.text, "Pointing at"));
-        const Frame clicked{.index = 2, .price = 10'003, .qty = 7, .id = 7};
-        IM_CHECK(!fillscope::row_marks(clicked, vars.app->publisher().published()).pointed);
+        IM_CHECK(!marked(ctx, "**/2##point"));
+    });
+
+    viewer_test(engine, "the_old_runs_published_point_marks_nothing_in_a_new_run", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        add_five_frames(vars);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        ctx->ItemClick("**/2##point");
+        ctx->Yield(2);
+        // Writes start failing, so the published context stays the old run's: frame #2 pointed at.
+        // Then the source starts again with the same seed, so the new run's frames are the old
+        // ones exactly: only which run they belong to tells them apart.
+        const std::filesystem::path file = vars.app->publisher().file();
+        std::filesystem::remove(file);
+        std::filesystem::create_directories(file / "blocker");
+        add_five_frames(vars);
+        IM_CHECK(yield_until(ctx, [&] { return vars.app->publisher().error().has_value(); }));
+        ctx->Yield(2);
+        // The old run's point is still what is published (and the bar says so), but not on this run.
+        IM_CHECK(vars.app->publisher().published()->point.has_value());
+        IM_CHECK(!marked(ctx, "**/2##point"));
+        std::filesystem::remove_all(file);
     });
 
     viewer_test(engine, "hovering_says_a_click_sends", [](ImGuiTestContext* ctx) {
@@ -402,8 +433,9 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         fillscope::test::ChildProcess source{
             {FILLSCOPE_FRAME_SOURCE, "--socket", name, "--frames", "3", "--interval-ms", "0", "--seed", "11"}};
         IM_CHECK(source.started());
-        IM_CHECK_EQ(source.wait(), 0);
+        // The viewer must paint (and so drain) for the source to be accepted and finish.
         IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "source seed 11 · 3 of 3 frames"); }));
+        IM_CHECK_EQ(source.wait(), 0);
         ctx->SetRef(fillscope::kViewerWindow);
         ctx->ItemClick("**/1##point");
         ctx->Yield(2);
@@ -421,6 +453,83 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(!vars.app->state().run->hello());
         IM_CHECK(read_context(vars)["background"]["source"]["run"].is_null());
         vars.receiver.reset();
+    });
+
+    viewer_test(engine, "a_connection_that_sends_nothing_valid_leaves_the_run_in_place", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const std::string name = fillscope::test::unique_socket_name();
+        vars.receiver = std::make_unique<fillscope::MessageReceiver>(fillscope::test::listen(name));
+        fillscope::test::ChildProcess source{
+            {FILLSCOPE_FRAME_SOURCE, "--socket", name, "--frames", "3", "--interval-ms", "0", "--seed", "11"}};
+        IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "source seed 11 · 3 of 3 frames"); }));
+        IM_CHECK_EQ(source.wait(), 0);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->ItemClick("**/1##point");
+        ctx->Yield(2);
+
+        // A connection that sends three bytes that aren't a message: it is dropped, and says why,
+        // but the run being examined, and the point, stay.
+        {
+            auto socket = fillscope::connect_to(name, 50, 10ms);
+            IM_CHECK(socket.has_value());
+            IM_CHECK_EQ(::send(socket->get(), "abc", 3, MSG_NOSIGNAL), 3);
+            IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "source: waiting (the last source was dropped: "); }));
+        }
+        IM_CHECK_EQ(vars.app->state().run->frames().size(), 3u);
+        IM_CHECK(vars.app->selection().pointed().has_value());
+        IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "not connected (the last source was dropped: "); }));
+        IM_CHECK(contains(vars.text, "Pointing at frame #1"));
+
+        // One that connects and leaves without sending anything: the run stays too.
+        {
+            auto socket = fillscope::connect_to(name, 50, 10ms);
+            IM_CHECK(socket.has_value());
+            IM_CHECK(yield_until(ctx, [&] { return vars.app->state().source_connected; }));
+        }
+        IM_CHECK(yield_until(ctx, [&] { return !vars.app->state().source_connected; }));
+        IM_CHECK_EQ(vars.app->state().run->frames().size(), 3u);
+        IM_CHECK(vars.app->selection().pointed().has_value());
+        vars.receiver.reset();
+    });
+
+    viewer_test(engine, "finish_publishes_that_the_viewer_has_stopped", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        add_five_frames(vars);
+        ctx->Yield(2);
+        IM_CHECK(vars.app->finish());
+        const nlohmann::json context = read_context(vars);
+        IM_CHECK_EQ(context["writer"]["running"].get<bool>(), false);
+        IM_CHECK_EQ(context["background"]["framesReceived"].get<int>(), 5);
+
+        vars.app->set_publisher(unwritable());
+        IM_CHECK(!vars.app->finish());
+    });
+
+    viewer_test(engine, "the_seconds_since_the_last_frame_count_from_it", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        vars.app->apply(Frame{.index = 0, .price = 1, .qty = 1, .id = 1}, std::chrono::steady_clock::now() - 5s);
+        ctx->Yield();
+        const auto at = vars.text.find("seconds since last frame: ");
+        IM_CHECK(at != std::string::npos);
+        const double seconds = std::stod(vars.text.substr(at + std::string_view{"seconds since last frame: "}.size()));
+        IM_CHECK(seconds >= 5.0 && seconds < 7.0);
+    });
+
+    viewer_test(engine, "publishing_failing_and_recovering_is_reported_once_each", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        ctx->Yield(2);
+        IM_CHECK(!vars.app->publish_report().has_value());  // working from the start: nothing to say
+        const std::filesystem::path file = vars.app->publisher().file();
+        vars.app->set_publisher(unwritable());
+        add_five_frames(vars);
+        ctx->Yield(2);
+        const auto failing = vars.app->publish_report();
+        IM_CHECK(failing.has_value() && failing->starts_with("can't publish the context to "));
+        IM_CHECK(!vars.app->publish_report().has_value());  // said once
+        vars.app->set_publisher(file);
+        IM_CHECK(yield_until(ctx, [&] { return !vars.app->publisher().error().has_value() && vars.app->publisher().published(); }));
+        const auto working = vars.app->publish_report();
+        IM_CHECK(working.has_value() && working->starts_with("publishing the context to "));
     });
 }
 

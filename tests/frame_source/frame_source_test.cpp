@@ -152,6 +152,14 @@ TEST(ParseSourceArgs, DefaultsAndEveryOption) {
 TEST(ParseSourceArgs, RejectsUnknownOrIncompleteArgumentsAndSaysWhy) {
     EXPECT_EQ(parse_source_args(std::array{"--bogus"}).error(), "unknown option '--bogus'");
     EXPECT_EQ(parse_source_args(std::array{"--frames"}).error(), "--frames needs a value");
+    EXPECT_EQ(parse_source_args(std::array{"--socket", ""}).error(), "--socket needs a name");
+}
+
+TEST(ParseSourceArgs, EachNumberGoesToItsOwnOption) {
+    const auto options = parse_source_args(std::array{"--seed", "9", "--frames", "4"});
+    ASSERT_TRUE(options.has_value()) << options.error();
+    EXPECT_EQ(options->seed, 9u);
+    EXPECT_EQ(options->frames, 4u);
 }
 
 TEST(ParseSourceArgs, RejectsNumbersThatAreNotExactlyNumbers) {
@@ -208,20 +216,55 @@ TEST(RunFrameSource, DescribesTheRunThenSendsEveryGeneratedFrameInOrder) {
 
 TEST(RunFrameSource, ZeroFramesSendsOnlyTheDescription) {
     const std::string name = test::unique_socket_name();
-    MessageReceiver receiver = test::listen(name);
+    const test::BackgroundReceiver receiver{name};
     auto source = start_source(quick_options(name, 0));
-    ASSERT_EQ(source.wait_for(1s), std::future_status::ready);
+    ASSERT_EQ(source.wait_for(2s), std::future_status::ready);
     EXPECT_EQ(source.get(), 0);
-    std::vector<Message> received;
-    receiver.drain(received);
+    std::this_thread::sleep_for(20ms);  // a few more drains, to see that nothing else arrives
+    const auto received = receiver.messages();
     ASSERT_EQ(received.size(), 1u);
     EXPECT_TRUE(std::holds_alternative<SourceHello>(received[0]));
+}
+
+TEST(RunFrameSource, SendsNothingToAViewerThatNeverAcceptsIt) {
+    // A listener that never drains: the connect succeeds (it is queued), but the viewer never
+    // takes it, so the source must not report frames as sent.
+    const std::string name = test::unique_socket_name();
+    const auto listener = listen_on(name);
+    ASSERT_TRUE(listener.has_value());
+    SourceOptions options = quick_options(name, 5);
+    options.accept_timeout = 100ms;
+    ::testing::internal::CaptureStderr();
+    EXPECT_EQ(run_frame_source(options), 1);
+    const std::string said = ::testing::internal::GetCapturedStderr();
+    EXPECT_NE(said.find("didn't accept the connection within 100 ms"), std::string::npos) << said;
+}
+
+TEST(RunFrameSource, IsRefusedByAViewerThatHasASource) {
+    const std::string name = test::unique_socket_name();
+    MessageReceiver receiver = test::listen(name);
+    auto first = connect_to(name, 1, 0ms);
+    ASSERT_TRUE(first.has_value());
+    std::vector<Message> received;
+    ASSERT_TRUE(receiver.drain(received).new_sender);
+    ::testing::internal::CaptureStderr();
+    auto second = start_source(quick_options(name, 5));
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (second.wait_for(1ms) != std::future_status::ready && std::chrono::steady_clock::now() < deadline) {
+        receiver.drain(received);  // refuses the second source
+    }
+    ASSERT_EQ(second.wait_for(0s), std::future_status::ready);
+    EXPECT_EQ(second.get(), 1);
+    const std::string said = ::testing::internal::GetCapturedStderr();
+    EXPECT_NE(said.find("refused the connection: it has another source connected"), std::string::npos) << said;
+    EXPECT_TRUE(received.empty()) << "nothing from the refused source";
 }
 
 TEST(RunFrameSource, FailsWhenTheViewerGoesAway) {
     const std::string name = test::unique_socket_name();
     SourceOptions options = quick_options(name, 1'000'000);
     std::future<int> source;
+    ::testing::internal::CaptureStderr();
     {
         MessageReceiver receiver = test::listen(name);
         source = start_source(options);
@@ -232,8 +275,13 @@ TEST(RunFrameSource, FailsWhenTheViewerGoesAway) {
         }
         ASSERT_FALSE(received.empty());
     }  // the viewer goes away mid-run
-    ASSERT_EQ(source.wait_for(1s), std::future_status::ready) << "the source didn't notice";
+    const bool finished = source.wait_for(1s) == std::future_status::ready;
+    const std::string said = ::testing::internal::GetCapturedStderr();
+    ASSERT_TRUE(finished) << "the source didn't notice";
     EXPECT_EQ(source.get(), 1);
+    // "before frame N was sent": the sentence reads whole, whatever N is.
+    EXPECT_TRUE(said.starts_with("frame_source: the viewer went away before frame ")) << said;
+    EXPECT_NE(said.find(" was sent\n"), std::string::npos) << said;
 }
 
 TEST(RunFrameSource, FailsWithoutAViewer) {

@@ -42,12 +42,13 @@ struct ViewerTiming {
 
 // What draw_viewer draws from. The context bar, and the table's highlights, are drawn from
 // `published`: the context the file holds, never the live selection, so nothing on screen claims
-// the assistant has been given something it hasn't. `publish_error` says why the last write
-// failed, if it did.
+// the assistant has been given something it hasn't. `published_bar` is the bar's text for it.
+// `publish_error` says why the last write failed, if it did.
 struct ViewerView {
     const ViewerState& state;
     ViewerTiming timing;
     const std::optional<Context>& published;
+    const std::optional<ContextBarText>& published_bar;
     const std::optional<std::string>& publish_error;
 };
 
@@ -81,15 +82,17 @@ private:
 [[nodiscard]] Label point_label(const Frame& frame);   // "<index>##point"
 [[nodiscard]] Label follow_label(const Frame& frame);  // "<id>##follow<index>"
 
-// How a frame's row is marked in the table: pointed at, and having the followed id. Decided from
-// the published context, like the bar, never from the live selection. (A function of its own,
-// because Dear ImGui doesn't report a row's selected state to tests.)
+// How a frame's row of run `run_number` is marked in the table: pointed at, and having the
+// followed id. Decided from the published context, like the bar, never from the live selection,
+// and only when that context is about the same run: frame indices restart at 0 in every run, so an
+// earlier run's published point must not mark the new run's frame with the same index. (A function
+// of its own, so tests can check the rule; they check the drawn table too.)
 struct RowMarks {
     bool pointed = false;
     bool followed = false;
     friend bool operator==(const RowMarks&, const RowMarks&) = default;
 };
-[[nodiscard]] RowMarks row_marks(const Frame& frame, const std::optional<Context>& published);
+[[nodiscard]] RowMarks row_marks(const Frame& frame, std::uint64_t run_number, const std::optional<Context>& published);
 
 // Draws the viewer's one full-screen window. Call between ImGui::NewFrame() and ImGui::Render().
 [[nodiscard]] ViewerActions draw_viewer(const ViewerView& view);

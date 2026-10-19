@@ -70,17 +70,24 @@ inline constexpr std::size_t kMaxFollowedIndices = 1000;
 struct Context {
     struct Source {
         bool connected = false;
-        std::optional<SourceHello> run;      // the run's description; empty if none was given
-        std::size_t frames_received = 0;     // in the current run
+        std::optional<std::uint64_t> run_number;  // which of the viewer's runs; empty before the first
+        std::optional<SourceHello> run;           // the run's description; empty if none was given
+        std::size_t frames_received = 0;          // in the current run
         std::optional<std::uint64_t> latest_frame_index;
-        std::optional<std::string> error;    // why the last source was dropped, if it was
+        std::optional<std::string> no_replay_reason;  // why the run's frames have no replay address
+        std::optional<std::string> error;  // why the last source was dropped or refused, if it was
+
+        // The source sent more frames than its description said it would.
+        [[nodiscard]] bool more_frames_than_described() const noexcept {
+            return run && frames_received > run->frame_count;
+        }
 
         friend bool operator==(const Source&, const Source&) = default;
     };
     struct Point {
         std::uint64_t seq;
         Frame frame;
-        std::optional<ReplayAddress> replay;  // empty when the run has no description
+        std::optional<ReplayAddress> replay;  // empty when the run has none (Source::no_replay_reason)
 
         friend bool operator==(const Point&, const Point&) = default;
     };
@@ -105,9 +112,10 @@ struct Context {
 [[nodiscard]] Context make_context(const ViewerState& state, const Selection& selection);
 
 // Who wrote the file. The file outlives the viewer, so a reader needs to tell a current file from
-// one a viewer left behind: `running` is false in the last file a viewer writes as it exits, and
-// `pid` names the process (if it is still running, /proc/<pid> exists). A viewer that crashes
-// can't write its last file, so `running: true` with a pid that no longer exists means it crashed.
+// one a viewer left behind: `running` is false in the last file a viewer writes as it exits
+// (including when it is stopped by SIGINT or SIGTERM), and `pid` names the process (if it is still
+// running, /proc/<pid> exists). A viewer that crashes or is killed (SIGKILL) can't write its last
+// file, so `running: true` with a pid that no longer exists means one of those happened.
 struct Writer {
     std::int64_t pid = 0;
     std::int64_t started_at_ms = 0;  // milliseconds since the Unix epoch

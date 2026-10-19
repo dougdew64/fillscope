@@ -4,10 +4,14 @@
 //   viewer [--exit-after SECONDS] [--socket NAME] [--context-file PATH]
 //
 // It prints one line per second, "viewer: t=… paints=… frames=…", so a script can check that it
-// keeps painting while the frame source is stopped in a debugger.
+// keeps painting while the frame source is stopped in a debugger, and a line on stderr whenever
+// publishing the context starts failing or works again. Closing the window, --exit-after, SIGINT
+// and SIGTERM all end it the same way: the last context file says it is no longer running. It
+// exits 1 if that last write fails.
 
 #include "channel/net.h"
 #include "viewer/viewer_app.h"
+#include "viewer/stop_signals.h"
 #include "viewer/viewer_options.h"
 
 #include <GLFW/glfw3.h>
@@ -44,23 +48,33 @@ private:
 // second parameter is the deleter's type: here a function pointer, called instead of delete.
 using WindowPtr = std::unique_ptr<GLFWwindow, decltype(&glfwDestroyWindow)>;
 
-// Dear ImGui's context and its two backends, set up together and shut down in reverse order.
+// Dear ImGui's context and its two backends, set up together and shut down in reverse order; only
+// what was set up is shut down.
 class ImGuiSession {
 public:
     explicit ImGuiSession(GLFWwindow* window) {
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
         ImGui::GetIO().IniFilename = nullptr;  // no imgui.ini written to the working directory
-        ImGui_ImplGlfw_InitForOpenGL(window, true);
-        ImGui_ImplOpenGL3_Init("#version 330");
+        glfw_ready_ = ImGui_ImplGlfw_InitForOpenGL(window, true);
+        opengl_ready_ = glfw_ready_ && ImGui_ImplOpenGL3_Init("#version 330");
     }
     ImGuiSession(const ImGuiSession&) = delete;
     ImGuiSession& operator=(const ImGuiSession&) = delete;
     ~ImGuiSession() {
-        ImGui_ImplOpenGL3_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
+        if (opengl_ready_) {
+            ImGui_ImplOpenGL3_Shutdown();
+        }
+        if (glfw_ready_) {
+            ImGui_ImplGlfw_Shutdown();
+        }
         ImGui::DestroyContext();
     }
+    [[nodiscard]] bool ready() const noexcept { return opengl_ready_; }
+
+private:
+    bool glfw_ready_ = false;
+    bool opengl_ready_ = false;
 };
 
 }  // namespace
@@ -79,6 +93,10 @@ int main(int argc, char** argv) {
         return 1;
     }
     fillscope::MessageReceiver receiver{std::move(*listener)};
+    if (const auto installed = fillscope::install_stop_signals(); !installed) {
+        std::println(stderr, "viewer: can't handle SIGINT and SIGTERM: {}", installed.error().message());
+        return 1;
+    }
 
     // GLFW reports errors through a callback; a non-capturing lambda converts to the function
     // pointer it takes.
@@ -101,12 +119,16 @@ int main(int argc, char** argv) {
     glfwMakeContextCurrent(window.get());
     glfwSwapInterval(1);
     const ImGuiSession imgui{window.get()};
+    if (!imgui.ready()) {
+        std::println(stderr, "viewer: can't start Dear ImGui's GLFW and OpenGL 3 backends");
+        return 1;
+    }
 
     fillscope::ViewerApp app{options->context_file};
     const auto start = std::chrono::steady_clock::now();
     int last_report_second = 0;
 
-    while (!glfwWindowShouldClose(window.get())) {
+    while (!glfwWindowShouldClose(window.get()) && !fillscope::stop_requested()) {
         glfwPollEvents();
         const auto now = std::chrono::steady_clock::now();
         app.receive(receiver, now);
@@ -114,8 +136,11 @@ int main(int argc, char** argv) {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        app.paint(now);
+        (void)app.paint(now);
         ImGui::Render();
+        if (const auto report = app.publish_report()) {
+            std::println(stderr, "viewer: {}", *report);
+        }
 
         int width = 0;
         int height = 0;
@@ -137,6 +162,15 @@ int main(int argc, char** argv) {
             break;
         }
     }
-    app.finish();  // the last file says this viewer is no longer running
+    if (fillscope::stop_requested()) {
+        std::println(stderr, "viewer: stopping, as a signal asked");
+    }
+    // Takes in whatever arrived since the last paint, so the last file counts every frame received.
+    app.receive(receiver, std::chrono::steady_clock::now());
+    if (!app.finish()) {  // the last file says this viewer is no longer running
+        std::println(stderr, "viewer: can't publish the final context to {}: {}", app.publisher().file().string(),
+                     *app.publisher().error());
+        return 1;
+    }
     return 0;
 }

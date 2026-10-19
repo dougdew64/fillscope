@@ -1,16 +1,21 @@
 #include "viewer/viewer_app.h"
 
+#include <format>
 #include <variant>
 #include <vector>
 
 namespace fillscope {
 
 void ViewerApp::receive(MessageReceiver& receiver, Clock::time_point now) {
-    std::vector<Message> received;
-    if (receiver.drain(received).new_sender) {
-        begin_connection();
+    received_.clear();  // keeps its storage
+    if (receiver.drain(received_).new_sender) {
+        connection_pending_ = true;
     }
-    for (const Message& message : received) {
+    for (const Message& message : received_) {
+        if (connection_pending_) {
+            begin_connection();
+            connection_pending_ = false;
+        }
         apply(message, now);
     }
     state_.source_connected = receiver.connected();
@@ -37,8 +42,11 @@ ViewerActions ViewerApp::paint(Clock::time_point now) {
     if (last_frame_at_) {
         timing.seconds_since_frame = std::chrono::duration<double>(now - *last_frame_at_).count();
     }
-    const ViewerActions actions = draw_viewer(ViewerView{
-        .state = state_, .timing = timing, .published = publisher_.published(), .publish_error = publisher_.error()});
+    const ViewerActions actions = draw_viewer(ViewerView{.state = state_,
+                                                         .timing = timing,
+                                                         .published = publisher_.published(),
+                                                         .published_bar = publisher_.published_bar(),
+                                                         .publish_error = publisher_.error()});
     fillscope::apply(actions, selection_);
     publisher_.update(make_context(state_, selection_),
                       actions.any() ? PublishTrigger::user_action : PublishTrigger::background, now);
@@ -46,6 +54,21 @@ ViewerActions ViewerApp::paint(Clock::time_point now) {
     return actions;
 }
 
-void ViewerApp::finish() { publisher_.finish(make_context(state_, selection_)); }
+bool ViewerApp::finish() {
+    publisher_.finish(make_context(state_, selection_));
+    return !publisher_.error();
+}
+
+std::optional<std::string> ViewerApp::publish_report() {
+    const std::optional<std::string>& error = publisher_.error();
+    if (error == reported_error_) {
+        return std::nullopt;
+    }
+    reported_error_ = error;
+    if (error) {
+        return std::format("can't publish the context to {}: {}", publisher_.file().string(), *error);
+    }
+    return std::format("publishing the context to {} again", publisher_.file().string());
+}
 
 }  // namespace fillscope

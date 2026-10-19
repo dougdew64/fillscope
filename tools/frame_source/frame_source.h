@@ -79,6 +79,9 @@ struct SourceOptions {
     // How long to wait for a viewer that may still be starting: about five seconds by default.
     int connect_attempts = 50;
     std::chrono::milliseconds connect_retry{100};
+    // How long to wait, once connected, for the viewer to accept the connection: a viewer takes it
+    // on its next paint, and one that has a source already refuses it at once.
+    std::chrono::milliseconds accept_timeout{2000};
 };
 
 // The options a command line asks for, or why it can't be read: an unknown option, an option
@@ -86,9 +89,11 @@ struct SourceOptions {
 // program's name.
 [[nodiscard]] std::expected<SourceOptions, std::string> parse_source_args(std::span<const char* const> args);
 
-// Connects to the viewer, describes the run (a SourceHello with the seed and frame count), then
-// sends the frames, calling the anchor after each. Returns the process's exit code: 0, or 1 with
-// the reason written to standard error.
+// Connects to the viewer and waits for it to accept the connection, describes the run (a
+// SourceHello with the seed and frame count), then sends the frames, calling the anchor after each
+// and waiting the interval between them. Returns the process's exit code: 0, or 1 with the reason
+// written to standard error (including a viewer that refused the connection because it has
+// another source connected).
 [[nodiscard]] int run_frame_source(const SourceOptions& options);
 
 }  // namespace fillscope

@@ -48,8 +48,14 @@ public:
     void finish(const Context& context);
 
     // What the file holds now, which is what the context bar draws: the last context written
-    // successfully, never one that failed to write.
+    // successfully, never one that failed to write. When a write fails, the old file is removed if
+    // it can be, so that a reader finds no file rather than one the user has since changed; then
+    // nothing is published until a write succeeds.
     [[nodiscard]] const std::optional<Context>& published() const noexcept { return published_; }
+
+    // The context bar's text for published(), built once per successful write rather than on every
+    // paint.
+    [[nodiscard]] const std::optional<ContextBarText>& published_bar() const noexcept { return published_bar_; }
 
     // Why the last write failed, or empty if it succeeded. Cleared by the next successful write.
     [[nodiscard]] const std::optional<std::string>& error() const noexcept { return error_; }
@@ -67,6 +73,7 @@ private:
     std::chrono::milliseconds min_interval_;
     Writer writer_;
     std::optional<Context> published_;
+    std::optional<ContextBarText> published_bar_;
     std::optional<std::string> error_;
     std::uint64_t seq_ = 0;
     std::optional<Clock::time_point> last_attempt_;

@@ -56,8 +56,9 @@ void expect_one_stop_per_frame_in_the_anchor(const std::vector<Stop>& stops, con
         }                                                                       \
     } while (false)
 
-// A listener for the frame source to send to, and the frame source's arguments pointing at it. The
-// messages are drained afterwards, to check the run's description and every frame arrived.
+// A listener for the frame source to send to, drained throughout (the frame source waits for its
+// connection to be accepted), and the frame source's arguments pointing at it. What arrived is
+// checked afterwards: the run's description and every frame.
 class LockstepDebugger : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -75,14 +76,17 @@ protected:
     }
 
     void expect_all_frames_arrived() {
-        std::vector<Message> messages;
-        receiver_.drain(messages);
-        EXPECT_EQ(messages.size(), static_cast<std::size_t>(kFrames) + 1);  // the description, then the frames
+        // The frame source has exited, so everything it sent is waiting; a few drains take it all.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{1};
+        while (receiver_.messages().size() < kFrames + 1u && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
+        EXPECT_EQ(receiver_.messages().size(), static_cast<std::size_t>(kFrames) + 1);  // the description, then the frames
     }
 
     const std::string source_ = test::shell_quote(FILLSCOPE_FRAME_SOURCE);
     std::string name_ = test::unique_socket_name();
-    MessageReceiver receiver_ = test::listen(name_);
+    test::BackgroundReceiver receiver_{name_};
 };
 
 TEST_F(LockstepDebugger, GdbBreakpointByNameStopsInTheAnchor) {

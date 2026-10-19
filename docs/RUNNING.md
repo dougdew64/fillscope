@@ -79,9 +79,11 @@ the slower program adds the tier to its name.
   publishing (including failure and recovery), and the command line.
 - **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** the viewer's whole loop, as
   `ViewerApp` runs it for the program, with real clicks: pointing at and following, clearing, a new
-  run, the bar and the table's highlights saying exactly what the file holds, a failed write shown
-  in the bar and the tooltips, and frames from a real frame source process followed by a second
-  source that never describes itself. Text is checked through Dear ImGui's logging, since plain
+  run, the bar and the table's marks (as drawn: each row reports them to the Test Engine) saying
+  exactly what the file holds, a failed write shown in the bar and the tooltips, connections that
+  send nothing valid, and frames from a real frame source process followed by a second source that
+  never describes itself. (The followed rows' colour itself isn't observable; their id buttons
+  report the mark.) Text is checked through Dear ImGui's logging, since plain
   text items have no ID for the Test Engine to find; rows, buttons and the plot are found by their
   IDs.
 - **`docs_tests` (GoogleTest, `unit`):** every relative link in the repository's Markdown documents
@@ -106,11 +108,13 @@ fails can't make a mutant look caught. Both always restore the source, even when
 signal. `selection_check.py` uses its own pass record, never the real one.
 
 ## Run
-Start `build/debug/viewer`, then `build/debug/frame_source`. The frame source first describes its
-run (its seed and frame count), then sends five frames a second. When it exits, the viewer goes
-back to "waiting"; a new frame source starts a new run, which replaces the old one's frames.
-`--exit-after SECONDS` closes the viewer after that long; `--socket NAME` must match the frame
-source's.
+Start `build/debug/viewer`, then `build/debug/frame_source`. The frame source waits for the viewer
+to accept it, describes its run (its seed and frame count), then sends five frames a second. When
+it exits, the viewer goes back to "waiting"; a new frame source starts a new run, which replaces
+the old one's frames. A frame source started while another is connected is refused, and says so.
+`--exit-after SECONDS` closes the viewer after that long; Ctrl-C and SIGTERM close it the same
+way, so its last context file says it has stopped. `--socket NAME` must match the frame source's.
+The viewer prints on stderr when publishing the context fails and when it works again.
 
 ## Pointing and following
 In the viewer's frame table, **click a row to point at its frame**, and **click a frame's id to

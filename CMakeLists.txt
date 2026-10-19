@@ -81,7 +81,8 @@ target_link_libraries(imgui_app PUBLIC glfw OpenGL::GL)
 # The viewer's core, without Dear ImGui: what it has received, what the user has pointed at and
 # followed, and the context it publishes. Unit-tested on its own.
 add_library(fillscope_viewer_core STATIC
-  src/viewer/viewer_state.cpp src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp)
+  src/viewer/viewer_state.cpp src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp
+  src/viewer/stop_signals.cpp)
 target_include_directories(fillscope_viewer_core PUBLIC src)
 target_link_libraries(fillscope_viewer_core PUBLIC fillscope_channel nlohmann_json::nlohmann_json)
 target_compile_options(fillscope_viewer_core PRIVATE ${FILLSCOPE_WARNINGS})

@@ -40,7 +40,7 @@ processes also mean the parts talk over sockets, as trading systems do (charter 
 **Why files for the assistant:** the assistant runs in another program and can't see inside the
 viewer or the debugger. Each writes what it knows to a file the assistant reads. Neither waits to
 be asked: you ask your question in the editor, which the viewer never sees, so the viewer publishes
-the moment anything changes.
+whatever you do at once, and other changes within a tenth of a second (§6).
 
 ## 2. The code, by directory
 | Directory | Its job | Built as |
@@ -61,8 +61,9 @@ viewer's UI tests link the frame source's library to know which frames to expect
 must know where each value ends and what kind it is.
 
 **Two kinds of message**, in `message.h`:
-- `SourceHello { seed, frame_count }` opens every connection. It describes the run, and its seed is
-  what makes a frame reproducible: the same seed always gives the same frames.
+- `SourceHello { seed, frame_count }` is the first thing the frame source sends on a connection. It
+  describes the run, and its seed is what makes a frame reproducible: the same seed always gives
+  the same frames. (A source may send frames without one; then its frames have no replay address.)
 - `Frame { index, price, qty, id }` is one frame (`frame.h`). Today every field is a stand-in;
   `id` recurs across frames so there is something to follow.
 
@@ -75,7 +76,7 @@ forces every handler to deal with it.
 payload's bytes. `encode` and `decode` convert. `decode` returns `std::expected<Message,
 std::string>`: the message, or why the bytes aren't one (too short, unknown kind, wrong size).
 Copying raw bytes is valid only for types whose bytes are their whole value, so `static_assert`s
-check both payloads are trivially copyable.
+check that both payloads have unique object representations: trivially copyable, and no padding.
 
 **The socket** (`net.h`) is a Unix `SOCK_SEQPACKET` socket in Linux's abstract namespace:
 - *SEQPACKET* keeps message boundaries (one send arrives as one datagram) and delivers in order,
@@ -86,21 +87,27 @@ check both payloads are trivially copyable.
 - `listen_on`, `connect_to` and `send_message` return `std::expected<..., std::error_code>`: the
   result, or the operating system's reason it failed, which the caller reports as it is.
 - `MessageReceiver::drain` is the viewer's side. It never blocks: it accepts a sender if none is
-  connected (and says so, in its result: a new sender means a new connection), then takes the
-  messages waiting, up to a bound, and returns. A sender that sends garbage is dropped and
-  `error()` says why.
+  connected (and says so, in its result: a new sender means a new connection), tells the sender it
+  was accepted, then takes the messages waiting, up to a bound, and returns. A sender that sends
+  garbage is dropped and `error()` says why. While one sender is connected, any other is refused:
+  accepted and closed at once.
+- **Why accepting is acknowledged:** a `connect` succeeds as soon as the connection is queued,
+  before the viewer has taken it, so a source that sent at once could fill the socket's buffer and
+  believe its frames had arrived. So the frame source waits (`wait_until_accepted`) for the
+  viewer's one-byte acknowledgement before sending anything; a refused source sees the connection
+  closed instead, and says the viewer has another source.
 
 ## 4. The frame source (`tools/frame_source/`)
 **The problem:** the viewer and the debugger integration need frames before the real system
 exists.
 
-`run_frame_source` connects to the viewer (retrying while the viewer starts), sends a
-`SourceHello`, then for each frame:
+`run_frame_source` connects to the viewer (retrying while the viewer starts), waits for the viewer
+to accept the connection, sends a `SourceHello`, then for each frame:
 ```cpp
 const Frame frame = generator.next();       // the next frame, from the seed
 send_message(*viewer, frame);               // to the viewer (its failure is reported, not shown here)
 fillscope_frame_anchor(frame.index);        // where a debugger stops
-std::this_thread::sleep_for(options.interval);
+std::this_thread::sleep_for(options.interval); // between frames, not after the last
 ```
 `FrameGenerator` draws from `std::mt19937_64` seeded with the run's seed, in a fixed order (price
 step, qty, id), so a seed fully determines every frame. That is what a replay address relies on,
@@ -125,9 +132,10 @@ the code calls the widget functions again, and a widget function returns `true` 
 clicked. So the viewer is one loop, once per paint. `ViewerApp` (`viewer_app.h`) holds it, and both
 `main.cpp` and the UI tests run it, so the tests take exactly the program's steps:
 
-1. **Take in messages** (`ViewerApp::receive`): `receiver.drain(...)`. If a new source has
-   connected, `begin_connection()` drops the old run and the point first, so a new source's frames
-   never join an old run (and never claim its seed). Then `apply(message)` for each; a
+1. **Take in messages** (`ViewerApp::receive`): `receiver.drain(...)`. When a new source sends its
+   first valid message, `begin_connection()` drops the old run and the point first, so a new
+   source's frames never join an old run (and never claim its seed). A connection that sends
+   nothing valid leaves the run you are examining in place. Then `apply(message)` for each; a
    `SourceHello` starts a new run (so does a first frame, when there is no run), and when one
    starts, `selection.new_run()` drops the point, which belonged to the old run. The follow stays:
    an id can mean something in the next run too.
@@ -138,8 +146,11 @@ clicked. So the viewer is one loop, once per paint. `ViewerApp` (`viewer_app.h`)
 4. **Publish:** `publisher.update(make_context(state, selection), trigger, now)`, where the trigger
    is `PublishTrigger::user_action` if you clicked anything and `background` otherwise.
 
-When the viewer exits, `ViewerApp::finish()` publishes once more with the writer marked as no
-longer running, so a reader can tell a stale file from a live one.
+When the viewer exits (its window closed, `--exit-after`, or SIGINT or SIGTERM, which only ask the
+loop to stop), it takes in what is waiting and `ViewerApp::finish()` publishes once more with the
+writer marked as no longer running, so a reader can tell a stale file from a live one. A failure to
+publish is printed on stderr when it starts and when it ends, and a failed last write makes the
+viewer exit 1.
 
 Because drawing only reads what it is given and returns actions, a test can draw the viewer with
 any state and check what it shows and what a click returns.
@@ -147,8 +158,8 @@ any state and check what it shows and what a click returns.
 ### The pieces
 | Type (file) | Holds | Why it is shaped this way |
 |---|---|---|
-| `Run` (`viewer_state.h`) | One run's description, frames, each id's frame indices, and the price envelope | A class, so all of these can only change together through `append` and can't fall out of step |
-| `PriceEnvelope` (`viewer_state.h`) | The prices as at most 4,096 buckets, each a low and a high | Bounded however long the run: when full, neighbouring buckets merge in pairs, so no spike is lost; the plot draws it reduced to its own width |
+| `Run` (`viewer_state.h`) | One run's number, description, frames, each id's frame indices, the price envelope, and whether its indices count 0, 1, 2, ... | A class, so all of these can only change together through `append` and can't fall out of step |
+| `PriceEnvelope` (`viewer_state.h`) | The prices, exactly, as at most 4,096 buckets, each a low and a high | Bounded however long the run: when full, neighbouring buckets merge in pairs, so no spike is lost; the plot reduces it to at most one bucket per pixel and draws every one |
 | `ViewerState` (`viewer_state.h`) | The current run, whether the source is connected, why the last one was dropped | Replaced run by run: frame indices restart at 0 in every run, so frames of two runs never mix |
 | `Selection` (`context.h`) | What is pointed at and what is followed, each with a sequence number | Both numbers come from one counter, so whichever is higher is what you did last |
 | `Context` (`context.h`) | One value: everything published at one moment | Built by `make_context`; a plain value with `==`, so "has anything changed?" is one comparison |
@@ -160,8 +171,14 @@ question ("why didn't *this* fill?"), a follow is a lens on it (this id, across 
 arrive, so it costs the same however long the run. It lists up to 1,000 and always counts all.
 
 **A replay address** is the run's seed plus a frame's index. Running the frame source with that
-seed reproduces that frame exactly. A run whose source didn't describe itself has no seed, so its
-frames have no replay address, and the file says why.
+seed reproduces that frame exactly, but only if the run's frames arrived numbered 0, 1, 2, ...,
+which the run checks. A run whose source didn't describe itself has no seed, and one whose indices
+broke the sequence can't be trusted from that point; their frames have no replay address, and the
+file says why.
+
+**Each run has a number** (1 for the viewer's first), published with the context. Frame indices
+restart at 0 in every run, so the table marks a row as pointed at only when the published context
+is about the same run, and its point is that very frame.
 
 ### Publishing, and why the bar can't lie
 `ContextPublisher::update` is called every paint:
@@ -172,7 +189,9 @@ frames have no replay address, and the file says why.
   back is written by a later paint, so the file always catches up.
 - A write goes to a temporary file, is flushed to disk, then `rename`d over the old one: a reader
   sees the whole old file or the whole new one, never half. A failed write removes its temporary
-  file, and its error says why (the system's reason, not just the fact).
+  file, and its error says why (the system's reason, not just the fact). It also removes the old
+  file if it can, since that no longer says what you have assembled; then nothing is published
+  until a write succeeds.
 - A failed write is retried on later paints, even if nothing has changed, until one succeeds.
 - The file names its writer: the program, its process id, when it started, and whether it is
   still running.

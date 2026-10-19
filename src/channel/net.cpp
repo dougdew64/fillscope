@@ -6,9 +6,11 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <format>
 #include <span>
@@ -32,6 +34,11 @@ struct Address {
 // exactly those bytes (no terminator). A name too long is refused rather than cut short: two names
 // that differed only past the limit would otherwise be the same address.
 std::expected<Address, std::error_code> make_address(std::string_view name) {
+    // An empty name is refused: bound, it would make the kernel choose a name (autobind), which no
+    // other process could know.
+    if (name.empty()) {
+        return std::unexpected{std::make_error_code(std::errc::invalid_argument)};
+    }
     if (name.size() > kMaxSocketNameLength) {
         return std::unexpected{std::make_error_code(std::errc::filename_too_long)};
     }
@@ -49,6 +56,19 @@ const sockaddr* as_sockaddr(const sockaddr_un& address) noexcept { return reinte
 bool peer_closed(const Fd& socket) noexcept {
     pollfd poll_request{.fd = socket.get(), .events = POLLRDHUP, .revents = 0};
     return ::poll(&poll_request, 1, 0) == 1 && (poll_request.revents & (POLLRDHUP | POLLHUP)) != 0;
+}
+
+// Whether a non-empty datagram is waiting on a connected socket, without taking it. MSG_PEEK
+// leaves it queued; a one-byte buffer is enough, since only whether something arrived matters.
+bool datagram_waiting(const Fd& socket) noexcept {
+    std::byte byte{};
+    return ::recv(socket.get(), &byte, 1, MSG_PEEK | MSG_DONTWAIT) > 0;
+}
+
+// Whether a failed accept4 just means nobody was waiting (or the one waiting gave up), rather than
+// a fault worth reporting, such as having no file descriptors left.
+bool nobody_to_accept(int error) noexcept {
+    return error == EAGAIN || error == EWOULDBLOCK || error == EINTR || error == ECONNABORTED;
 }
 
 }  // namespace
@@ -79,11 +99,14 @@ std::expected<Fd, std::error_code> listen_on(std::string_view name) {
 
 std::expected<Fd, std::error_code> connect_to(std::string_view name, int attempts,
                                               std::chrono::milliseconds retry_delay) {
+    if (attempts < 1) {
+        return std::unexpected{std::make_error_code(std::errc::invalid_argument)};
+    }
     const auto address = make_address(name);
     if (!address) {
         return std::unexpected{address.error()};
     }
-    std::error_code error = std::make_error_code(std::errc::connection_refused);
+    std::error_code error;  // set by every failed attempt, and there is at least one
     for (int attempt = 0; attempt < attempts; ++attempt) {
         if (attempt > 0) {
             std::this_thread::sleep_for(retry_delay);  // between attempts, not after the last
@@ -106,6 +129,35 @@ std::expected<Fd, std::error_code> connect_to(std::string_view name, int attempt
         return socket;
     }
     return std::unexpected{error};
+}
+
+std::expected<void, std::error_code> wait_until_accepted(const Fd& socket, std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (true) {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        pollfd poll_request{.fd = socket.get(), .events = POLLIN, .revents = 0};
+        const int ready = ::poll(&poll_request, 1, static_cast<int>(std::max(left.count(), std::int64_t{0})));
+        if (ready < 0 && errno == EINTR) {
+            continue;  // a signal arrived; wait for the rest of the time
+        }
+        if (ready < 0) {
+            return std::unexpected{last_error()};
+        }
+        if (ready == 0) {
+            return std::unexpected{std::make_error_code(std::errc::timed_out)};
+        }
+        std::byte acknowledgement{};
+        const ssize_t n = ::recv(socket.get(), &acknowledgement, 1, 0);
+        if (n == 1) {
+            return {};
+        }
+        if (n == 0) {
+            return std::unexpected{std::make_error_code(std::errc::connection_refused)};  // closed: refused
+        }
+        if (errno != EINTR) {
+            return std::unexpected{last_error()};
+        }
+    }
 }
 
 std::expected<void, std::error_code> send_message(const Fd& socket, const Message& message) {
@@ -133,11 +185,26 @@ void MessageReceiver::drop_sender(std::string reason) {
     sender_.reset();  // a sender speaking something else can't be trusted further
 }
 
+std::optional<Fd> MessageReceiver::accept_waiting() {
+    Fd accepted{::accept4(listener_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)};
+    if (accepted) {
+        return accepted;
+    }
+    if (!nobody_to_accept(errno)) {
+        error_ = std::format("can't accept a source: {}", last_error().message());
+    }
+    return std::nullopt;
+}
+
 DrainResult MessageReceiver::drain(std::vector<Message>& out) {
     DrainResult result;
     if (!sender_) {
-        if (Fd accepted{::accept4(listener_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC)}) {
-            sender_ = std::move(accepted);
+        if (auto accepted = accept_waiting()) {
+            // Tells the sender it was accepted (wait_until_accepted). It can only fail if the
+            // sender has already gone, which the first recv below then finds.
+            constexpr std::byte kAccepted{1};
+            (void)::send(accepted->get(), &kAccepted, 1, MSG_NOSIGNAL | MSG_DONTWAIT);
+            sender_ = std::move(*accepted);
             error_.reset();
             result.new_sender = true;
         }
@@ -145,7 +212,7 @@ DrainResult MessageReceiver::drain(std::vector<Message>& out) {
     // One byte more than the largest message, so an oversized datagram arrives as oversized (and
     // fails to decode) rather than cut down to a size that might decode.
     std::array<std::byte, kMaxMessageSize + 1> buffer;
-    while (sender_ && result.received < kMaxMessagesPerDrain) {
+    while (sender_ && result.received < max_per_drain_) {
         const ssize_t n = ::recv(sender_.get(), buffer.data(), buffer.size(), 0);
         if (n > 0) {
             auto message = decode(std::span{buffer}.first(static_cast<std::size_t>(n)));
@@ -157,11 +224,14 @@ DrainResult MessageReceiver::drain(std::vector<Message>& out) {
             ++result.received;
         } else if (n == 0) {
             // recv returns 0 both when the sender has closed its end and for an empty datagram,
-            // which no sender of ours sends. Asking whether the peer has hung up tells them apart.
-            if (peer_closed(sender_)) {
-                sender_.reset();
-            } else {
+            // which no sender of ours sends. A sender still connected sent an empty datagram. One
+            // that has closed may have sent one before closing, with more queued after it: then a
+            // datagram is still waiting, and the 0 was an empty message, not the end. (An empty
+            // datagram that is the very last thing sent before closing can't be told from the end.)
+            if (!peer_closed(sender_) || datagram_waiting(sender_)) {
                 drop_sender("an empty message");
+            } else {
+                sender_.reset();
             }
         } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
             break;  // nothing more waiting
@@ -171,6 +241,14 @@ DrainResult MessageReceiver::drain(std::vector<Message>& out) {
             sender_.reset();  // the sender went away abruptly: a disconnect, not a fault
         } else {
             drop_sender(std::format("the connection failed: {}", last_error().message()));
+        }
+    }
+    // One source at a time: any other that connected meanwhile is refused (accepted and closed at
+    // once), so its sends fail and it says so, rather than seeming to succeed into a queue that
+    // would be read only after this source leaves.
+    while (sender_) {
+        if (!accept_waiting()) {
+            break;
         }
     }
     return result;

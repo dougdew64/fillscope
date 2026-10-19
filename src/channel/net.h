@@ -57,14 +57,24 @@ private:
 };
 
 // A non-blocking listening socket, or why there isn't one (EADDRINUSE: another listener has the
-// name; ENAMETOOLONG: the name is too long).
+// name; ENAMETOOLONG: the name is too long; EINVAL: the name is empty).
 [[nodiscard]] std::expected<Fd, std::error_code> listen_on(std::string_view name);
 
 // Connects to a listener, making `attempts` tries `retry_delay` apart while it may still be
 // starting. Never blocks for long: a listener whose queue is full counts as a failed attempt. On
-// failure, the reason from the last attempt.
+// failure, the reason from the last attempt (EINVAL if `attempts` is less than 1, or the name is
+// empty).
 [[nodiscard]] std::expected<Fd, std::error_code> connect_to(std::string_view name, int attempts,
                                                              std::chrono::milliseconds retry_delay);
+
+// Waits until the receiver at the other end of `socket` has accepted it, up to `timeout`. A connect
+// succeeds as soon as the connection is queued, before any receiver has taken it, so a sender that
+// sent at once could fill the socket's buffer and believe its messages had arrived. The receiver
+// sends one byte to a sender it accepts (MessageReceiver::drain) and closes one it refuses. Fails
+// with ECONNREFUSED if the receiver refused it (it has a sender already), ETIMEDOUT if nothing came
+// in time, or the system's reason.
+[[nodiscard]] std::expected<void, std::error_code> wait_until_accepted(const Fd& socket,
+                                                                       std::chrono::milliseconds timeout);
 
 // Sends one message, or says why it couldn't. Blocks while the receiver's queue is full.
 [[nodiscard]] std::expected<void, std::error_code> send_message(const Fd& socket, const Message& message);
@@ -80,32 +90,43 @@ struct DrainResult {
 };
 
 // The viewer's side: accepts one sender at a time and drains its messages without waiting for any,
-// taking at most kMaxMessagesPerDrain per call, so it can be called once per paint. While one
-// sender is connected, later senders wait in the listener's queue (one place); the next is
-// accepted by the first call after the current sender leaves.
+// taking at most kMaxMessagesPerDrain per call, so it can be called once per paint. A sender it
+// accepts is told so (see wait_until_accepted). While one sender is connected, any other that
+// connects is refused: accepted and closed by the next call, without being told it was accepted.
+// A sender that connects after the current one has left is accepted.
 class MessageReceiver {
 public:
     // At most this many messages are taken per call, so one call's time is bounded even if a
     // sender keeps the socket full; the rest wait for the next call.
     static constexpr std::size_t kMaxMessagesPerDrain = 10'000;
 
-    explicit MessageReceiver(Fd listener) : listener_{std::move(listener)} {}
+    // `max_per_drain` is kMaxMessagesPerDrain except in tests, which use a small one to check the
+    // bound (a socket's buffer holds only a few hundred datagrams, so the real bound is out of
+    // reach of a test).
+    explicit MessageReceiver(Fd listener, std::size_t max_per_drain = kMaxMessagesPerDrain)
+        : listener_{std::move(listener)}, max_per_drain_{max_per_drain} {}
 
     // Accepts a sender if none is connected, then appends the messages waiting from it. A sender
     // that disconnects is dropped; the next is accepted on a later call. A sender that sends
-    // something that isn't a message is dropped too, and error() says why.
+    // something that isn't a message is dropped too, and error() says why. Then refuses any other
+    // sender waiting while this one is still connected.
     DrainResult drain(std::vector<Message>& out);
 
     [[nodiscard]] bool connected() const noexcept { return static_cast<bool>(sender_); }
 
-    // Why the current or last sender was dropped for sending something invalid. Empty if it
-    // wasn't, and cleared when a new sender is accepted.
+    // Why the current or last sender was dropped for sending something invalid, or why a sender
+    // couldn't be accepted (no file descriptors left, say). Empty if neither happened, and cleared
+    // when a new sender is accepted.
     [[nodiscard]] const std::optional<std::string>& error() const noexcept { return error_; }
 
 private:
     void drop_sender(std::string reason);
+    // Accepts one waiting sender, if there is one; records why if accepting failed for a reason
+    // other than nobody waiting.
+    std::optional<Fd> accept_waiting();
 
     Fd listener_;
+    std::size_t max_per_drain_;
     Fd sender_;
     std::optional<std::string> error_;
 };

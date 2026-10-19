@@ -9,6 +9,10 @@
 #include <unistd.h>
 
 #include <array>
+#include <chrono>
+#include <mutex>
+#include <stop_token>
+#include <thread>
 #include <atomic>
 #include <cerrno>
 #include <cstdio>
@@ -36,6 +40,40 @@ inline MessageReceiver listen(std::string_view name) {
     }
     return MessageReceiver{std::move(*listener)};
 }
+
+// A receiver drained on a thread of its own, every millisecond, for tests that run a frame source
+// and look at what arrived afterwards: a frame source waits until a drain accepts its connection,
+// so draining only afterwards would leave it waiting.
+class BackgroundReceiver {
+public:
+    explicit BackgroundReceiver(std::string_view name) : receiver_{listen(name)} {}
+    BackgroundReceiver(const BackgroundReceiver&) = delete;
+    BackgroundReceiver& operator=(const BackgroundReceiver&) = delete;
+
+    // Everything received so far.
+    [[nodiscard]] std::vector<Message> messages() const {
+        const std::scoped_lock lock{mutex_};
+        return messages_;
+    }
+
+private:
+    void run(const std::stop_token& stop) {
+        while (!stop.stop_requested()) {
+            {
+                const std::scoped_lock lock{mutex_};
+                receiver_.drain(messages_);
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
+    }
+
+    MessageReceiver receiver_;
+    mutable std::mutex mutex_;
+    std::vector<Message> messages_;
+    // Declared last, so it starts after everything it uses exists, and (as std::jthread asks its
+    // thread to stop and joins it in its destructor) stops before any of it is destroyed.
+    std::jthread thread_{[this](const std::stop_token& stop) { run(stop); }};
+};
 
 // A child process started with posix_spawn. The destructor waits for it, so none is left behind.
 class ChildProcess {

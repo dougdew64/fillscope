@@ -101,11 +101,19 @@ void ContextPublisher::finish(const Context& context) {
 void ContextPublisher::write(const Context& context) {
     const std::string text = to_json(context, writer_, seq_ + 1, now_ms()).dump(1) + "\n";
     if (auto written = write_atomically(file_, text); !written) {
-        error_ = std::move(written.error());  // the bar shows this; published_ still says what the file holds
+        error_ = std::move(written.error());  // the bar shows this
+        // The old file no longer says what the user has assembled. Removing it is often impossible
+        // too (when the directory can't be written), and then published_ still says what it holds.
+        // unlink, not std::filesystem::remove, which would also remove an empty directory there.
+        if (::unlink(file_.c_str()) == 0) {
+            published_.reset();
+            published_bar_.reset();
+        }
         return;
     }
     ++seq_;
     published_ = context;
+    published_bar_ = bar_text(context);
     error_.reset();
 }
 

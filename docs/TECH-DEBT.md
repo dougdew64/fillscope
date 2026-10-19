@@ -306,15 +306,43 @@ listed. The first sweep's 59 items were fixed in the "Tech debt, chunk 1" to "ch
     - the charter's decision 3 says the app "logs the context of what is selected"; it writes a file, replaced on every change, as README.md now says;
     - README.md lacks the Purpose / Status / Read when lines that CLAUDE.md requires of every document.
 
+## H. From the test machinery reviewer's fuller report
+Added after the backlog was first written; each confirmed by the reviewer with a probe in a copy
+of the repository, and checked by reading the code at the place named.
+59. **`mutants.py` turns `-Werror` off when the cache holds a true value other than "ON"**:
+    `FILLSCOPE_WERROR=1` is stored as `BOOL=1`, read as off, and restored as off.
+60. **The "written in place" mutant is caught only by a timing race** (missed 2 of 24 under
+    load), so a loaded CI runner can report it falsely. *Fix:* a deterministic check that the
+    write goes to a temporary file that is then renamed.
+61. **Nothing stops two runs using `build/debug` at once** (`iterate.py`, `run-tests.sh`,
+    `mutants.py`, `selection_check.py`), and the pass record's update is unlocked. *Fix:* each takes
+    a lock on the build directory.
+62. **`iterate.py` fingerprints the `node` on `PATH`, not the one CMake found for the tests**, and
+    counts it for every program. *Fix:* the tests' `node` as a run-time file of the two Node
+    programs only.
+63. **`--check-registration` accepts a test that copies a program's labels**; its command is
+    never fingerprinted. *Fix:* compare each test's command with its program.
+64. **Smaller:**
+    - `mutants.py` crashes on an unconfigured build directory;
+    - the documents' glob walks `node_modules`, so each `npm ci` re-runs CMake;
+    - "no fast test program affected" can never print, since `docs_tests` always runs;
+    - `cancel-in-progress` cancels runs on `main` too;
+    - `hashFiles` adds nothing to the CI cache key;
+    - `FILLSCOPE_WERROR` counts in every fingerprint though it matters only at configure time;
+    - `selection_check.py` has no case for `tools/frame_source/main.cpp`, the extension's `package.json` or `tsconfig.json`, `net.cpp`, or a deleted or renamed file;
+    - mutants are missing for `viewer_options.cpp`, the frame source's `main.cpp`, `lldb_self_stop.py`, and the `ui`, `check` and `debugger` tiers' timeouts;
+    - the Node tests' 2 s limit has about 1.8 times headroom in CI's sanitizer run;
+    - comments in `tests/CMakeLists.txt` and the extension's `CMakeLists.txt` are stale, and RUNNING.md's "the Node.js that runs it" is not what is fingerprinted.
+
 ## Left in place deliberately
-55. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
+65. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
     GDB and LLDB use here, that is the whole truth. In non-stop debugging, another thread can still
     be stopped after the published one resumes. *Fix, if non-stop debugging is ever used:* publish
     stops per thread.
-56. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
+66. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
     file names its writer's process id, and the documents say to use one window.
-57. **A writer that crashes leaves its file saying "running"** (a signal it can handle is item 1).
+67. **A writer that crashes leaves its file saying "running"** (a signal it can handle is item 1).
     Both files name their writer's process id and start time; a reader that must be sure checks
     that the process is alive.
-58. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
+68. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
     so each run records the toolchain's versions instead.
