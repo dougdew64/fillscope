@@ -76,8 +76,9 @@ adds the tier to its name.
 - **`docs_tests` (GoogleTest, `unit`):** every relative link in the repository's Markdown documents
   resolves. Each document is a run-time file of the test, so editing any document re-runs it.
 - **`vscode_debug_state_tests` (Node's test runner, `unit`) and `vscode_debug_state_typecheck`
-  (the TypeScript compiler, `check`):** the debug-state extension, driven by fake debug sessions;
-  and its JavaScript checked against VS Code's and the Debug Adapter Protocol's types.
+  (the TypeScript compiler, `check`):** the debug-state extension's logic, driven by fake debug
+  sessions; its VS Code side, run against a fake `vscode` module; and its JavaScript checked
+  against VS Code's and the Debug Adapter Protocol's types.
 
 **CI** ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) runs `run-tests.sh` and both checks
 below on every push, in a Fedora container, with `FILLSCOPE_REQUIRE_DEBUGGERS` set so a missing
@@ -124,5 +125,7 @@ repository and an edit needs only a window reload (**Developer: Reload Window**)
 ```sh
 ln -s "$PWD/tools/vscode-debug-state" ~/.vscode/extensions/fillscope.fillscope-debug-state-0.1.0
 ```
-Remove the link to uninstall it. Its output channel, **Fillscope debug state**, logs every write,
-e.g. `#7 frame source: stopped at anchor.cpp:69 in fillscope_frame_anchor (3 frames, 2 locals)`.
+Remove the link to uninstall it. It starts with the first debug session, and writes only for
+sessions in a Fillscope folder; open the folder in one VS Code window only. Its output channel,
+**Fillscope debug state**, logs every write, e.g.
+`#7 frame source: stopped at anchor.cpp:69 in fillscope_frame_anchor (3 frames, 2 locals)`.

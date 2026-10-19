@@ -24,6 +24,7 @@ VIEWER_STATE = "src/viewer/viewer_state.cpp"
 VIEWER_STATE_HEADER = "src/viewer/viewer_state.h"
 DOC_LINKS = "tests/docs/doc_links_test.cpp"
 DEBUG_STATE = "tools/vscode-debug-state/src/debug_state.js"
+EXTENSION = "tools/vscode-debug-state/src/extension.js"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -182,9 +183,52 @@ MUTANTS = [
        "                return; // the program resumed while the details were being read: this stop is stale\n"
        "            }\n", "")],
      "vscode_debug_state_tests"),
-    ("resuming requests are ignored", DEBUG_STATE,
-     [("if (message?.type === 'request' && RESUMING_REQUESTS.has(message.command)) {",
-       "if (message?.type === 'request' && message.command === 'continue') {")],
+    ("only 'continue' resumes", DEBUG_STATE,
+     [("if (RESUMING_REQUESTS.has(request.command)) {", "if (request.command === 'continue') {")],
+     "vscode_debug_state_tests"),
+    ("a refused resume is published as running", DEBUG_STATE,
+     [("        if (!response.success) {\n", "        if (false) {\n")],
+     "vscode_debug_state_tests"),
+    ("a late resume hides a newer stop", DEBUG_STATE,
+     [("        if (this.generations.get(session.id) !== pending.generation) {\n", "        if (false) {\n")],
+     "vscode_debug_state_tests"),
+    # A counter per session restarts with the session, so a stop from before a restart can match.
+    ("generations restart with the session", DEBUG_STATE,
+     [("        this.generation += 1;\n        this.generations.set(session.id, this.generation);\n",
+       "        this.generation = (this.generations.get(session.id) ?? 0) + 1;\n"
+       "        this.generations.set(session.id, this.generation);\n")],
+     "vscode_debug_state_tests"),
+    ("an ended session is changed by later events", DEBUG_STATE,
+     [("        if (this.hasEnded(session.id)) {\n            return;\n        }\n        if (message?.type === 'response') {",
+       "        if (message?.type === 'response') {")],
+     "vscode_debug_state_tests"),
+    ("the debugger's frame estimate is published as exact", DEBUG_STATE,
+     [("frameCount: complete ? got.length : null,", "frameCount: total ?? (complete ? got.length : null),")],
+     "vscode_debug_state_tests"),
+    ("another thread continuing clears the stop", DEBUG_STATE,
+     [("if (body?.allThreadsContinued === false && this.isAnotherThread(session.id, body.threadId)) {", "if (false) {")],
+     "vscode_debug_state_tests"),
+    ("every structured local is expanded", DEBUG_STATE,
+     [("            if (expanded === EXPANDED_LIMIT) {\n", "            if (false) {\n")],
+     "vscode_debug_state_tests"),
+    ("a stale stop keeps asking", DEBUG_STATE,
+     [("        if (isStale()) {\n", "        if (false) {\n")],
+     "vscode_debug_state_tests"),
+    ("a failed write leaves its temporary file", DEBUG_STATE,
+     [("        fs.rmSync(temporary, { force: true });\n", "")],
+     "vscode_debug_state_tests"),
+    ("the file is written in place", DEBUG_STATE,
+     [("        fs.writeFileSync(temporary, JSON.stringify(state, null, 1) + '\\n');\n        fs.renameSync(temporary, file);\n",
+       "        fs.writeFileSync(file, JSON.stringify(state, null, 1) + '\\n');\n")],
+     "vscode_debug_state_tests"),
+    ("a session in any folder is published", EXTENSION,
+     [("return isFillscope(session.workspaceFolder) ? session.workspaceFolder : undefined;", "return session.workspaceFolder;")],
+     "vscode_debug_state_tests"),
+    ("shutting down leaves the sessions as they were", EXTENSION,
+     [("        publisher.stop();\n", "")],
+     "vscode_debug_state_tests"),
+    ("a crashed adapter's session stays", EXTENSION,
+     [("                onExit: (code, signal) => publisher.sessionEnded(", "                onExit: (code, signal) => void (")],
      "vscode_debug_state_tests"),
     ("unread locals published as none", DEBUG_STATE,
      [("        details.variables = null;\n        details.variablesError = messageOf(error);",

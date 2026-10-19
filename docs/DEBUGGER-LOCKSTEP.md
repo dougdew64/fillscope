@@ -73,20 +73,37 @@ An assistant working beside the debugger can't see the debug session: a stop giv
 no stack and no values. So a VS Code extension, `tools/vscode-debug-state/`, writes
 `.fillscope/debug-state.json` on every change, using the Debug Adapter Protocol's `stackTrace`,
 `scopes` and `variables` requests. A wrong file means an explanation of a program state that never
-existed, so it meets these requirements, each checked by its tests:
+existed, so it meets these requirements, each checked by its tests (and each shown, by a mutant, to
+fail a test when broken):
 - **One entry per debug session.** A lockstep run debugs two programs at once; the viewer's
-  "running" must not overwrite the frame source's stop.
+  "running" must not overwrite the frame source's stop. A child session names its parent.
 - **"Not fetched" is distinct from "fetched, and empty":** `variables: null` with
   `variablesError`, versus an empty list.
-- **Resuming publishes too:** "running" on a `continued` event *and* on any resuming request from
-  VS Code (continue, next, step...), which debuggers are not expected to announce; "ended" at
-  session end. A stop whose details arrive after the program resumed is dropped.
-- **A shortened stack, or list of locals, says so,** with the true frame count, or `null` when the
-  debugger doesn't give it.
-- **Every write carries a sequence number and a timestamp,** and each session entry those of its
-  last change, so a reader can tell what is current. Writes go through a temporary file and a
-  rename, so a read never sees half a write.
+- **Resuming publishes too:** "running" on a `continued` event *and* when the debugger accepts a
+  resuming request from VS Code (continue, next, step, restart...), which debuggers are not
+  expected to announce. A refused request leaves the stop published, since the program never
+  moved; a request accepted after a newer stop arrived doesn't hide that stop; another thread
+  resuming alone doesn't clear the stopped thread's stop.
+- **Out-of-date stops are dropped:** a stop whose details arrive after the program has moved on
+  (resumed, stopped again, or restarted under the same session id) is not published, and no more
+  requests are made for it.
+- **An ended session stays ended:** "exited" (with the exit code) when the program ends, "ended"
+  when the session does, including when the debug adapter crashes; nothing changes a session after
+  it has ended.
+- **A shortened stack, or list of locals, says so.** The frame count is published only when it is
+  exact; the debugger's own total is a hint that may overstate, so it is never published as exact.
+  At most ten structured locals have their members read, and expensive scopes (registers) are
+  never read, so a stop costs at most a dozen or so requests, which queue ahead of VS Code's own.
+- **The file says who wrote it and when:** the writer (its process id, start time, and whether it
+  is still running; VS Code shutting the extension down ends every session and says the writer has
+  stopped), a sequence number that increases with every write by one writer, and a timestamp; each
+  session entry carries those of its last change. Writes go through a temporary file and a rename,
+  so a reader never sees half a write (tested with a reader on another thread), and a failed write
+  leaves no temporary file.
 
-It acts only in a workspace that contains its own source, since VS Code extensions are installed
-per user. Its JavaScript is type-checked by the TypeScript compiler in the tests; it runs from its
-source, so there is no compiled copy to fall out of date.
+It is activated by any debug session, since VS Code extensions are installed per user, but writes
+only for a session in a workspace folder that contains its own source; each such folder has its
+own file. Open each Fillscope folder in one VS Code window only: two windows would overwrite each
+other's file (the writer's process id tells them apart). Its JavaScript is type-checked by the
+TypeScript compiler in the tests; it runs from its source, so there is no compiled copy to fall
+out of date.

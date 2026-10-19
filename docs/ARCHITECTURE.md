@@ -190,9 +190,10 @@ and the bar shows it on the next paint, about 16 ms later. Frames arriving reach
 VS Code's debugger talks to GDB or LLDB through the Debug Adapter Protocol. The extension listens
 to that conversation for every debug session and, at each stop, asks for the stack and the
 innermost frame's locals, then writes `.fillscope/debug-state.json`. Its requirements, such as one
-entry per session and treating a step request as "running", are in
+entry per session and treating an accepted step request as "running", are in
 [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md). `debug_state.js` holds the logic and doesn't use VS
-Code, so its tests drive it with fake sessions; `extension.js` connects it to VS Code.
+Code, so its tests drive it with fake sessions; `extension.js` connects it to VS Code, choosing
+each session's file by its workspace folder, and its tests run it against a fake `vscode` module.
 
 ## 8. One frame, end to end
 1. `FrameGenerator::next()` in the frame source makes frame 12 from the seed.

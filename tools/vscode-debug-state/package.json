@@ -10,7 +10,7 @@
     "vscode": "^1.140.0"
   },
   "activationEvents": [
-    "workspaceContains:tools/vscode-debug-state/package.json"
+    "onDebug"
   ],
   "main": "./src/extension.js",
   "scripts": {
