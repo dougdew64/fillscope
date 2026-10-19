@@ -7,8 +7,10 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <string_view>
+#include <system_error>
 
 namespace fillscope {
 
@@ -16,14 +18,18 @@ namespace fillscope {
 // process id.
 [[nodiscard]] bool tracer_attached(std::string_view proc_status);
 
-// Whether this process is being traced now. A debugger traces the process it debugs, but so do
-// other tools, such as strace and rr: Linux reports a tracer, not what kind of tool it is.
-[[nodiscard]] bool tracer_attached_now();
+// Whether this process is being traced now, or why that can't be told (/proc/self/status can't be
+// read, as where /proc isn't mounted). A debugger traces the process it debugs, but so do other
+// tools, such as strace and rr: Linux reports a tracer, not what kind of tool it is. Reads the file
+// with plain system calls, no iostreams, since self-stop asks on every frame and Step Into from the
+// anchor comes here.
+[[nodiscard]] std::expected<bool, std::error_code> tracer_attached_now();
 
 // Self-stop: when on, the anchor executes a breakpoint instruction if the process is being traced,
 // so a debugger stops there with no breakpoint armed. Without a tracer it does nothing. Under a
 // tracer that isn't a debugger (strace, rr), the breakpoint instruction's signal ends the process,
-// so self-stop is for running under a debugger only.
+// so self-stop is for running under a debugger only. If whether the process is traced can't be
+// told, the anchor says so on stderr, once, and doesn't stop.
 void set_self_stop(bool on);
 
 // The index most recently passed to the anchor; std::nullopt if it hasn't been called. (An

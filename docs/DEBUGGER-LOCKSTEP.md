@@ -12,13 +12,16 @@ The code is in `src/lockstep/` (the anchor), `src/channel/` (the socket), `src/v
 **The producer and the viewer are separate processes.** The producer sends each frame over a Unix
 socket, then calls the anchor, `fillscope_frame_anchor(frame_index)`, where a debugger stops. A
 stop freezes only the process being debugged, so the viewer keeps painting from the frames it has
-received. Each Continue delivers exactly one more frame; Step Over from the anchor returns to the
-producer's loop, and the next frame appears in the viewer when `send` runs.
+received. Each Continue delivers exactly one more frame. Step Over from a self-stop returns to the
+producer's loop (from a breakpoint by name, it first steps through the rest of the anchor), and
+the next frame appears in the viewer when `send` runs.
 
 **Two ways to stop at the anchor**, both binding on the first run, with nothing to arm:
 - **Self-stop:** when the process is traced (a nonzero `TracerPid` line in `/proc/self/status`),
-  the anchor executes a breakpoint instruction (`asm volatile("int3")` on x86-64). Untraced, it
-  does nothing. Linux reports a tracer, not what kind of tool it is, so under a tracer that isn't a
+  the anchor executes a breakpoint instruction (`int3` on x86-64), followed by a `nop` so that the
+  stop is reported on that line: after `int3` the program counter is the next instruction, which
+  could belong to another line (as first written, the closing brace). Untraced, it does nothing.
+  If the status file can't be read, it says so once on stderr and doesn't stop. Linux reports a tracer, not what kind of tool it is, so under a tracer that isn't a
   debugger (`strace`, `rr`) the instruction's SIGTRAP ends the process: self-stop is for running
   under a debugger only. Rejected: `raise(SIGTRAP)`, which under GDB stops two frames down inside
   libc; and C++26's `std::breakpoint()`, which libstdc++ implements out of line, so it too would
@@ -29,12 +32,16 @@ producer's loop, and the next frame appears in the viewer when `send` runs.
 ## Rules for the anchor
 1. **Its body must survive optimization.** GCC merges identical functions at `-O2` (`-fipa-icf`,
    enabled at `-O2` on GCC 16.2.1); an empty anchor could be merged with every other empty
-   function, and a breakpoint on it would fire from unrelated code. So it is `noinline`, its store
-   has a reader (`last_anchored_frame`), and an `asm volatile` memory clobber keeps the store.
-   Checked in the `-O2` build with `nm` and `objdump`: the anchor keeps its own address and its
-   store.
-2. **Its first statement must be plain code of our own source.** A breakpoint by name lands on the
-   first statement. When that was an `std::atomic` store, which libstdc++ inlines even at `-O0`,
+   function, and a breakpoint on it would fire from unrelated code. An inlined anchor would execute
+   its self-stop inside its caller. Today neither can happen: the one caller is in another file,
+   and the build doesn't use link-time optimization. The measures keep that true if either changes:
+   the anchor is `noinline`, its store has a reader (`last_anchored_frame`), an `asm volatile`
+   memory clobber keeps the store, and the self-stop's `asm` takes `frame_index` as an input, so a
+   debugger can read it in an optimized build too. Checked by the `LockstepDebugger.AtO2` tests,
+   which run a frame source built at `-O2` (without the sanitizers, whose own code changes what an
+   optimized build can show a debugger) under GDB and LLDB.
+2. **Its first statement must be plain code of our own source.** GDB puts a breakpoint by name
+   on the first statement; LLDB puts it after the anchor's stores, at the `if`. When that was an `std::atomic` store, which libstdc++ inlines even at `-O0`,
    LLDB's breakpoint opened `atomic_base.h` (GDB's stayed in our file). When it was an
    `std::optional` assignment, GDB's breakpoint in the sanitizer build stopped before the argument
    was stored, and every stop read `frame_index` as 0. So the anchor stores to plain variables.
@@ -48,9 +55,15 @@ On 2026-10-19, with GCC 16.2.1, GDB 17.2, LLDB, and VS Code with CodeLLDB:
 - the viewer keeps painting at 60 frames a second while the producer is stopped, through pauses of
   several minutes;
 - each Continue adds one frame to the viewer, and Step Over behaves as described above;
-- both stop methods stop inside the anchor, in `anchor.cpp`, with `frame_index` readable, under GDB
-  and LLDB; the `lockstep_debugger_tests` check this on every full test run;
-- self-stop does nothing without a debugger (`Anchor.SelfStopWithoutADebuggerDoesNotStop`).
+- both stop methods stop inside the anchor, in `anchor.cpp`, at the lines described above, with
+  `frame_index` readable, under GDB and LLDB, at `-O0` and at `-O2`; the `lockstep_debugger_tests`
+  check this on every full test run;
+- at each stop for frame N, the viewer already has the run's description and frames 0 to N: the
+  LLDB tests' driver (`tests/lockstep/lldb_driver.py`) acts as the viewer and counts what has
+  arrived at each stop;
+- self-stop does nothing without a tracer (`Anchor.SelfStopWithoutATracerDoesNotStop`), and stops a
+  traced process in the anchor (`Anchor.SelfStopStopsATracedProcessInTheAnchor`, in which the test
+  itself is the tracer).
 
 If the viewer and a producer ever share a process, a stop would freeze the viewer too. GDB's
 `scheduler-locking` default, `replay` (confirmed on GDB 17.2), lets other threads run during a step;

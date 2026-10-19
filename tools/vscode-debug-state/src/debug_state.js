@@ -525,7 +525,7 @@ function writeAtomically(file, state) {
 
 /**
  * One line for the output channel about the entry that changed last, e.g.
- * "#7 frame source: stopped at anchor.cpp:69 in fillscope_frame_anchor (3 frames, 2 locals)".
+ * "#7 frame source: stopped at anchor.cpp:125 in fillscope_frame_anchor (3 frames, 2 locals)".
  * @param {DebugStateFile} state
  */
 function summarize(state) {

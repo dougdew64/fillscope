@@ -15,8 +15,11 @@
 #include <span>
 
 int main(int argc, char** argv) {
-    // std::span views argv's elements after the program's name, without copying them.
-    const auto options = fillscope::parse_source_args(std::span<const char* const>{argv + 1, argv + argc});
+    // std::span views argv's elements after the program's name, without copying them. (argc is at
+    // least 1 on Linux since 5.18, which always passes the name; the guard keeps the range valid
+    // even where it isn't.)
+    const auto args = argc > 0 ? std::span<const char* const>{argv + 1, argv + argc} : std::span<const char* const>{};
+    const auto options = fillscope::parse_source_args(args);
     if (!options) {
         std::println(stderr, "frame_source: {}", options.error());
         std::println(stderr, "usage: frame_source [--frames N] [--interval-ms MS] [--socket NAME] [--seed S] [--self-stop]");

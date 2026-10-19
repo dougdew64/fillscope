@@ -6,6 +6,7 @@
 #include "channel/frame.h"
 #include "channel/net.h"
 
+#include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <expected>
@@ -31,10 +32,12 @@ namespace fillscope {
 // A template, so tests can pass a generator whose draws they choose. The constraint asks for a
 // standard random bit generator (C++20's std::uniform_random_bit_generator concept) whose every
 // draw can be any of all 2^64 values, which the method relies on; std::mt19937_64 is one.
+// Precondition: low <= high (checked by an assertion in builds that keep them).
 template <typename Generator>
     requires std::uniform_random_bit_generator<Generator> && (Generator::min() == 0) &&
              (Generator::max() == std::numeric_limits<std::uint64_t>::max())
 [[nodiscard]] std::uint64_t draw_uniform(Generator& generator, std::uint64_t low, std::uint64_t high) {
+    assert(low <= high && "draw_uniform: an empty range");
     const std::uint64_t span = high - low + 1;  // unsigned arithmetic: wraps to 0 for the full range
     if (span == 0) {
         return generator();

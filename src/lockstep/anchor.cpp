@@ -2,10 +2,15 @@
 
 #include "common/parse.h"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <algorithm>
-#include <fstream>
+#include <array>
+#include <cerrno>
+#include <cstddef>
+#include <print>
 #include <ranges>
-#include <sstream>
 
 namespace fillscope {
 namespace {
@@ -42,12 +47,40 @@ bool tracer_attached(std::string_view proc_status) {
     return false;
 }
 
-bool tracer_attached_now() {
-    std::ifstream file{"/proc/self/status"};
-    std::ostringstream text;
-    text << file.rdbuf();
-    return tracer_attached(text.str());
+std::expected<bool, std::error_code> tracer_attached_now() {
+    const int fd = ::open("/proc/self/status", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return std::unexpected{std::error_code{errno, std::system_category()}};
+    }
+    // The status file is a few kilobytes, and TracerPid is near its start; one buffer holds it.
+    std::array<char, 8192> buffer;
+    std::size_t length = 0;
+    while (length < buffer.size()) {
+        const ssize_t n = ::read(fd, buffer.data() + length, buffer.size() - length);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            break;
+        }
+        length += static_cast<std::size_t>(n);
+    }
+    ::close(fd);
+    return tracer_attached(std::string_view{buffer.data(), length});
 }
+
+namespace {
+
+void warn_once_that_tracing_is_unknown(const std::error_code& error) {
+    static bool warned = false;  // one thread at a time (anchor.h), so a plain flag
+    if (!warned) {
+        warned = true;
+        std::println(stderr, "self-stop: can't tell whether a debugger is attached ({}), so not stopping",
+                     error.message());
+    }
+}
+
+}  // namespace
 
 void set_self_stop(bool on) { g_self_stop = on; }
 
@@ -57,25 +90,39 @@ std::optional<std::uint64_t> last_anchored_frame() {
 
 }  // namespace fillscope
 
-// The anchor must survive optimization as a distinct function with a body:
-//   - [[gnu::noinline]] keeps calls to it from being inlined, which would leave no function for a
-//     breakpoint to bind to.
-//   - Its body is unique (no other function stores to g_last_anchor_index), so the linker and
-//     GCC's -fipa-icf (on at -O2) can't merge it with an identical function, which would make a
-//     breakpoint on it fire from unrelated code.
-//   - Its store has a reader (last_anchored_frame), and the asm statement tells the compiler that
-//     memory may be read here, so the store can't be removed.
+// The anchor must survive optimization as a distinct function with a body. Today its one caller is
+// in another file and the build doesn't use link-time optimization, so the compiler can neither
+// inline it nor merge it; these measures keep that true if either changes:
+//   - [[gnu::noinline]]: an inlined self-stop would execute its breakpoint instruction inside the
+//     caller, so the debugger would stop there, not here. (The function itself is emitted either
+//     way, since it has external linkage, and debuggers bind breakpoints to inlined copies too.)
+//   - Its body is unique (no other function stores to g_last_anchor_index), so GCC's -fipa-icf
+//     (on at -O2) can't merge it with an identical function, which would make a breakpoint on it
+//     fire from unrelated code.
+//   - Its store has a reader (last_anchored_frame), and the empty asm statement tells the compiler
+//     that memory may be read there, so the store can't be removed.
 //   - Its first statement is in this file, so a breakpoint set on it by name opens this file.
 extern "C" [[gnu::noinline]] void fillscope_frame_anchor(std::uint64_t frame_index) {
     fillscope::g_last_anchor_index = frame_index;
     fillscope::g_anchored = true;
     asm volatile("" ::: "memory");
-    if (fillscope::g_self_stop && fillscope::tracer_attached_now()) {
+    if (!fillscope::g_self_stop) {
+        return;
+    }
+    const auto traced = fillscope::tracer_attached_now();
+    if (!traced) {
+        fillscope::warn_once_that_tracing_is_unknown(traced.error());
+    } else if (*traced) {
         // A breakpoint instruction, executed here, so the debugger stops in this function.
         // raise(SIGTRAP) stopped two frames down inside libc under GDB, and C++26's
         // std::breakpoint() is out of line in libstdc++, so it too would stop inside the library.
+        // After int3 the program counter is the next instruction, which is where the debugger
+        // reports the stop: the nop keeps that on this line, rather than on the closing brace.
+        // frame_index as an input keeps it in a register here, so a debugger can read it even in
+        // an optimized build.
 #if defined(__x86_64__) || defined(__i386__)
-        asm volatile("int3");  // ---- the debugger stops here; Continue for the next frame ----
+        // ---- the debugger stops here; Continue for the next frame ----
+        asm volatile("int3\n\tnop" ::"r"(frame_index));
 #else
 #error "self-stop needs this architecture's breakpoint instruction, and how its debuggers resume past it"
 #endif

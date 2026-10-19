@@ -19,10 +19,11 @@ namespace fillscope {
 
 // The number `text` spells, or why it isn't one. All of the text must be the number: no sign
 // where the type has none, no leading or trailing characters, and a value the type can hold.
-// `std::integral<T> || std::floating_point<T>` is a C++20 constraint: the template accepts only
-// arithmetic types, and a call with any other type fails to compile with that reason.
+// The requires-clause is a C++20 constraint: the template accepts only numbers, and a call with any
+// other type fails to compile with that reason. bool counts as integral in C++, but there is no
+// from_chars for it, so it is ruled out here rather than failing deep inside the template.
 template <typename T>
-    requires std::integral<T> || std::floating_point<T>
+    requires(std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>
 [[nodiscard]] std::expected<T, std::string> parse_number(std::string_view text) {
     T value{};
     const char* const first = text.data();

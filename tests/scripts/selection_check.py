@@ -41,7 +41,7 @@ CASES = [
     ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
     ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
     ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
-    ("tests/lockstep/lldb_self_stop.py", TEXT_PROBE, {"lockstep_debugger_tests"}),
+    ("tests/lockstep/lldb_driver.py", TEXT_PROBE, {"lockstep_debugger_tests"}),
     ("CMakeLists.txt", TEXT_PROBE, ALL),
     # Any build file can change how a test runs (a timeout, a label), so each one counts for all.
     ("tests/viewer/CMakeLists.txt", TEXT_PROBE, ALL),

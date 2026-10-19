@@ -84,7 +84,8 @@ public:
             args.push_back(const_cast<char*>(arg.c_str()));  // posix_spawn's C interface takes char*
         }
         args.push_back(nullptr);
-        if (::posix_spawn(&pid_, args[0], nullptr, nullptr, args.data(), environ) != 0) {
+        started_ = ::posix_spawn(&pid_, args[0], nullptr, nullptr, args.data(), environ) == 0;
+        if (!started_) {
             pid_ = -1;
         }
     }
@@ -92,7 +93,8 @@ public:
     ChildProcess& operator=(const ChildProcess&) = delete;
     ~ChildProcess() { (void)wait(); }
 
-    [[nodiscard]] bool started() const { return pid_ > 0; }
+    // Whether the process was started, whether or not it has been waited for since.
+    [[nodiscard]] bool started() const { return started_; }
 
     // The exit status, or -1 if the process didn't exit normally or couldn't be waited for. Waits
     // the first time; later calls return the same answer.
@@ -110,6 +112,7 @@ public:
     }
 
 private:
+    bool started_ = false;
     pid_t pid_ = -1;
     int exit_code_ = -1;
 };

@@ -73,7 +73,9 @@ the slower program adds the tier to its name.
   the anchor and the debugger check; the frame source (generation, the command line, a whole run).
 - **`lockstep_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** the anchor under GDB and LLDB, driven through the frame source, by breakpoint and
-  by self-stop; every stop is in the anchor, in `anchor.cpp`, with the right frame index.
+  by self-stop, at `-O0` and `-O2`; every stop is in the anchor, in `anchor.cpp`, at the right
+  line, with the right frame index, and (through the LLDB driver, which acts as the viewer) after
+  that frame was sent.
 - **`viewer_tests` (GoogleTest, `unit`):** the viewer's core without Dear ImGui: what it has
   received, the price envelope, the selection, the context built from them, its JSON and bar text,
   publishing (including failure and recovery), and the command line.
@@ -133,8 +135,9 @@ Run and Debug, then one of the two compounds (each builds first):
   process is traced (by a debugger, here; under another tracer such as `strace`, that ends it).
 - **viewer + frame source (breakpoint by name):** LLDB sets a breakpoint on the anchor at launch.
 
-The frame source stops at frame 0. Each Continue (F5) adds one point to the viewer's price line;
-F10 from the anchor steps back into the loop, and the point appears when `send` runs. "Viewer
+The frame source stops at frame 0. Each Continue (F5) adds one frame to the viewer's table and
+price line; F10 from a self-stop steps back into the loop (from a breakpoint by name, through the
+rest of the anchor first), and the frame appears when `send` runs. "Viewer
 paints" keeps rising while the frame source is stopped.
 
 ## The debug-state extension
@@ -146,4 +149,5 @@ ln -s "$PWD/tools/vscode-debug-state" ~/.vscode/extensions/fillscope.fillscope-d
 Remove the link to uninstall it. It starts with the first debug session, and writes only for
 sessions in a Fillscope folder; open the folder in one VS Code window only. Its output channel,
 **Fillscope debug state**, logs every write, e.g.
-`#7 frame source: stopped at anchor.cpp:69 in fillscope_frame_anchor (3 frames, 2 locals)`.
+`#7 frame source: stopped at anchor.cpp:LINE in fillscope_frame_anchor (3 frames, 2 locals)`, where
+LINE is the anchor's breakpoint instruction for a self-stop.

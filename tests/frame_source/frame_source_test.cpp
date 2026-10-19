@@ -1,6 +1,7 @@
 // The stand-in frame source: the bounded draw, frame generation, the command line, and a whole run
 // against a listening socket.
 
+#include "common/parse.h"
 #include "frame_source.h"
 #include "support/test_support.h"
 
@@ -283,6 +284,41 @@ TEST(RunFrameSource, FailsWhenTheViewerGoesAway) {
     EXPECT_TRUE(said.starts_with("frame_source: the viewer went away before frame ")) << said;
     EXPECT_NE(said.find(" was sent\n"), std::string::npos) << said;
 }
+
+TEST(RunFrameSource, WaitsTheIntervalBetweenFramesButNotAfterTheLast) {
+    const std::string name = test::unique_socket_name();
+    const test::BackgroundReceiver receiver{name};
+    SourceOptions options = quick_options(name, 3);
+    options.interval = 60ms;
+    auto start = std::chrono::steady_clock::now();
+    EXPECT_EQ(run_frame_source(options), 0);
+    const auto three_frames = std::chrono::steady_clock::now() - start;
+    EXPECT_GE(three_frames, 120ms) << "two intervals, between three frames";
+
+    options.frames = 1;
+    options.interval = 500ms;
+    start = std::chrono::steady_clock::now();
+    EXPECT_EQ(run_frame_source(options), 0);
+    EXPECT_LT(std::chrono::steady_clock::now() - start, 400ms) << "no interval after the only frame";
+}
+
+// draw_uniform's range must not be empty: a debug build stops at once rather than returning an
+// arbitrary number.
+TEST(DrawUniformDeathTest, AnEmptyRangeIsRefused) {
+#ifdef NDEBUG
+    GTEST_SKIP() << "assertions are off in this build";
+#else
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    std::mt19937_64 generator{1};
+    EXPECT_DEATH((void)draw_uniform(generator, 5, 4), "an empty range");
+#endif
+}
+
+// parse_number takes numbers only; bool is an integral type in C++ but has no from_chars. A concept
+// asks whether a call compiles: outside a template, an invalid call would be an error, not false.
+template <typename T>
+concept Parsable = requires(std::string_view text) { parse_number<T>(text); };
+static_assert(Parsable<int> && Parsable<double> && !Parsable<bool>);
 
 TEST(RunFrameSource, FailsWithoutAViewer) {
     SourceOptions options = quick_options(test::unique_socket_name(), 1);  // nobody listening

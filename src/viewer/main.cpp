@@ -80,7 +80,10 @@ private:
 }  // namespace
 
 int main(int argc, char** argv) {
-    const auto options = fillscope::parse_viewer_args(std::span<const char* const>{argv + 1, argv + argc});
+    // argv's elements after the program's name; empty if there is no name (argc 0, which Linux has
+    // ruled out since 5.18, but the range must be valid either way).
+    const auto args = argc > 0 ? std::span<const char* const>{argv + 1, argv + argc} : std::span<const char* const>{};
+    const auto options = fillscope::parse_viewer_args(args);
     if (!options) {
         std::println(stderr, "viewer: {}", options.error());
         std::println(stderr, "{}", fillscope::kViewerUsage);
