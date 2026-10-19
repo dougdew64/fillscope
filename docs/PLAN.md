@@ -17,7 +17,7 @@ owner's test,** pointing and following in the viewer and asking the assistant ab
 of the domain (the book, an order's history) wait on the message interfaces, which wait on the
 owner's reading.
 
-## 2. Exemplary code throughout
-Bring the code written before the context capture (the channel's socket layer, the anchor, the
-frame source, the tests and scripts) up to the same standard: exemplary contemporary C++, highly
-commented, since it is code to learn from (charter §1).
+## 2. The tech debt backlog, and exemplary code throughout
+Work through [TECH-DEBT.md](TECH-DEBT.md), from the first sweep, and bring all the code to the
+standard of the context capture: exemplary contemporary C++, highly commented, since it is code to
+learn from (charter §1). Its section F lists the code-quality items found so far.
