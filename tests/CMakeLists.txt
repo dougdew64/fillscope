@@ -9,16 +9,20 @@ FetchContent_MakeAvailable(googletest imgui_test_engine)
 
 include(GoogleTest)
 
-set(TEST_DEFINES FILLSCOPE_FRAME_SOURCE="$<TARGET_FILE:frame_source>")
-
 # Every test program is registered through fillscope_test_program, which gives its tests:
 #   - a cost tier, as a label and a per-test timeout, so a slow test fails as slow the day it
 #     is added: unit (2 s), ui (10 s, the whole program), check (30 s, a whole checker run such
 #     as a type check), debugger (30 s);
 #   - a label naming the program, exe:<name>, so tests/scripts/iterate.py can run one program's
 #     tests;
-#   - a line in test-manifest.txt: the program, its tier, and the files it uses at run time.
-# iterate.py re-runs a program only when the program or one of those files has changed.
+#   - a line in test-manifest.txt: the program, its tier, whether it always runs, and the files
+#     it uses at run time.
+# iterate.py re-runs a program only when the program or one of those files has changed, or on
+# every iteration if it is ALWAYS (its result depends on files it can't list). A program that runs
+# the frame source says so (USES_FRAME_SOURCE): it then gets the frame source's path, is built
+# after it, and lists it as a run-time file, so all three can't fall out of step.
+# tests/scripts/iterate.py --check-registration (run by run-tests.sh) fails on any test registered
+# some other way.
 # A program's tests are all in one tier, so a program is either fast or slow, never both.
 # Programs are named for the area they test (channel_tests); when an area's tests span tiers, the
 # slower program adds the tier (lockstep_debugger_tests).
@@ -31,9 +35,14 @@ set(FILLSCOPE_TIMEOUT_check 30)
 # option), or a command that isn't built here (COMMAND, e.g. Node running the extension's tests;
 # its RUNTIME_DEPS are then everything it reads, since there is no binary to fingerprint).
 function(fillscope_test_program name tier)
-  cmake_parse_arguments(ARG "GTEST" "" "RUNTIME_DEPS;COMMAND" ${ARGN})
+  cmake_parse_arguments(ARG "GTEST;ALWAYS;USES_FRAME_SOURCE" "" "RUNTIME_DEPS;COMMAND" ${ARGN})
   if(NOT DEFINED FILLSCOPE_TIMEOUT_${tier})
     message(FATAL_ERROR "${name}: unknown test tier '${tier}'")
+  endif()
+  if(ARG_USES_FRAME_SOURCE)
+    target_compile_definitions(${name} PRIVATE FILLSCOPE_FRAME_SOURCE="$<TARGET_FILE:frame_source>")
+    add_dependencies(${name} frame_source)
+    list(APPEND ARG_RUNTIME_DEPS $<TARGET_FILE:frame_source>)
   endif()
   set(labels "${tier}\\;exe:${name}")
   if(ARG_GTEST)
@@ -52,19 +61,32 @@ function(fillscope_test_program name tier)
   else()
     set(program "-")  # a command, not a program built here
   endif()
-  list(JOIN ARG_RUNTIME_DEPS " " runtime_deps)
-  set_property(GLOBAL APPEND PROPERTY FILLSCOPE_TEST_MANIFEST "${name} ${tier} ${program} ${runtime_deps}")
+  if(ARG_ALWAYS)
+    set(flags always)
+  else()
+    set(flags -)
+  endif()
+  # Tab-separated, so a path may contain spaces.
+  list(JOIN ARG_RUNTIME_DEPS "\t" runtime_deps)
+  set_property(GLOBAL APPEND PROPERTY FILLSCOPE_TEST_MANIFEST "${name}\t${tier}\t${flags}\t${program}\t${runtime_deps}")
 endfunction()
 
 # A GoogleTest program: its sources, the libraries it tests, and the files it uses at run time.
+# ALWAYS and USES_FRAME_SOURCE are passed on to fillscope_test_program.
 function(fillscope_gtest name tier)
-  cmake_parse_arguments(ARG "" "" "SOURCES;LIBS;RUNTIME_DEPS" ${ARGN})
+  cmake_parse_arguments(ARG "ALWAYS;USES_FRAME_SOURCE" "" "SOURCES;LIBS;RUNTIME_DEPS" ${ARGN})
   add_executable(${name} ${ARG_SOURCES})
   target_link_libraries(${name} PRIVATE ${ARG_LIBS} GTest::gtest_main)
   target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
-  target_compile_definitions(${name} PRIVATE ${TEST_DEFINES})
   target_compile_options(${name} PRIVATE ${FILLSCOPE_WARNINGS})
-  fillscope_test_program(${name} ${tier} GTEST RUNTIME_DEPS ${ARG_RUNTIME_DEPS})
+  set(options)
+  if(ARG_ALWAYS)
+    list(APPEND options ALWAYS)
+  endif()
+  if(ARG_USES_FRAME_SOURCE)
+    list(APPEND options USES_FRAME_SOURCE)
+  endif()
+  fillscope_test_program(${name} ${tier} GTEST ${options} RUNTIME_DEPS ${ARG_RUNTIME_DEPS})
 endfunction()
 
 # Dear ImGui again, built with the Test Engine's hooks (viewer/imconfig_test_engine.h), plus the
@@ -93,8 +115,8 @@ add_subdirectory(frame_source)
 add_subdirectory(viewer)
 add_subdirectory(vscode-debug-state)
 
-# One line per test program: name, tier, program ("-" for a command), run-time files. Read by
-# scripts/iterate.py and scripts/run-tests.sh.
+# One line per test program, tab-separated: name, tier, "always" or "-", program ("-" for a
+# command), run-time files. Read by scripts/iterate.py and scripts/run-tests.sh.
 get_property(manifest GLOBAL PROPERTY FILLSCOPE_TEST_MANIFEST)
 list(JOIN manifest "\n" manifest)
 file(GENERATE OUTPUT ${PROJECT_BINARY_DIR}/test-manifest.txt CONTENT "${manifest}\n")

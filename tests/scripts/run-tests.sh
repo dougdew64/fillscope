@@ -7,36 +7,69 @@
 set -euo pipefail
 
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+iterate=(python3 -I "$root/tests/scripts/iterate.py")
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
 
-run() {  # run BUILD_DIR [CMAKE OPTIONS...]
+build() {  # build BUILD_DIR [CMAKE OPTIONS...]
     local build_dir=$1
     shift
     echo "== $build_dir"
     cmake -S "$root" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug "$@" > /dev/null
     cmake --build "$build_dir"
-    local output
-    if ! output=$(ctest --test-dir "$build_dir" -j "$(nproc)" --no-tests=error --output-on-failure 2>&1); then
-        echo "$output"
-        return 1
-    fi
-    echo "$output" | grep -E 'tests passed'
-    echo "slowest:"
-    echo "$output" | grep -E 'Test +#' | sed -E 's/.*Test +#[0-9]+: ([^ ]+) .* ([0-9.]+) sec/  \2s \1/' | sort -rn | head -5
 }
 
-run "$root/build/debug"
-run "$root/build/asan" -DFILLSCOPE_SANITIZE=ON
-
-# The sanitizer build only means something if the sanitizers are really in it: every test program
-# (from the manifest, so a new one is covered without editing this) and the two programs.
-for binary in $(awk '$3 != "-" {print $3}' "$root/build/asan/test-manifest.txt") \
-              "$root/build/asan/frame_source" "$root/build/asan/viewer"; do
-    if ! ldd "$binary" | grep -q libasan; then
-        echo "FAILED: $binary in the sanitizer build is not linked with AddressSanitizer" >&2
-        exit 1
+run_tests() {  # run_tests BUILD_DIR LOG: runs every test, keeping CTest's output in LOG
+    local build_dir=$1 log=$2
+    if ! ctest --test-dir "$build_dir" -j "$(nproc)" --no-tests=error --output-on-failure > "$log" 2>&1; then
+        cat "$log"
+        return 1
     fi
+    grep -E 'tests passed' "$log"
+    echo "slowest:"
+    grep -E 'Test +#' "$log" | sed -E 's/.*Test +#[0-9]+: ([^ ]+) .* ([0-9.]+) sec/  \2s \1/' | sort -rn | head -5
+}
+
+# Every test program in a build's manifest (the fourth tab-separated field is the program, "-" for
+# a command), so a new one is covered without editing this, and the two programs.
+binaries() {  # binaries BUILD_DIR
+    awk -F'\t' '$4 != "-" {print $4}' "$1/test-manifest.txt"
+    printf '%s\n' "$1/frame_source" "$1/viewer"
+}
+
+build "$root/build/debug"
+# What the debug build's tests are about to run on, taken now: a file edited during the minutes
+# that follow is then seen as changed by iterate.py, not recorded as tested.
+"${iterate[@]}" --snapshot "$scratch/snapshot.json"
+run_tests "$root/build/debug" "$scratch/debug.log"
+build "$root/build/asan" -DFILLSCOPE_SANITIZE=ON
+run_tests "$root/build/asan" "$scratch/asan.log"
+
+# Every test must be registered through fillscope_test_program, or the selection and the checks
+# below wouldn't know it.
+for build_dir in "$root/build/debug" "$root/build/asan"; do
+    FILLSCOPE_ITERATE_BUILD="$build_dir" "${iterate[@]}" --check-registration
 done
 
-# Everything passed, so iterate.py can start from here.
-python3 -I "$root/tests/scripts/iterate.py" --record-all
+# The sanitizer build only means something if both sanitizers are really in it, and the normal
+# build only means something if neither is.
+while read -r binary; do
+    libraries=$(ldd "$binary")
+    for library in libasan libubsan; do
+        if ! grep -q "$library" <<< "$libraries"; then
+            echo "FAILED: $binary in the sanitizer build is not linked with $library" >&2
+            exit 1
+        fi
+    done
+done < <(binaries "$root/build/asan")
+while read -r binary; do
+    if ldd "$binary" | grep -qE 'libasan|libubsan'; then
+        echo "FAILED: $binary in the normal build is linked with a sanitizer" >&2
+        exit 1
+    fi
+done < <(binaries "$root/build/debug")
+
+# Everything passed, so iterate.py can start from here: from the files as they were tested, and
+# without the programs whose tests were all skipped (they tested nothing).
+"${iterate[@]}" --record-snapshot "$scratch/snapshot.json" "$scratch/debug.log"
 echo "== all tests passed in both builds"

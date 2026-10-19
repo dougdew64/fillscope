@@ -1,11 +1,13 @@
 # Checks that the tests catch bugs: each mutant breaks the code in one deliberate way, and the
-# tests named for it must then fail. The source is always restored, even on interruption.
+# tests named for it must then fail, though they pass on the real code (checked first). The source
+# is always restored, even on Ctrl-C, SIGTERM or a closed terminal.
 #
 #   python3 -I tests/scripts/mutants.py [BUILD_DIR]     (default build/debug)
 #
 # A mutant whose text no longer matches the source is an error, not a pass: the check must not go
 # silently stale when the code changes.
 import pathlib
+import signal
 import subprocess
 import sys
 
@@ -245,8 +247,38 @@ def run(args):
     return subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
 
+def ctest(build_dir, tests):
+    """Runs the tests matching `tests`; (passed, ran any)."""
+    result = run(["ctest", "--test-dir", str(build_dir), "-R", tests])
+    return result.returncode == 0, "No tests were found" not in result.stdout
+
+
+def stop_on_signal(signum, _frame):
+    # Raised in the main thread, so the `finally` that restores the source runs, as on Ctrl-C.
+    raise SystemExit(128 + signum)
+
+
 def main():
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, stop_on_signal)
     build_dir = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "debug"
+    if run(["cmake", "--build", str(build_dir)]).returncode != 0:
+        print("PROBLEM: the real code does not build")
+        sys.exit(1)
+
+    # The baseline: every set of tests a mutant names must pass on the real code. Otherwise a test
+    # already failing (or flaky) would count every mutant naming it as caught.
+    baseline_failures = []
+    for tests in sorted({tests for _, _, _, tests in MUTANTS}):
+        passed, ran = ctest(build_dir, tests)
+        if not (passed and ran):
+            baseline_failures.append(f"'{tests}' {'fails' if ran else 'matches no test'} on the real code")
+    if baseline_failures:
+        for failure in baseline_failures:
+            print(f"PROBLEM: {failure}")
+        print("no mutants run: the baseline must pass first")
+        sys.exit(1)
+
     caught, problems = 0, []
     for name, file, edits, tests in MUTANTS:
         path = ROOT / file
@@ -262,8 +294,8 @@ def main():
             if build.returncode != 0:
                 problems.append(f"{name}: the mutant does not compile\n{build.stdout[-2000:]}")
                 continue
-            result = run(["ctest", "--test-dir", str(build_dir), "-R", tests])
-            if result.returncode != 0 and "No tests were found" not in result.stdout:
+            passed, ran = ctest(build_dir, tests)
+            if ran and not passed:
                 caught += 1
                 print(f"caught:  {name}")
             else:
@@ -272,11 +304,12 @@ def main():
             problems.append(f"{name}: {error}")
         finally:
             path.write_text(original)
-    run(["cmake", "--build", str(build_dir)])  # back to the real code
+    if run(["cmake", "--build", str(build_dir)]).returncode != 0:  # back to the real code
+        problems.append("the real code no longer builds after the mutants were restored")
     for problem in problems:
         print(f"PROBLEM: {problem}")
     print(f"{caught} of {len(MUTANTS)} mutants caught")
-    sys.exit(0 if caught == len(MUTANTS) else 1)
+    sys.exit(0 if caught == len(MUTANTS) and not problems else 1)
 
 
 main()

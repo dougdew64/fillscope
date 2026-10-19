@@ -22,8 +22,8 @@ cmake --build build/debug
 ```
 Needs GCC, CMake, Ninja, `glfw-devel` and `mesa-libGL-devel`, and Node.js with npm for the
 extension's tests. Dear ImGui, GoogleTest and the Dear ImGui Test Engine are fetched at pinned tags;
-the extension's development tools are installed by `npm ci` during the build. In VS Code, the default build task does the same and
-links `compile_commands.json` for clangd.
+the extension's development tools are installed by `npm ci` during the build. In VS Code, the
+default build task does the same and links `compile_commands.json` for clangd.
 
 ## Test
 **Iterating and gating are different acts.** Between edits, run only what the edit affects; before
@@ -35,15 +35,24 @@ tests/scripts/run-tests.sh                   # before a commit: every test, both
 ```
 **What `iterate.py` runs.** CMake writes `build/debug/test-manifest.txt`: each test program, its
 tier, and the files it uses at run time (a program it starts, a script). A program is affected
-when its binary, one of those files, or any `CMakeLists.txt` differs from its last passing run, so
-the selection follows the build's own dependencies rather than a hand-kept map. `--list` shows
-what's affected without running it; `--all` runs every fast program. `run-tests.sh` records a full
-pass, so `iterate.py` starts from there.
+when its binary, one of those files, a shared library it loads, the Node.js that runs it, a
+`FILLSCOPE_` environment variable, or any `CMakeLists.txt` differs from its last passing run, so
+the selection follows the build's own dependencies rather than a hand-kept map. `docs_tests` runs
+every time, since a link can name any file. `--list` shows what's affected without running it;
+`--all` runs every fast program. Fingerprints are taken before the tests run, so a file edited
+during a run is re-tested next time. `run-tests.sh` records a full pass, except programs whose
+tests were all skipped, so `iterate.py` starts from there.
+
+**What `run-tests.sh` also checks:** that every test is registered through
+`fillscope_test_program` (one that isn't would be invisible to the selection), that every program
+in the sanitizer build is linked with both AddressSanitizer and UndefinedBehaviorSanitizer, and
+that none in the normal build is.
 
 **Tiers.** Every test program has one cost tier, set where its area's `CMakeLists.txt` registers it
 (`fillscope_gtest` or `fillscope_test_program`, defined in `tests/CMakeLists.txt`), which gives
-each of its tests a label and a timeout, so a test that
-grows slow fails as slow the day it does:
+each of its tests a label and a timeout, so a test that grows slow fails as slow the day it does.
+A program that starts the frame source says so there (`USES_FRAME_SOURCE`), which gives it the
+frame source's path and makes the frame source one of its run-time files:
 
 | Tier | Timeout per test | Run by |
 |---|---|---|
@@ -86,10 +95,12 @@ debugger fails the debugger tests instead of skipping them.
 
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh
-python3 -I tests/scripts/mutants.py          # deliberate bugs, each must fail a named test (~2 min)
-python3 -I tests/scripts/selection_check.py  # iterate.py selects the right programs for each listed change (~40 s)
+python3 -I tests/scripts/mutants.py          # deliberate bugs, each must fail a named test (~3 min)
+python3 -I tests/scripts/selection_check.py  # iterate.py selects, runs and records the right programs (~1 min)
 ```
-Both always restore the source. `selection_check.py` uses its own pass record, never the real one.
+`mutants.py` first checks that every test it names passes on the real code, so a test that already
+fails can't make a mutant look caught. Both always restore the source, even when stopped by a
+signal. `selection_check.py` uses its own pass record, never the real one.
 
 ## Run
 Start `build/debug/viewer`, then `build/debug/frame_source`. The frame source first describes its
