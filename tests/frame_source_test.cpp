@@ -99,6 +99,7 @@ TEST(RunFrameSource, SendsEveryGeneratedFrameInOrder) {
 TEST(RunFrameSource, FailsWithoutAViewer) {
     SourceOptions options;
     options.socket_name = test::unique_socket_name();  // nobody listening
+    options.connect_attempts = 1;  // the default waits five seconds for a viewer that won't come
     EXPECT_EQ(run_frame_source(options), 1);
 }
 

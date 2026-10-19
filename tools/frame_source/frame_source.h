@@ -39,6 +39,9 @@ struct SourceOptions {
     bool self_stop = false;
     std::string socket_name{kDefaultSocketName};
     std::uint64_t seed = 42;
+    // How long to wait for a viewer that may still be starting: about five seconds by default.
+    int connect_attempts = 50;
+    std::chrono::milliseconds connect_retry{100};
 };
 
 // The command line, or nothing if it is malformed. args excludes the program name.

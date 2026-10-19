@@ -39,7 +39,7 @@ std::optional<SourceOptions> parse_source_args(std::span<const char* const> args
 
 int run_frame_source(const SourceOptions& options) {
     set_self_stop(options.self_stop);
-    const Fd viewer = connect_to(options.socket_name, 50, std::chrono::milliseconds{100});
+    const Fd viewer = connect_to(options.socket_name, options.connect_attempts, options.connect_retry);
     if (!viewer) {
         std::fprintf(stderr, "frame_source: no viewer listening on %s\n", options.socket_name.c_str());
         return 1;
