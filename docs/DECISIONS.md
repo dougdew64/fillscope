@@ -8,6 +8,7 @@ Newest first.
 
 | Date | Decision |
 |---|---|
+| 2026-10-19 | Fillscope is also a way to learn modern C++ from the inside (charter §1): its code, the AI-written parts included, is written to be learned from, and the assistant explains running code from the debugger's published state. Prompted by stepping through the frame source, where a variable's value before its lifetime began needed explaining. |
 | 2026-10-19 | Stand-ins are how the work bootstraps before the domain is designed: the stand-in frame gains an `id`, a recurring identity to follow, explicitly not a draft of the message interfaces. Order: the debugger-state extension, then the shell's context capture. The capture is tested by the owner too, pointing at and following things in the viewer and asking the assistant questions about them. |
 | 2026-10-19 | The context the viewer captures for the assistant: two ways to assemble it from the start, **point at** (one thing) and **follow** (one identity across frames), in separate sections; **published eagerly** on every change, since the question is asked in another program; the context bar renders exactly what is published; the context includes a **replay address**, so the state can be rebuilt exactly; written to `.fillscope/context.json`, git-ignored, atomically, with a sequence number and timestamp. |
 | 2026-10-19 | CI: GitHub Actions in a Fedora container, running every test in both builds and the checks of the tests; debugger tests fail there rather than skip. Publishing the debugger's state comes before the viewer shell. |

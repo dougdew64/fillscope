@@ -9,6 +9,10 @@ Fillscope is a **learning instrument first**: an order-book simulator and backte
 how order books, matching, fills and backtest validation work can be understood from the inside,
 and so that every result it shows can be explained from its exact state.
 
+It is also a way to **learn modern C++ from the inside**: its code, the AI-written parts included,
+is written to be learned from, and an assistant reading the debugger's exact state explains what
+each step does.
+
 It is also a demonstration of **judgement in using AI to write code**: where AI is used, where it
 isn't, and how its output is checked (decision 7).
 
