@@ -48,3 +48,6 @@ Nasdaq's public ITCH samples, downloaded locally.
 [docs/CHARTER.md](docs/CHARTER.md) (purpose, priorities, decisions) ·
 [docs/DECISIONS.md](docs/DECISIONS.md) (the record) · [CLAUDE.md](CLAUDE.md) (how the AI assistant
 works in this repository).
+
+## License
+MIT: see [LICENSE](LICENSE).
