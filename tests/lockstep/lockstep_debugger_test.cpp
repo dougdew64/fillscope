@@ -53,7 +53,7 @@ void expect_one_stop_per_frame_in_the_anchor(const std::vector<Stop>& stops, con
     }
 
 // A listener for the frame source to send to, and the frame source's arguments pointing at it. The
-// frames are drained afterwards, to check every one arrived.
+// messages are drained afterwards, to check the run's description and every frame arrived.
 class LockstepDebugger : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -67,13 +67,13 @@ protected:
     }
 
     void expect_all_frames_arrived() {
-        std::vector<Frame> frames;
-        receiver_.drain(frames);
-        EXPECT_EQ(frames.size(), static_cast<std::size_t>(kFrames));
+        std::vector<Message> messages;
+        receiver_.drain(messages);
+        EXPECT_EQ(messages.size(), static_cast<std::size_t>(kFrames) + 1);  // the description, then the frames
     }
 
     std::string name_ = test::unique_socket_name();
-    FrameReceiver receiver_{listen_on(name_)};
+    MessageReceiver receiver_{listen_on(name_)};
 };
 
 TEST_F(LockstepDebugger, GdbBreakpointByNameStopsInTheAnchor) {

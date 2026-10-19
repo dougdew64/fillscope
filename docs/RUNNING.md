@@ -6,9 +6,9 @@ procedure. **Read when:** building, running or changing it.
 ## Where things are
 | Path | What it holds |
 |---|---|
-| `src/channel/` | `frame.h`, the frame sent as raw bytes; `net.h`, `net.cpp`, the socket that carries frames to the viewer |
+| `src/channel/` | `frame.h`, the stand-in frame; `message.h`, the messages a source sends (a description of its run, then frames) and their encoding; `net.h`, the socket that carries them |
 | `src/lockstep/` | `anchor.h`, `anchor.cpp`: the debugger anchor and the debugger check ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
-| `src/viewer/` | `viewer_view.h`, `viewer_view.cpp`, what the viewer draws as a function of its state; `main.cpp`, the window |
+| `src/viewer/` | `viewer_state.h`, what the viewer has received; `context.h`, what the user points at and follows and the context built from it; `context_publisher.h`, the file it is published to; `viewer_view.h`, what the viewer draws; `main.cpp`, the window |
 | `tools/frame_source/` | a stand-in that produces fake frames until real ones exist; not the matching engine |
 | `tools/vscode-debug-state/` | the VS Code extension that publishes the debugger's state ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `tests/<area>/` | the tests of one area, mirroring `src/` and `tools/` (`tests/channel/` tests `src/channel/`), with the area's `CMakeLists.txt` |
@@ -63,9 +63,13 @@ Every run prints its five slowest tests.
 
 Programs are named for the area they test; when an area's tests span tiers, the slower program
 adds the tier to its name.
-- **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** what the viewer shows, and frames
-  from a real frame source process. Text is checked through Dear ImGui's logging, since plain text
-  items have no ID for the Test Engine to find; the plot is found by its ID.
+- **`viewer_tests` (GoogleTest, `unit`):** the viewer's core without Dear ImGui: what it has
+  received, the selection, the context built from them, its JSON and bar text, and publishing.
+- **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** the viewer's whole loop with real
+  clicks: pointing at and following, clearing, the bar saying exactly what the file holds, a failed
+  write shown in the bar, and frames from a real frame source process. Text is checked through Dear
+  ImGui's logging, since plain text items have no ID for the Test Engine to find; rows, buttons and
+  the plot are found by their IDs.
 - **`docs_tests` (GoogleTest, `unit`):** every relative link in the repository's Markdown documents
   resolves. Each document is a run-time file of the test, so editing any document re-runs it.
 - **`vscode_debug_state_tests` (Node's test runner, `unit`) and `vscode_debug_state_typecheck`
@@ -78,14 +82,24 @@ debugger fails the debugger tests instead of skipping them.
 
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh
-python3 -I tests/scripts/mutants.py          # 21 deliberate bugs, each must fail a named test (~60 s)
-python3 -I tests/scripts/selection_check.py  # iterate.py selects the right programs for 12 changes (~30 s)
+python3 -I tests/scripts/mutants.py          # 29 deliberate bugs, each must fail a named test (~90 s)
+python3 -I tests/scripts/selection_check.py  # iterate.py selects the right programs for 13 changes (~35 s)
 ```
 Both always restore the source. `selection_check.py` uses its own pass record, never the real one.
 
 ## Run
-Start `build/debug/viewer`, then `build/debug/frame_source`. The price line grows five frames a
-second. When the frame source exits, the viewer goes back to "waiting" and accepts the next one.
+Start `build/debug/viewer`, then `build/debug/frame_source`. The frame source first describes its
+run (its seed and frame count), then sends five frames a second. When it exits, the viewer goes
+back to "waiting"; a new frame source starts a new run, which replaces the old one's frames.
+
+## Pointing and following
+In the viewer's frame table, **click a row to point at its frame**, and **click a frame's id to
+follow the id**: every frame with it is highlighted. The context bar at the top says what the
+assistant has been given; `x` clears a line. Every change is published at once to
+`.fillscope/context.json` in the viewer's working directory (the repository, when started from VS
+Code; `--context-file` chooses another path). The file holds a replay address for what is pointed
+at: the run's seed and the frame's index, which reproduce that exact state. If a write fails, the
+bar says so in red and keeps showing what the file actually holds.
 
 ## Debug in lockstep (VS Code, CodeLLDB)
 Run and Debug, then one of the two compounds (each builds first):

@@ -46,6 +46,21 @@ TEST(FrameGenerator, PriceWalksInBoundedStepsAndQtyStaysInRange) {
     }
 }
 
+TEST(FrameGenerator, IdsStayInTheirPoolAndRecur) {
+    FrameGenerator generator{42};
+    std::array<int, FrameGenerator::kMaxId + 1> seen{};
+    for (int i = 0; i < 1000; ++i) {
+        const Frame frame = generator.next();
+        ASSERT_GE(frame.id, FrameGenerator::kMinId);
+        ASSERT_LE(frame.id, FrameGenerator::kMaxId);
+        ++seen[frame.id];
+    }
+    // 1000 draws from 20 ids: every id appears, and recurs, so there is always something to follow.
+    for (std::uint32_t id = FrameGenerator::kMinId; id <= FrameGenerator::kMaxId; ++id) {
+        EXPECT_GT(seen[id], 1) << "id " << id;
+    }
+}
+
 TEST(ParseSourceArgs, DefaultsAndEveryOption) {
     const auto defaults = parse_source_args({});
     ASSERT_TRUE(defaults);
@@ -68,30 +83,33 @@ TEST(ParseSourceArgs, RejectsUnknownOrIncompleteArguments) {
     EXPECT_FALSE(parse_source_args(std::array{"--frames"}));
 }
 
-TEST(RunFrameSource, SendsEveryGeneratedFrameInOrder) {
+TEST(RunFrameSource, DescribesTheRunThenSendsEveryGeneratedFrameInOrder) {
     const std::string name = test::unique_socket_name();
-    FrameReceiver receiver{listen_on(name)};
+    MessageReceiver receiver{listen_on(name)};
 
     SourceOptions options;
     options.frames = 50;
     options.interval = std::chrono::milliseconds{0};
     options.socket_name = name;
+    options.seed = 7;
     int exit_code = -1;
     std::thread source{[&] { exit_code = run_frame_source(options); }};
 
-    std::vector<Frame> received;
+    std::vector<Message> received;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
-    while (received.size() < options.frames && std::chrono::steady_clock::now() < deadline) {
+    while (received.size() < options.frames + 1 && std::chrono::steady_clock::now() < deadline) {
         receiver.drain(received);
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     }
     source.join();
 
     EXPECT_EQ(exit_code, 0);
+    ASSERT_EQ(received.size(), options.frames + 1);
+    // Parenthesized because a macro's arguments are split at commas, and braces don't protect them.
+    EXPECT_EQ(received.front(), (Message{SourceHello{.seed = 7, .frame_count = 50}}));
     FrameGenerator expected{options.seed};
-    ASSERT_EQ(received.size(), options.frames);
-    for (const Frame& frame : received) {
-        EXPECT_EQ(frame, expected.next());
+    for (std::size_t i = 1; i < received.size(); ++i) {
+        EXPECT_EQ(received[i], Message{expected.next()});
     }
     EXPECT_EQ(last_anchored_frame(), options.frames - 1);
 }

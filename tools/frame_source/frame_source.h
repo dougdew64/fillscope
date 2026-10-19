@@ -15,8 +15,9 @@
 
 namespace fillscope {
 
-// Produces frames with consecutive indices and a random-walk price. The same seed gives the same
-// frames, so a run can be repeated exactly.
+// Produces frames with consecutive indices, a random-walk price and an id drawn from a small pool,
+// so each id recurs across many frames. The same seed gives the same frames, so a run can be
+// repeated exactly.
 class FrameGenerator {
 public:
     explicit FrameGenerator(std::uint64_t seed) : rng_{seed} {}
@@ -26,6 +27,8 @@ public:
     static constexpr int kMaxPriceStep = 2;
     static constexpr std::uint32_t kMinQty = 1;
     static constexpr std::uint32_t kMaxQty = 500;
+    static constexpr std::uint32_t kMinId = 1;
+    static constexpr std::uint32_t kMaxId = 20;
 
 private:
     std::mt19937_64 rng_;
@@ -47,7 +50,8 @@ struct SourceOptions {
 // The command line, or nothing if it is malformed. args excludes the program name.
 [[nodiscard]] std::optional<SourceOptions> parse_source_args(std::span<const char* const> args);
 
-// Connects to the viewer and sends the frames, calling the anchor after each. Returns the exit code.
+// Connects to the viewer, describes the run (a SourceHello with the seed and frame count), then
+// sends the frames, calling the anchor after each. Returns the exit code.
 int run_frame_source(const SourceOptions& options);
 
 }  // namespace fillscope

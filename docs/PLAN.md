@@ -12,6 +12,12 @@ reads the trading domain; the stage-by-stage split of who writes what (charter ย
 The viewer grown from its one window into the shell later views live in. **Generic parts first:**
 the context bar and the plumbing that captures what is pointed at and followed for the assistant,
 on stand-in frames with a stand-in `id` to follow (rulings in [DECISIONS.md](DECISIONS.md),
-2026-10-19). Tested by the owner too, pointing and following in the viewer and asking the
-assistant about it. The views of the domain (the book, an order's history) wait on the message
-interfaces, which wait on the owner's reading.
+2026-10-19). **Built and tested ([RUNNING.md](RUNNING.md), "Pointing and following"); left: the
+owner's test,** pointing and following in the viewer and asking the assistant about it. The views
+of the domain (the book, an order's history) wait on the message interfaces, which wait on the
+owner's reading.
+
+## 2. Exemplary code throughout
+Bring the code written before the context capture (the channel's socket layer, the anchor, the
+frame source, the tests and scripts) up to the same standard: exemplary contemporary C++, highly
+commented, since it is code to learn from (charter ยง1).

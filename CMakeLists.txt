@@ -25,6 +25,10 @@ endif()
 include(FetchContent)
 FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git GIT_TAG v1.93.0)
 FetchContent_MakeAvailable(imgui)
+# nlohmann/json: the context file the viewer publishes is JSON.
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+  URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa)
+FetchContent_MakeAvailable(json)
 
 find_package(glfw3 3.3 REQUIRED)   # Fedora: glfw-devel
 find_package(OpenGL REQUIRED)      # Fedora: mesa-libGL-devel
@@ -39,8 +43,8 @@ set(IMGUI_SOURCES
 # Our own code gets warnings; the fetched dependencies don't.
 set(FILLSCOPE_WARNINGS -Wall -Wextra)
 
-# src/channel: the socket that carries frames to the viewer.
-add_library(fillscope_channel STATIC src/channel/net.cpp)
+# src/channel: the messages a frame source sends the viewer, and the socket that carries them.
+add_library(fillscope_channel STATIC src/channel/message.cpp src/channel/net.cpp)
 target_include_directories(fillscope_channel PUBLIC src)
 target_compile_options(fillscope_channel PRIVATE ${FILLSCOPE_WARNINGS})
 
@@ -66,8 +70,16 @@ add_library(imgui_app STATIC ${IMGUI_SOURCES}
 target_include_directories(imgui_app PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui_app PUBLIC glfw OpenGL::GL)
 
+# The viewer's core, without Dear ImGui: what it has received, what the user has pointed at and
+# followed, and the context it publishes. Unit-tested on its own.
+add_library(fillscope_viewer_core STATIC
+  src/viewer/viewer_state.cpp src/viewer/context.cpp src/viewer/context_publisher.cpp)
+target_include_directories(fillscope_viewer_core PUBLIC src)
+target_link_libraries(fillscope_viewer_core PUBLIC fillscope_channel nlohmann_json::nlohmann_json)
+target_compile_options(fillscope_viewer_core PRIVATE ${FILLSCOPE_WARNINGS})
+
 add_executable(viewer src/viewer/main.cpp src/viewer/viewer_view.cpp)
-target_link_libraries(viewer PRIVATE fillscope_channel imgui_app)
+target_link_libraries(viewer PRIVATE fillscope_viewer_core imgui_app)
 target_compile_options(viewer PRIVATE ${FILLSCOPE_WARNINGS})
 
 if(FILLSCOPE_TESTS)

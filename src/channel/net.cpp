@@ -5,9 +5,11 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
+#include <span>
 #include <thread>
 
 namespace fillscope {
@@ -56,21 +58,30 @@ Fd connect_to(std::string_view name, int attempts, std::chrono::milliseconds ret
     return Fd{};
 }
 
-bool send_frame(int fd, const Frame& frame) {
+bool send_message(int fd, const Message& message) {
+    const EncodedMessage encoded = encode(message);
     // MSG_NOSIGNAL: a gone viewer is reported as an error here, not as a SIGPIPE.
-    return ::send(fd, &frame, sizeof frame, MSG_NOSIGNAL) == static_cast<ssize_t>(sizeof frame);
+    return ::send(fd, encoded.bytes.data(), encoded.size, MSG_NOSIGNAL) == static_cast<ssize_t>(encoded.size);
 }
 
-std::size_t FrameReceiver::drain(std::vector<Frame>& out) {
+std::size_t MessageReceiver::drain(std::vector<Message>& out) {
     if (!sender_) {
         sender_ = Fd{::accept4(listener_.get(), nullptr, nullptr, SOCK_NONBLOCK)};
     }
     std::size_t received = 0;
+    // One byte more than the largest message, so an oversized datagram is seen as oversized
+    // rather than silently cut to a size that might decode.
+    std::array<std::byte, kMaxMessageSize + 1> buffer;
     while (sender_) {
-        Frame frame;
-        const ssize_t n = ::recv(sender_.get(), &frame, sizeof frame, 0);
-        if (n == static_cast<ssize_t>(sizeof frame)) {
-            out.push_back(frame);
+        const ssize_t n = ::recv(sender_.get(), buffer.data(), buffer.size(), 0);
+        if (n > 0) {
+            auto message = decode(std::span{buffer}.first(static_cast<std::size_t>(n)));
+            if (!message) {
+                error_ = std::move(message.error());
+                sender_.reset();  // a sender speaking something else can't be trusted further
+                break;
+            }
+            out.push_back(*message);
             ++received;
         } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             break;  // nothing more waiting
