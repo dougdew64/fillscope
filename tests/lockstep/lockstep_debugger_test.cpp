@@ -42,6 +42,16 @@ void expect_one_stop_per_frame_in_the_anchor(const std::vector<Stop>& stops, con
     }
 }
 
+// Skips the test when `debugger` isn't installed, or fails it when FILLSCOPE_REQUIRE_DEBUGGERS is set
+// (as CI sets it, so a missing debugger can't pass as a skipped test).
+#define REQUIRE_DEBUGGER(debugger)                                          \
+    if (!test::command_exists(debugger)) {                                  \
+        if (std::getenv("FILLSCOPE_REQUIRE_DEBUGGERS") != nullptr) {        \
+            FAIL() << debugger " not installed, and this run requires it"; \
+        }                                                                   \
+        GTEST_SKIP() << debugger " not installed";                          \
+    }
+
 // A listener for the frame source to send to, and the frame source's arguments pointing at it. The
 // frames are drained afterwards, to check every one arrived.
 class LockstepDebugger : public ::testing::Test {
@@ -67,7 +77,7 @@ protected:
 };
 
 TEST_F(LockstepDebugger, GdbBreakpointByNameStopsInTheAnchor) {
-    if (!test::command_exists("gdb")) GTEST_SKIP() << "gdb not installed";
+    REQUIRE_DEBUGGER("gdb");
     const std::string output = test::run_command(
         "gdb -batch -nx -ex 'break fillscope_frame_anchor' -ex 'run " + source_args() +
         "' -ex continue -ex continue -ex continue " FILLSCOPE_FRAME_SOURCE);
@@ -79,7 +89,7 @@ TEST_F(LockstepDebugger, GdbBreakpointByNameStopsInTheAnchor) {
 }
 
 TEST_F(LockstepDebugger, GdbSelfStopStopsInTheAnchor) {
-    if (!test::command_exists("gdb")) GTEST_SKIP() << "gdb not installed";
+    REQUIRE_DEBUGGER("gdb");
     const std::string output = test::run_command("gdb -batch -nx -ex 'run --self-stop " + source_args() +
                                                  "' -ex continue -ex continue -ex continue " FILLSCOPE_FRAME_SOURCE);
     expect_one_stop_per_frame_in_the_anchor(
@@ -90,7 +100,7 @@ TEST_F(LockstepDebugger, GdbSelfStopStopsInTheAnchor) {
 }
 
 TEST_F(LockstepDebugger, LldbBreakpointByNameStopsInTheAnchor) {
-    if (!test::command_exists("lldb")) GTEST_SKIP() << "lldb not installed";
+    REQUIRE_DEBUGGER("lldb");
     const std::string output = test::run_command(
         "lldb --batch -o 'breakpoint set -n fillscope_frame_anchor' -o 'run " + source_args() +
         "' -o continue -o continue -o continue " FILLSCOPE_FRAME_SOURCE);
@@ -104,7 +114,7 @@ TEST_F(LockstepDebugger, LldbBreakpointByNameStopsInTheAnchor) {
 // LLDB's batch mode treats a stop by signal as a crash and runs no further commands, so the
 // self-stop test drives LLDB through its Python API instead.
 TEST_F(LockstepDebugger, LldbSelfStopStopsInTheAnchor) {
-    if (!test::command_exists("lldb")) GTEST_SKIP() << "lldb not installed";
+    REQUIRE_DEBUGGER("lldb");
     std::string python_path = test::run_command("lldb -P");
     python_path.erase(python_path.find_last_not_of('\n') + 1);
     const std::string output = test::run_command("PYTHONPATH='" + python_path + "' python3 -I " FILLSCOPE_LLDB_SCRIPT

@@ -1,0 +1,36 @@
+# On every push and pull request: every test in both builds, then the checks of the tests
+# themselves. Runs in Fedora, the development platform, so CI uses the same GCC.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:44
+      # The debugger tests run GDB and LLDB, which need to trace the programs they start.
+      options: --cap-add=SYS_PTRACE --security-opt seccomp=unconfined
+    env:
+      # A missing debugger fails its tests here instead of skipping them.
+      FILLSCOPE_REQUIRE_DEBUGGERS: "1"
+    steps:
+      - name: Install the toolchain
+        run: >
+          dnf install -y --setopt=install_weak_deps=False
+          gcc-c++ libasan libubsan cmake ninja-build git python3
+          glfw-devel mesa-libGL-devel gdb lldb python3-lldb
+      - uses: actions/checkout@v4
+      - name: Trust the checkout
+        # The container runs as root and the checkout belongs to another user, which git refuses.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Toolchain versions
+        run: g++ --version | head -1; cmake --version | head -1; gdb --version | head -1; lldb --version
+      - name: Every test, normal and sanitizer builds
+        run: tests/scripts/run-tests.sh
+      - name: Each deliberate bug is caught by a test
+        run: python3 -I tests/scripts/mutants.py
+      - name: Test selection picks the right programs
+        run: python3 -I tests/scripts/selection_check.py
