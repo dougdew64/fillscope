@@ -12,7 +12,7 @@ hand is listed nowhere here; commits co-authored by Claude carry a `Co-Authored-
 |---|---|---|
 | The channel, the debugger anchor, the viewer and the stand-in frame source (`src/`, `tools/`; [RUNNING.md](RUNNING.md)), begun as the lockstep experiment | Claude | Their tests, in a normal and a sanitizer build; a mutation check (14 deliberate bugs, each must fail a named test); the owner, stepping them in VS Code |
 | The tests (`tests/`) | Claude | The mutation check (a test that can't fail is caught there); each new test seen to fail before its fix |
-| Test selection (`tests/scripts/iterate.py`) and tiers | Claude | `selection_check.py` (9 changes, each must select exactly the right programs), itself shown to fail when the selection ignores run-time files; a mutant that makes a unit test slow, which must fail on its timeout |
+| Test selection (`tests/scripts/iterate.py`) and tiers | Claude | `selection_check.py` (10 changes, each must select exactly the right programs), itself shown to fail when the selection ignores run-time files; a mutant that makes a unit test slow, which must fail on its timeout |
 
 ## Defects caught
 Newest first. "Who caught it" is the check, not the author of the fix.

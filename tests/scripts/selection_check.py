@@ -12,7 +12,8 @@ import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-ALL = {"channel_tests", "lockstep_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}
+ALL = {"channel_tests", "docs_tests", "lockstep_tests", "frame_source_tests", "lockstep_debugger_tests",
+       "viewer_ui_tests"}
 
 # A change that reaches the binary: an extra string in the .comment section. (A comment in the
 # source would change nothing the build produces, which is the point of building from the output.)
@@ -25,7 +26,8 @@ CASES = [
     ("src/channel/frame.h", CPP_PROBE, {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
     ("src/lockstep/anchor.cpp", CPP_PROBE, {"lockstep_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
     ("tools/frame_source/frame_source.cpp", CPP_PROBE, {"frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
-    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests"}),
+    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests", "docs_tests"}),
+    ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
     ("tests/lockstep/lldb_self_stop.py", TEXT_PROBE, {"lockstep_debugger_tests"}),
     ("CMakeLists.txt", TEXT_PROBE, ALL),
     # Any build file can change how a test runs (a timeout, a label), so each one counts for all.

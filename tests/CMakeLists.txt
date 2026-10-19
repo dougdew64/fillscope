@@ -74,6 +74,7 @@ target_compile_definitions(imgui_te PUBLIC IMGUI_USER_CONFIG="imconfig_test_engi
 target_link_libraries(imgui_te PUBLIC Threads::Threads)
 
 add_subdirectory(channel)
+add_subdirectory(docs)
 add_subdirectory(lockstep)
 add_subdirectory(frame_source)
 add_subdirectory(viewer)

@@ -63,11 +63,13 @@ adds the tier to its name.
 - **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** what the viewer shows, and frames
   from a real frame source process. Text is checked through Dear ImGui's logging, since plain text
   items have no ID for the Test Engine to find; the plot is found by its ID.
+- **`docs_tests` (GoogleTest, `unit`):** every relative link in the repository's Markdown documents
+  resolves. Each document is a run-time file of the test, so editing any document re-runs it.
 
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh
-python3 -I tests/scripts/mutants.py          # 15 deliberate bugs, each must fail a named test (~40 s)
-python3 -I tests/scripts/selection_check.py  # iterate.py selects the right programs for 9 changes (~25 s)
+python3 -I tests/scripts/mutants.py          # 17 deliberate bugs, each must fail a named test (~45 s)
+python3 -I tests/scripts/selection_check.py  # iterate.py selects the right programs for 10 changes (~25 s)
 ```
 Both always restore the source. `selection_check.py` uses its own pass record, never the real one.
 

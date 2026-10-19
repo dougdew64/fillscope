@@ -15,6 +15,7 @@ ANCHOR = "src/lockstep/anchor.cpp"
 CHANNEL = "src/channel/net.cpp"
 SOURCE = "tools/frame_source/frame_source.cpp"
 VIEW = "src/viewer/viewer_view.cpp"
+DOC_LINKS = "tests/docs/doc_links_test.cpp"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -72,6 +73,12 @@ MUTANTS = [
     ("plot hidden until many frames", VIEW,
      [("if (!state.prices.empty()) {", "if (state.prices.size() > 5) {")],
      "viewer_ui_tests"),
+    ("a document links to a file that doesn't exist", "README.md",
+     [("(docs/RUNNING.md)", "(docs/RUNNING-missing.md)")],
+     "DocLinks.EveryRelativeLinkResolves"),
+    ("links inside code blocks are followed", DOC_LINKS,
+     [("        if (in_code_block) {\n            continue;\n        }\n", "")],
+     "DocLinks.FindsRelativeLinksOnly"),
 ]
 
 

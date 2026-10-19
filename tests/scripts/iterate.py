@@ -30,9 +30,10 @@ FAST_TIERS = {"unit", "ui"}
 
 
 def build():
-    subprocess.run(["cmake", "-S", str(ROOT), "-B", str(BUILD), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug"],
-                   check=True, stdout=subprocess.DEVNULL)
-    subprocess.run(["cmake", "--build", str(BUILD)], check=True)
+    """Configures and builds the debug build; False if either fails (the compiler said why)."""
+    configure = ["cmake", "-S", str(ROOT), "-B", str(BUILD), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug"]
+    return (subprocess.run(configure, stdout=subprocess.DEVNULL).returncode == 0 and
+            subprocess.run(["cmake", "--build", str(BUILD)]).returncode == 0)
 
 
 def programs():
@@ -98,7 +99,9 @@ def main(args):
         record({name for name, _, _ in everything}, everything)
         return 0
 
-    build()
+    if not build():
+        print("the build failed, so no tests were run")
+        return 1
     everything = programs()
     fast = {name for name, tier, _ in everything if tier in FAST_TIERS}
     slow = {name for name, tier, _ in everything if tier not in FAST_TIERS}
