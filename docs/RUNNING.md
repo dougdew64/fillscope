@@ -22,20 +22,48 @@ ImGui Test Engine are fetched at pinned tags. In VS Code, the default build task
 links `compile_commands.json` for clangd.
 
 ## Test
+**Iterating and gating are different acts.** Between edits, run only what the edit affects; before
+a commit, run everything.
 ```sh
-tests/run-tests.sh                   # every test, normal and sanitizer builds
-python3 -I tests/mutants.py          # each deliberate bug is caught by a test
+python3 -I tests/iterate.py          # between edits: the affected fast tests, debug build (seconds)
+python3 -I tests/iterate.py -R Name  # between edits: fast tests matching a name
+tests/run-tests.sh                   # before a commit: every test, normal and sanitizer builds
 ```
-- **`fillscope_tests` (GoogleTest):** the socket, the anchor and the debugger check, and the frame
-  source (frame generation, the command line, a whole run).
-- **Debugger tests** (in `fillscope_tests`; skipped if GDB or LLDB isn't installed): the frame
-  source under GDB and LLDB, by breakpoint and by self-stop; every stop is in the anchor, in
-  `anchor.cpp`, with the right frame index.
-- **`viewer_ui_tests` (Dear ImGui Test Engine, no window):** what the viewer shows, and frames from
-  a real frame source process. Text is checked through Dear ImGui's logging, since plain text items
-  have no ID for the Test Engine to find; the plot is found by its ID.
-- **`mutants.py`:** breaks the code in 14 deliberate ways, one at a time, and requires the named
-  tests to fail each time; the source is always restored.
+**What `iterate.py` runs.** CMake writes `build/debug/test-manifest.txt`: each test program, its
+tier, and the files it uses at run time (a program it starts, a script). A program is affected
+when its binary, one of those files, or `CMakeLists.txt` differs from its last passing run, so
+the selection follows the build's own dependencies rather than a hand-kept map. `--list` shows
+what's affected without running it; `--all` runs every fast program. `run-tests.sh` records a full
+pass, so `iterate.py` starts from there.
+
+**Tiers.** Every test program has one cost tier, set where it is registered in `CMakeLists.txt`
+(`fillscope_test_program`), which gives each of its tests a label and a timeout, so a test that
+grows slow fails as slow the day it does:
+
+| Tier | Timeout per test | Run by |
+|---|---|---|
+| `unit` | 2 s | `iterate.py`, `run-tests.sh` |
+| `ui` | 10 s (the whole program) | `iterate.py`, `run-tests.sh` |
+| `debugger` | 30 s | `run-tests.sh` |
+
+Every run prints its five slowest tests.
+
+**The test programs:**
+- **`channel_tests`, `lockstep_tests`, `frame_source_tests` (GoogleTest, `unit`):** the socket;
+  the anchor and the debugger check; the frame source (generation, the command line, a whole run).
+- **`debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't installed):**
+  the frame source under GDB and LLDB, by breakpoint and by self-stop; every stop is in the anchor,
+  in `anchor.cpp`, with the right frame index.
+- **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** what the viewer shows, and frames
+  from a real frame source process. Text is checked through Dear ImGui's logging, since plain text
+  items have no ID for the Test Engine to find; the plot is found by its ID.
+
+**Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
+```sh
+python3 -I tests/mutants.py          # 15 deliberate bugs, each must fail a named test (~40 s)
+python3 -I tests/selection_check.py  # iterate.py selects the right programs for 8 changes (~20 s)
+```
+Both always restore the source. `selection_check.py` uses its own pass record, never the real one.
 
 ## Run
 Start `build/debug/viewer`, then `build/debug/frame_source`. The price line grows five frames a

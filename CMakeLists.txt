@@ -79,19 +79,57 @@ if(FILLSCOPE_TESTS)
   set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(googletest imgui_test_engine)
 
+  include(GoogleTest)
+
   set(TEST_DEFINES
     FILLSCOPE_FRAME_SOURCE="$<TARGET_FILE:frame_source>"
     FILLSCOPE_LLDB_SCRIPT="${PROJECT_SOURCE_DIR}/tests/lldb_self_stop.py")
 
-  add_executable(fillscope_tests
-    tests/channel_test.cpp tests/lockstep_test.cpp tests/frame_source_test.cpp tests/debugger_test.cpp)
-  target_link_libraries(fillscope_tests PRIVATE frame_source_lib GTest::gtest_main)
-  target_include_directories(fillscope_tests PRIVATE tests)
-  target_compile_definitions(fillscope_tests PRIVATE ${TEST_DEFINES})
-  target_compile_options(fillscope_tests PRIVATE ${FILLSCOPE_WARNINGS})
-  add_dependencies(fillscope_tests frame_source)
-  include(GoogleTest)
-  gtest_discover_tests(fillscope_tests DISCOVERY_MODE PRE_TEST)
+  # Every test program is registered through fillscope_test_program, which gives its tests:
+  #   - a cost tier, as a label and a per-test timeout, so a slow test fails as slow the day it
+  #     is added: unit (2 s), ui (10 s, the whole program), debugger (30 s);
+  #   - a label naming the program, exe:<name>, so tests/iterate.py can run one program's tests;
+  #   - a line in test-manifest.txt: the program, its tier, and the files it uses at run time.
+  # tests/iterate.py re-runs a program only when the program or one of those files has changed.
+  # A program's tests are all in one tier, so a program is either fast or slow, never both.
+  set(FILLSCOPE_TIMEOUT_unit 2)
+  set(FILLSCOPE_TIMEOUT_ui 10)
+  set(FILLSCOPE_TIMEOUT_debugger 30)
+
+  function(fillscope_test_program name tier)
+    cmake_parse_arguments(ARG "GTEST" "" "RUNTIME_DEPS" ${ARGN})
+    if(NOT DEFINED FILLSCOPE_TIMEOUT_${tier})
+      message(FATAL_ERROR "${name}: unknown test tier '${tier}'")
+    endif()
+    set(labels "${tier}\\;exe:${name}")
+    if(ARG_GTEST)
+      gtest_discover_tests(${name} DISCOVERY_MODE PRE_TEST
+        PROPERTIES LABELS "${labels}" TIMEOUT ${FILLSCOPE_TIMEOUT_${tier}})
+    else()
+      add_test(NAME ${name} COMMAND ${name})
+      set_tests_properties(${name} PROPERTIES LABELS "${tier};exe:${name}" TIMEOUT ${FILLSCOPE_TIMEOUT_${tier}})
+    endif()
+    list(JOIN ARG_RUNTIME_DEPS " " runtime_deps)
+    set_property(GLOBAL APPEND PROPERTY FILLSCOPE_TEST_MANIFEST
+      "${name} ${tier} $<TARGET_FILE:${name}> ${runtime_deps}")
+  endfunction()
+
+  function(fillscope_gtest name tier)
+    cmake_parse_arguments(ARG "" "" "SOURCES;LIBS;RUNTIME_DEPS" ${ARGN})
+    add_executable(${name} ${ARG_SOURCES})
+    target_link_libraries(${name} PRIVATE ${ARG_LIBS} GTest::gtest_main)
+    target_include_directories(${name} PRIVATE tests)
+    target_compile_definitions(${name} PRIVATE ${TEST_DEFINES})
+    target_compile_options(${name} PRIVATE ${FILLSCOPE_WARNINGS})
+    fillscope_test_program(${name} ${tier} GTEST RUNTIME_DEPS ${ARG_RUNTIME_DEPS})
+  endfunction()
+
+  fillscope_gtest(channel_tests unit SOURCES tests/channel_test.cpp LIBS fillscope_channel)
+  fillscope_gtest(lockstep_tests unit SOURCES tests/lockstep_test.cpp LIBS fillscope_lockstep)
+  fillscope_gtest(frame_source_tests unit SOURCES tests/frame_source_test.cpp LIBS frame_source_lib)
+  fillscope_gtest(debugger_tests debugger SOURCES tests/debugger_test.cpp LIBS fillscope_channel
+    RUNTIME_DEPS $<TARGET_FILE:frame_source> ${PROJECT_SOURCE_DIR}/tests/lldb_self_stop.py)
+  add_dependencies(debugger_tests frame_source)
 
   # Dear ImGui again, built with the Test Engine's hooks (tests/imconfig_test_engine.h), plus the
   # Test Engine and its null backend. Kept apart from imgui_app so the viewer itself has no hooks.
@@ -116,5 +154,10 @@ if(FILLSCOPE_TESTS)
   target_compile_definitions(viewer_ui_tests PRIVATE ${TEST_DEFINES})
   target_compile_options(viewer_ui_tests PRIVATE ${FILLSCOPE_WARNINGS})
   add_dependencies(viewer_ui_tests frame_source)
-  add_test(NAME viewer_ui_tests COMMAND viewer_ui_tests)
+  fillscope_test_program(viewer_ui_tests ui RUNTIME_DEPS $<TARGET_FILE:frame_source>)
+
+  # One line per test program: name, tier, program, run-time files. Read by tests/iterate.py.
+  get_property(manifest GLOBAL PROPERTY FILLSCOPE_TEST_MANIFEST)
+  list(JOIN manifest "\n" manifest)
+  file(GENERATE OUTPUT ${PROJECT_BINARY_DIR}/test-manifest.txt CONTENT "${manifest}\n")
 endif()

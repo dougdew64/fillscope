@@ -42,6 +42,12 @@ MUTANTS = [
       ("fillscope::g_last_anchor_index = frame_index;",
        "fillscope::g_last_anchor_index.store(frame_index, std::memory_order_release);")],
      "DebuggerTest.LldbBreakpointByName"),
+    # A unit test that becomes slow must fail as slow: the unit tier's timeout is 2 s.
+    ("a unit test takes 3 seconds", ANCHOR,
+     [("#include <charconv>", "#include <charconv>\n#include <thread>"),
+      ('    constexpr std::string_view key = "TracerPid:";',
+       '    std::this_thread::sleep_for(std::chrono::seconds{3});\n    constexpr std::string_view key = "TracerPid:";')],
+     "TracerAttached.ReadsTracerPid"),
     ("frame source skips the anchor", SOURCE,
      [("        fillscope_frame_anchor(frame.index);\n", "")],
      "RunFrameSource.SendsEveryGeneratedFrame|DebuggerTest"),
