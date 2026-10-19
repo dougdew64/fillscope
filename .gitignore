@@ -1,0 +1,26 @@
+# Builds
+build/
+build-*/
+out/
+compile_commands.json
+.cache/
+
+# Market data: never committed (size, and exchange licensing)
+data/
+*.gz
+*.itch
+*.ITCH50
+
+# Recordings until they're chosen for publishing
+recordings/
+
+# Secrets: never committed
+.env
+*.key
+*.pem
+
+# Editors and OS
+.vscode/*.log
+.idea/
+*.swp
+.DS_Store

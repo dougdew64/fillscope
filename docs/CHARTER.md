@@ -1,0 +1,42 @@
+# Fillscope charter
+
+**Purpose:** what Fillscope is for, what ranks above what, and its standing decisions.
+**Status:** authority. Amended deliberately by the project's owner; history goes in
+[DECISIONS.md](DECISIONS.md). **Read when:** any design or scope question.
+
+## 1. Purpose
+Fillscope is a **learning instrument first**: an order-book simulator and backtester built so that
+how order books, matching, fills and backtest validation work can be understood from the inside,
+and so that every result it shows can be explained from its exact state.
+
+## 2. Priorities, in order
+1. **Correctness and explainability.** A claim, an explanation or a display that isn't exactly true
+   is a defect, however good it looks. Every explanation is grounded in the simulator's exact state.
+2. **A hand-written core.** The order book, matching, replay and fill models are written by hand,
+   readable and tested. The UI and tooling may be AI-generated.
+3. **Every feature demonstrable.** Each feature is shown by a scripted demo, which is part of the
+   test suite.
+4. **Polish, last.**
+
+Where two priorities conflict, the higher wins.
+
+## 3. Decisions
+1. **What it is:** an observatory for its own order-book simulator and backtester.
+2. **The features that distinguish it:** fill explanations grounded in exact state; per-order
+   counterfactuals made exact by deterministic replay; how much of a result depends on the queue and
+   latency assumptions; an animated replay; debugger lockstep with the matching engine.
+3. **No AI in the app.** The app makes its state observable and logs the context of what is
+   selected; an assistant works beside it in the editor, reading the source and that context, and
+   runs counterfactual replays through a command-line tool.
+4. **C++ throughout,** including the UI: Dear ImGui with ImPlot. The core and the command-line tool
+   build with GCC on Linux, with AddressSanitizer and UndefinedBehaviorSanitizer (ThreadSanitizer
+   when there are threads). The UI's platform is being settled.
+5. **Tests below the UI first:** core unit tests, replay fidelity checks, the command-line tool. UI
+   tests and demo recordings with the Dear ImGui Test Engine.
+6. **Market data is never committed.** Hand-made message files for unit tests, a small synthetic
+   generator for demos, real days downloaded locally.
+
+## 4. Open questions
+- Where exactly the hand-written core ends and the AI-built tooling begins.
+- The ITCH parser: hand-written for the messages the book needs, the rest generated from a model of
+  the specification checked against it (proposed).
