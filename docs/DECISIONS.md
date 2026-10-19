@@ -8,6 +8,9 @@ Newest first.
 
 | Date | Decision |
 |---|---|
+| 2026-10-19 | Plumbing starts now, before the domain reading is done: the processes, the frame channel, the animation and debugger lockstep, starting with the experiment in [debugger-lockstep.md](debugger-lockstep.md). The owner reads the domain in parallel. |
+| 2026-10-19 | Several processes and threads, not one: the parts communicate over sockets, so the system shows networking and concurrency. The split is decided as the design develops. |
+| 2026-10-19 | Linux is the platform for everything, the UI included (was: the UI's platform being settled). |
 | 2026-10-19 | Who writes what: the owner hand-writes the code that demonstrates modern C++ design, decided stage by stage as the owner learns each stage's domain (the owner is new to it); Claude writes the rest. Replaces "the core (book, matching, replay, fill models) is hand-written". |
 | 2026-10-19 | Claude tests all the code aggressively, the owner's included, so that later stages are never built on undetected defects; the owner writes some tests too. Tasking AI with tests is itself one of the judgements Fillscope demonstrates. |
 | 2026-10-19 | Polish: as much as compelling demo videos need, and no more (was "polish, last"). |

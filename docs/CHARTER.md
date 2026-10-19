@@ -32,9 +32,8 @@ Where two priorities conflict, the higher wins.
 3. **No AI in the app.** The app makes its state observable and logs the context of what is
    selected; an assistant works beside it in the editor, reading the source and that context, and
    runs counterfactual replays through a command-line tool.
-4. **C++ throughout,** including the UI: Dear ImGui with ImPlot. The core and the command-line tool
-   build with GCC on Linux, with AddressSanitizer and UndefinedBehaviorSanitizer (ThreadSanitizer
-   when there are threads). The UI's platform is being settled.
+4. **C++ on Linux throughout,** including the UI: Dear ImGui with ImPlot. Everything builds with
+   GCC, with AddressSanitizer and UndefinedBehaviorSanitizer, and ThreadSanitizer for threaded code.
 5. **Tests below the UI first:** core unit tests, replay fidelity checks, the command-line tool. UI
    tests and demo recordings with the Dear ImGui Test Engine. **Claude tests all the code
    aggressively, the owner's included,** so that nothing is built on undetected defects; the owner
@@ -49,6 +48,9 @@ Where two priorities conflict, the higher wins.
    model of the specification, checked mechanically and against an independent model; a
    deterministic generator writes the decoders; they must agree with the hand-written ones on every
    message of a real trading day.
+8. **Several processes and threads, not one.** The parts of the system communicate over sockets,
+   as real trading systems do. The exact split, and how replay stays deterministic across it, are
+   decided as the design develops ([debugger-lockstep.md](debugger-lockstep.md)).
 
 ## 4. Open questions
 - Which code the owner writes: decided stage by stage, as the owner learns each stage's domain.
