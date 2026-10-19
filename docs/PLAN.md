@@ -20,6 +20,6 @@ stand-in frames until the message interfaces exist. The channel (`src/channel/`)
 library with tests.
 
 ## 3. Publishing the debugger's state
-A VS Code extension, like HRW's, that writes the stack and locals to a file on every stop, so the
-assistant can explain what is being stepped through. The one piece of HRW's debugger
-integration Fillscope still needs (see the design note).
+A VS Code extension that writes the stack and locals to a file on every stop, so the assistant can
+explain what is being stepped through. Its requirements are in
+[debugger-lockstep.md](debugger-lockstep.md).

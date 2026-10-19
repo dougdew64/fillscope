@@ -1,95 +1,54 @@
-# Debugger lockstep: what HRW learned, and what Fillscope does
+# Debugger lockstep
 
-**Purpose:** how HRW stepped a real algorithm in the VS Code debugger while its animation advanced
-in step, what that cost, and what Fillscope carried over or simplified, tested by experiment.
-**Status:** reference (the HRW study and the experiment, 2026-10-19). **Read when:** designing the
-animation, the frame interface between the core and the UI, the process split, or the debugger
-integration.
+**Purpose:** how a debugger steps the code that produces frames while the viewer's animation
+follows, frame by frame, and the rules that keep it working. **Status:** reference. **Read when:**
+designing the animation, the frame interface between the core and the UI, the process split, or
+the debugger integration.
 
-The predecessor is [HRW](https://github.com/dougdew64/rumoca/tree/hrw/hrw), an observatory for the
-Rumoca Modelica compiler (Rust and egui, Windows). Its write-up is in
-[architecture.md](https://github.com/dougdew64/rumoca/blob/hrw/hrw/docs/architecture.md) (§7,
-"Algorithm animation steppers" and "Live trace debugging on Windows") and its
-[debugger bridge README](https://github.com/dougdew64/rumoca/blob/hrw/hrw/vscode-extension/README.md).
+The code is in `src/lockstep/` (the anchor), `src/channel/` (the socket), `src/viewer/` and
+`tools/frame_source/` (a stand-in producer); how to run it is in [RUNNING.md](RUNNING.md).
 
-## How HRW does it
-**Three threads during a live session.** The UI thread paints every ~16 ms. A worker thread runs
-compiles, because a compile takes hundreds of milliseconds; it exists for responsiveness, not for
-the debugger. Each Debug click spawns an **algorithm thread** that runs the real algorithm on copies
-of the data (one case runs inside the worker's real compile instead).
+## How it works
+**The producer and the viewer are separate processes.** The producer sends each frame over a Unix
+socket, then calls the anchor, `fillscope_frame_anchor(frame_index)`, where a debugger stops. A
+stop freezes only the process being debugged, so the viewer keeps painting from the frames it has
+received. Each Continue delivers exactly one more frame; Step Over from the anchor returns to the
+producer's loop, and the next frame appears in the viewer when `send` runs.
 
-**The mechanism**
-([live_trace.rs](https://github.com/dougdew64/rumoca/blob/hrw/crates/rumoca-phase-structural/src/live_trace.rs)):
-1. **Frames over a channel.** The algorithm pushes each step's state into a channel; the UI drains
-   it every paint. Recorded playback and live stepping are the same frames from two sources.
-2. **A sleep after each push.** A debugger stop freezes every thread, the UI's included, so the
-   algorithm thread sleeps after pushing (150 ms with a breakpoint armed, 20 ms without) to give
-   the UI time to paint the frame.
-3. **An anchor function.** After the sleep the thread calls `live_trace_breakpoint(index)`, which
-   exists only to carry a breakpoint. Each Continue (F5) advances one frame.
-4. **All-threads stepping.** F10/F11 must let the UI thread run during a step, or the animation
-   goes stale. The Visual Studio debugger does this by default; LLDB needed aliases
-   (`thread step-over -m all-threads`).
+**Two ways to stop at the anchor**, both binding on the first run, with nothing to arm:
+- **Self-stop:** when a debugger is attached (a nonzero `TracerPid` in `/proc/self/status`), the
+  anchor executes a breakpoint instruction (`asm volatile("int3")` on x86-64, what C++26's
+  `std::breakpoint()` does). Without a debugger it does nothing. `raise(SIGTRAP)` was rejected:
+  under GDB it stops two frames down, inside libc.
+- **Breakpoint by name**, set from the launch configuration: `break fillscope_frame_anchor` in GDB,
+  `breakpoint set -n fillscope_frame_anchor` in LLDB.
 
-**Arming the breakpoint from the app** needs a VS Code extension, because an application cannot
-reach VS Code's debug API. HRW writes `breakpoint-request.json`; the extension calls
-`vscode.debug.addBreakpoints()` and writes `breakpoint-ack.json`. The handshake grew four layers:
-- **a pre-warm at startup** (arm and remove once), because the debugger's first resolution of a
-  source file took over a second;
-- **waiting for the acknowledgement** before spawning the algorithm thread;
-- **a 500 ms sleep**, because adding a breakpoint is asynchronous;
-- **a sentinel stop** before the first frame, so no step is missed.
+## Rules for the anchor
+1. **Its body must survive optimization.** GCC merges identical functions at `-O2` (`-fipa-icf`,
+   enabled at `-O2` on GCC 16.2.1); an empty anchor could be merged with every other empty
+   function, and a breakpoint on it would fire from unrelated code. So it is `noinline`, its store
+   has a reader (`last_anchored_frame`), and an `asm volatile` memory clobber keeps the store.
+   Checked in the `-O2` build with `nm` and `objdump`: the anchor keeps its own address and its
+   store.
+2. **Its first statement must be in our own source.** A breakpoint by name lands on the first
+   statement. When that was an `std::atomic` store, which libstdc++ inlines even at `-O0`, LLDB's
+   breakpoint opened `atomic_base.h` (GDB's stayed in our file). Guarded by
+   `LockstepDebugger.LldbBreakpointByNameStopsInTheAnchor` and a mutant of the original code.
+3. **The code under study builds at `-O0`**, the default build type. At higher levels, line-table
+   entries are dropped, and a breakpoint can bind and never fire.
 
-**The extension also publishes the debugger's state.** On every stop it writes the stack and the
-innermost frame's locals to `debug-state.json` (DAP `stackTrace`, `scopes`, `variables`), with a
-sequence number and timestamp so a stale file can't be mistaken for the current stop. Without it,
-an assistant working beside the debugger can't see where the program is.
+## What is confirmed
+On 2026-10-19, with GCC 16.2.1, GDB 17.2, LLDB, and VS Code with CodeLLDB:
+- the viewer keeps painting at 60 frames a second while the producer is stopped, through pauses of
+  several minutes;
+- each Continue adds one frame to the viewer, and Step Over behaves as described above;
+- both stop methods stop inside the anchor, in `anchor.cpp`, with `frame_index` readable, under GDB
+  and LLDB; the `lockstep_debugger_tests` check this on every full test run;
+- self-stop does nothing without a debugger (`Anchor.SelfStopWithoutADebuggerDoesNotStop`).
 
-## What went wrong, and why
-| Failure | Cause | Lesson |
-|---|---|---|
-| The breakpoint fired inside an unrelated library | The anchor's only statement was a store nothing read; the optimizer deleted it, and the linker merged the now-empty function with every other empty one | The anchor's body must survive optimization: give the store a reader, and make it opaque to the optimizer |
-| A breakpoint showed as valid and never fired | Optimized builds drop line-table entries | Build the code under study without optimization |
-| A phase breakpoint fired only once per model | The compiler cached results, so the phase didn't run again | When a breakpoint doesn't fire, first prove the code ran |
-| The app died after a long pause | The GPU device didn't survive the debugger's pause | Long pauses are the normal case here; test them |
-| The app said "armed" when nothing was | The acknowledgement was a boolean meaning "request read" | An acknowledgement must report the state it claims, not receipt |
-| The second Debug click didn't stop | Removing a breakpoint stopped the debugger re-binding that location later in the session | Leave the anchor armed between runs |
-
-## What Fillscope expects
-**The same shape.** The matching engine pushes one frame per event (an order added, a fill, a
-cancel); the UI animates frames; an anchor carries the breakpoint.
-
-**Hypotheses, and what the experiment found** (2026-10-19, GCC 16.2.1; GDB 17.2 and LLDB from the
-command line, then VS Code with CodeLLDB):
-- **A separate UI process removes the sleep window: confirmed.** A breakpoint freezes only the
-  process being debugged. With the engine stopped for four seconds, the viewer kept painting at 60
-  frames a second, and each Continue delivered exactly one more frame. No sleep, and no
-  all-threads stepping.
-- **The app can stop itself, removing the arming handshake: confirmed, with `int3`.** When a
-  debugger is attached (checked through `TracerPid` in `/proc/self/status`), the anchor executes a
-  breakpoint instruction (`asm volatile("int3")` on x86-64, what C++26's `std::breakpoint()` does).
-  GDB and LLDB both stop inside the anchor with `frame_index` readable, and Continue passes it.
-  Without a debugger nothing happens. **`raise(SIGTRAP)` was rejected:** under GDB it stops two
-  frames down inside libc.
-- **A breakpoint set by name at launch also works,** under GDB (`break fillscope_frame_anchor`) and
-  LLDB (`breakpoint set -n`): it binds on the first run, so no pre-warm is needed. In VS Code,
-  set from the launch configuration, it stops and opens the anchor's source.
-- **GDB lets other threads run during a step,** which matters if the UI and the engine share a
-  process. The `scheduler-locking` default is `replay` (confirmed on GDB 17.2), which GDB documents
-  as letting other threads run during normal execution; whether that gives the UI enough time to
-  paint is untested.
-
-**Carried over unchanged:**
-- **The anchor must not be empty:** GCC merges identical functions at `-O2` (`-fipa-icf`, enabled
-  at `-O2` on GCC 16.2.1), so the
-  anchor needs `noinline` plus a body the optimizer cannot remove.
-- **The code under study builds at `-O0`.**
-- **A breakpoint by name lands on the function's first statement,** so that statement must be in
-  our own source. The anchor's first statement was a `std::atomic` store, which libstdc++ inlines
-  even at `-O0`, and LLDB's breakpoint opened in `atomic_base.h` (found in VS Code, 2026-10-19;
-  GDB's stayed in our file). With a plain store, GDB stops on the store's line and LLDB on the line
-  after it, both in our source. A debugger test and a mutant of the original code guard it.
-- **The extension is still needed** to publish the stack and locals for the assistant.
+If the viewer and a producer ever share a process, a stop would freeze the viewer too. GDB's
+`scheduler-locking` default, `replay` (confirmed on GDB 17.2), lets other threads run during a step;
+whether that gives the UI enough time to paint is untested.
 
 ## Processes, threads and deterministic replay
 **A book is matched on one thread, from one totally ordered input stream.** Orders from many
@@ -103,14 +62,17 @@ is deterministic. So the two needs can coexist:
 The process split, the threads in each, and whether backtesting runs over sockets are open
 decisions for the owner.
 
-## The experiment
-A stand-in process sending frames over a Unix socket to a Dear ImGui viewer process, built at
-`-O0`. It began as a throwaway experiment and is now the code in `src/channel/`, `src/lockstep/`,
-`src/viewer/` and `tools/frame_source/` ([RUNNING.md](RUNNING.md)), with debugger tests that run
-it under GDB and LLDB. **Confirmed in VS Code with CodeLLDB**
-(2026-10-19, by the owner): both stop methods behave as on the command line; each Continue adds
-one frame to the viewer; Step Over from the anchor returns to the loop, and the next frame appears
-when `send` runs; the viewer keeps painting through a pause of several minutes.
-
-In the `-O2` build the anchor keeps its own address and its store (checked with `nm` and
-`objdump`).
+## Publishing the debugger's state
+An assistant working beside the debugger can't see the debug session: a stop gives it no location,
+no stack and no values. So a VS Code extension will write the stack and the innermost frame's
+locals to a file on every stop ([PLAN.md](PLAN.md)), using the Debug Adapter Protocol's
+`stackTrace`, `scopes` and `variables` requests. A wrong file means an explanation of a program
+state that never existed, so it must meet four requirements:
+- **"Not fetched" is distinct from "fetched, and empty":** no variables with a reason, versus an
+  empty list.
+- **Resuming publishes too:** a "running" state on continue and at session end, so the last stop
+  isn't taken for the current one.
+- **A shortened stack says so,** with the true frame count.
+- **Every write carries a sequence number and a timestamp,** and readers check staleness before
+  trusting anything else. Writes go through a temporary file and a rename, so a read never sees
+  half a write.
