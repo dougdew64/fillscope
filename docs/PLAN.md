@@ -8,14 +8,10 @@ Decisions behind the steps are in the [charter](CHARTER.md); the lockstep design
 experiment results are in [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md). In parallel, the owner
 reads the trading domain; the stage-by-stage split of who writes what (charter §4) waits on that.
 
-## 1. Publishing the debugger's state
-A VS Code extension that writes the stack and locals to a file on every stop, so the assistant can
-explain what is being stepped through. Its requirements are in
-[DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md). **Built and tested; left: the owner's check in VS Code**
-(the assistant reads the file while the owner steps).
-
-## 2. The viewer shell
-The viewer grown from its one window into the shell later views live in. **Generic parts first,
-after a design discussion:** the context bar and the plumbing that captures what is pointed at for
-the assistant. The views of the domain (the book, an order's history) wait on the message
+## 1. The viewer shell
+The viewer grown from its one window into the shell later views live in. **Generic parts first:**
+the context bar and the plumbing that captures what is pointed at and followed for the assistant,
+on stand-in frames with a stand-in `id` to follow (rulings in [DECISIONS.md](DECISIONS.md),
+2026-10-19). Tested by the owner too, pointing and following in the viewer and asking the
+assistant about it. The views of the domain (the book, an order's history) wait on the message
 interfaces, which wait on the owner's reading.
