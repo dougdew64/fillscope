@@ -23,7 +23,7 @@ listed. The first sweep's 59 items were fixed in the "Tech debt, chunk 1" to "ch
    unconfirmed). If VS Code calls `onExit(0)` without `onWillStopSession` when a program ends by
    itself, the entry says `endReason: "the debug adapter exited (code 0, signal none)"`, which
    reads as a crash. *Fix:* exit code 0 with no signal is a normal end; also end sessions on
-   `vscode.debug.onDidTerminateDebugSession`, which fires for every kind of adapter (item 24).
+   `vscode.debug.onDidTerminateDebugSession`, which fires for every kind of adapter (item 27).
    Check the real order in VS Code. VS Code fires `onExit` only for an adapter it runs as a
    process; CodeLLDB 1.12.3, this project's debugger, runs inline, so `onExit` never fires here
    and the "adapter crashed" handling can't happen in this setup. VS Code also never passes a
@@ -93,67 +93,95 @@ listed. The first sweep's 59 items were fixed in the "Tech debt, chunk 1" to "ch
     - "running" is published when the tracker is created, before the program is launched, so a failed launch shows "running", then "ended";
     - a stop's `text` (an exception's name, say) is published as its `description`, a different field in the protocol.
 
+17. **The self-stop shows the closing brace, not the line that stops** (reproduced, GDB 17.2 on
+   the debug build: `fillscope_frame_anchor (frame_index=0) at anchor.cpp:83`, the `}`). After
+   `int3` the program counter is the next instruction, which GCC attributes to the brace. So VS
+   Code highlights `}`, and the debug-state file publishes line 83, while the comment marks the
+   `int3` line as where "the debugger stops". *Fix (verified by the reviewer under LLDB):*
+   `int3` followed by a `nop` on the same line; then check the line (item 31).
+18. **The frame source's message is garbled when the viewer goes before the run's description is
+   sent** (read; `report_failed_send`). It prints "the viewer went away the run's description":
+   one phrase must fit both "went away {}" and "can't send {}". *Fix:* a phrase for each.
+19. **At `-O2` the self-stop can't read `frame_index`** (reproduced by the reviewer: GDB shows
+   `<optimized out>`, LLDB `None`, and both self-stop debugger tests fail at `-O2`).
+   DEBUGGER-LOCKSTEP.md says `frame_index` is readable, which is true at `-O0` only. *Fix
+   (verified by the reviewer):* give the `asm` statement `frame_index` as an input, or limit the
+   claim to `-O0`.
+
 ## B. Losing the user's work
-17. **A connection that sends nothing valid wipes the run being examined** (read; `ViewerApp::receive`
+20. **A connection that sends nothing valid wipes the run being examined** (read; `ViewerApp::receive`
    calls `begin_connection()` on any new sender). A connection that sends garbage, or nothing,
    discards the previous, complete run and the point. *Fix:* start the new connection's run at its
    first valid message; test with a garbage-only connection and an empty one.
-18. **The checks of the tests overwrite edits made while they run** (read; reproduced by the
+21. **The checks of the tests overwrite edits made while they run** (read; reproduced by the
    reviewer). `mutants.py` and `selection_check.py` restore the source they captured before
    mutating it, so saving that file during the run loses the edit. They also build in `build/debug`,
    the working build, which the editor's build may be using at the same moment. *Fix:* run both in
    a temporary `git worktree`, never in the working tree.
 
 ## C. Test machinery that can answer wrongly
-19. **A program with no tests is recorded as passed** (read; reproduced by the reviewer). A
+22. **A program with no tests is recorded as passed** (read; reproduced by the reviewer). A
     manifest program with no tests in CTest passes `--check-registration`, and `all_skipped`
     ignores it (`if tests and ...`). For example, every test renamed `DISABLED_` is recorded as
     passed with nothing tested. *Fix:* registration requires at least one test per program; a
     program with none is never recorded.
-20. **`mutants.py` ignores a failed restore of the warnings setting** (read). The `finally`
+23. **`mutants.py` ignores a failed restore of the warnings setting** (read). The `finally`
     ignores `set_werror`'s result, so a failed reconfigure leaves `build/debug` without
-    `-Werror`, silently. Moving the check to a worktree (item 18) removes this too.
-21. **`npm ci` reruns on every full run** (reproduced: "added 5 packages" in the sanitizer build
+    `-Werror`, silently. Moving the check to a worktree (item 21) removes this too.
+24. **`npm ci` reruns on every full run** (reproduced: "added 5 packages" in the sanitizer build
     with nothing changed). Both builds declare the same output in the source tree, so each sees
     the other's install as newer. Harmless under the lock, but slow and noisy. *Fix:* one stamp
     per build directory, keyed by the lock file.
 
 ## D. Input refused late, or not at all
-22. **An empty `--socket ""` is accepted** (reproduced). The viewer binds a name Linux chooses
+25. **An empty `--socket ""` is accepted** (reproduced). The viewer binds a name Linux chooses
     (autobind), which no source can know; the frame source retries for seconds before failing.
     *Fix:* both parsers refuse it, with a test.
-23. **`--exit-after inf` is accepted and never exits** (reproduced), though 0 already means
+26. **`--exit-after inf` is accepted and never exits** (reproduced), though 0 already means
     "never". *Fix:* refuse a value that isn't finite; test it.
-24. **The extension never listens for `onDidTerminateDebugSession`** (read). An adapter running
+27. **The extension never listens for `onDidTerminateDebugSession`** (read). An adapter running
     as a server, or inline, may end a session without `onExit`, and its entry then stays "running"
     or "stopped" for good.
-25. **Self-stop says nothing when `/proc/self/status` can't be read** (read; `tracer_attached_now`).
+28. **Self-stop says nothing when `/proc/self/status` can't be read** (read; `tracer_attached_now`).
     A failed read means "no tracer", so a debugger session runs freely with no word why. *Fix:*
     warn once on stderr when self-stop is on and the file can't be read.
 
 ## E. Test gaps
-26. **Nothing checks the anchor at `-O2`** (read). Every build is `-O0`; removing the anchor's
+29. **Nothing checks the anchor at `-O2`** (read). Every build is `-O0`; removing the anchor's
     `asm volatile` clobber passes every test (reproduced by the reviewer). DEBUGGER-LOCKSTEP.md's
     rule 1 was checked once, by hand. *Fix:* a `check`-tier test that compiles the anchor at `-O2`
-    and checks with `nm` and `objdump` that it keeps its own address and its store.
-27. **The test scripts have no tests of their own** (read; reproduced by the reviewer).
+    and checks with `nm` and `objdump` that it keeps its own address and its store. The reviewer found that `nm` and `objdump` pass even
+    with `noinline` and the clobber removed: the caller is in another file and there is no LTO,
+    so nothing can merge or inline it. The rule's measures defend against LTO or a caller in the
+    same file. A useful check is a debugger run at `-O2`, which also catches item 19.
+30. **Nothing checks that frame N is sent before the stop for frame N** (reproduced by the
+    reviewer): with the anchor called before `send_message`, every test passes, since the
+    debugger tests count the messages only after the run. That is the lockstep property itself.
+    *Fix:* the debugger test's driver counts, at each stop, the messages already waiting.
+31. **The debugger tests throw away the stop's line number** (read; their patterns end in
+    `:\d+`), which is how item 17 passes. *Fix:* check the line: the `int3` line for self-stop,
+    the first statement for a breakpoint by name.
+32. **The test scripts have no tests of their own** (read; reproduced by the reviewer).
     `check_registration` returning nothing, `all_skipped` returning nothing, or the `libubsan`
     check removed: all pass CI. `selection_check.py` never checks that a failed run is not
     recorded, or that the slow tier isn't run. *Fix:* a Python `unittest` program in the `unit`
     tier, covering parsing, `all_skipped`, registration and the pass record; and a run case with a
     test made to fail.
-28. **Viewer** (mutants that survive, reproduced by the reviewer):
+33. **Viewer** (mutants that survive, reproduced by the reviewer):
     - nothing checks the source's error through `ViewerApp`; deleting `source_error = receiver.error()` passes;
     - nothing checks `ViewerApp::finish`;
     - nothing checks "seconds since last frame"'s value, only that it appears;
     - nothing checks the plot's points; dropping each bucket's high passes. A pure `plot_points` function would let a unit test check them;
     - nothing checks the envelope's frame count across merges; changing `+=` to `=` in the even branch passes;
     - nothing checks that the table draws the followed rows' colour (Dear ImGui doesn't expose it), yet RUNNING.md says the UI tests check the highlights.
-29. **The frame source and anchor:**
+34. **The frame source and anchor:**
     - Nothing checks that `--interval-ms` is honoured; removing the sleep passes every test.
     - A `set_self_stop` that does nothing is caught only by the debugger tier.
     - `lldb_self_stop.py`'s failure branches never run.
-30. **The extension:**
+    - The frame source's failure messages are never checked, only its exit code (item 18 survives).
+    - `last_anchored_frame()` before any call ("none yet") is untested.
+    - Two unit tests assume no tracer, so they fail when the test program is run under GDB or strace.
+35. **The extension:**
     - No test of `onExit(0)` after a program's own exit (item 2), or of `onError`.
     - The concurrent-reader test doesn't assert that its reads overlapped the writes, so it can pass without testing anything on another machine.
     - `extension.test.js` waits a fixed 20 ms for asynchronous work.
@@ -170,21 +198,26 @@ listed. The first sweep's 59 items were fixed in the "Tech debt, chunk 1" to "ch
       So DEBUGGER-LOCKSTEP.md's "each shown, by a mutant, to fail a test when broken" is not yet true.
     - The fake `vscode` calls `onExit(1, undefined)`, which CodeLLDB never causes.
     - No test covers restart, child sessions or `terminated` through `extension.js`.
-31. **Mutants name whole programs:** 22 of 60 name `viewer_ui_tests` or
+36. **Mutants name whole programs:** 22 of 60 name `viewer_ui_tests` or
     `vscode_debug_state_tests`, so nothing makes sure the intended test is the one that fails. The
     reviewer checked all 22, and each was caught by its intended test. *Fix:* name single tests,
     through Node's `--test-name-pattern` and the Test Engine's filter.
 
 ## F. Code quality
-32. **Viewer:**
+37. **Viewer:**
     - `ViewerApp::receive` allocates a new vector every paint;
     - `bar_text` formats its strings every paint, though the published context rarely changes;
     - the plot allocates two vectors every paint;
     - `Run` keeps every frame, so memory grows with the run (about 32 bytes a frame, so 10 million frames is 320 MB). State the bound, or cap the run.
-33. **Anchor and frame source:**
+38. **Anchor and frame source:**
     - with self-stop on, the anchor reads `/proc/self/status` on every call, through `ifstream` and `ostringstream`, which Step Into walks through;
-    - `last_sent` in `run_frame_source` duplicates `options.frames > 0`.
-34. **Extension:**
+    - `last_sent` in `run_frame_source` duplicates `options.frames > 0`;
+    - the `noinline` comment overstates: the function is emitted anyway (it has external linkage), debuggers bind to inlined copies too, and without LTO the call can't be inlined at all;
+    - `draw_uniform` has an unstated precondition, `low <= high`;
+    - `(option == "--frames" ? options.frames : options.seed) = *number` sends any other numeric option added later to `seed`;
+    - the loop sleeps after the last frame too, so a run ends one interval late;
+    - `main` builds `std::span{argv + 1, argv + argc}`, an invalid range if `argc` is 0 (Linux 5.18 and later always pass `argv[0]`).
+39. **Extension:**
     - `extension.js` duplicates `messageOf`;
     - `sessionEnded` builds a fake session to call `change`;
     - pending resumes are keyed `"id#seq"`, so ending a session scans every key;
@@ -193,19 +226,22 @@ listed. The first sweep's 59 items were fixed in the "Tech debt, chunk 1" to "ch
     - several defensive steps no test can observe are commented as if they were load-bearing: the `StaleStop` rethrow, deleting pending resumes at a session's end, `hasEnded` in `onClientMessage`;
     - `extension.js`'s header has one merged line of more than 170 characters;
     - after `stop()`, the output line names one session of the several that changed.
-35. **Test machinery:**
+40. **Test machinery:**
     - `iterate.py` lists CTest's tests twice, with the same parsing code;
     - `fingerprints()` reuses the name `shared` for a hash object and then for a string;
     - `fillscope_gtest` re-parses two options only to pass them on.
 
 ## G. Documents
-36. **ARCHITECTURE.md:**
+41. **ARCHITECTURE.md:**
     - says the `static_assert`s check that the payloads are trivially copyable; they check `has_unique_object_representations`, which also rules out padding;
     - "no spike is lost" (item 5);
     - "SourceHello opens every connection" overclaims, also in `message.h`: the viewer accepts connections without one, and tests rely on it.
-37. **DEBUGGER-LOCKSTEP.md:**
+42. **DEBUGGER-LOCKSTEP.md:**
     - cites `Anchor.SelfStopWithoutADebuggerDoesNotStop`; the test is `Anchor.SelfStopWithoutATracerDoesNotStop`;
-    - rule 1's "Checked in the `-O2` build" reads as a standing check (item 26);
+    - rule 1's "Checked in the `-O2` build" reads as a standing check, and the check passes without the measures (item 29);
+    - "a breakpoint by name lands on the first statement": LLDB places it at the `if`, after both stores (GDB at the first statement);
+    - "Step Over from the anchor returns to the producer's loop" holds from the self-stop only; from a breakpoint by name it steps through the anchor first;
+    - "`frame_index` readable" holds at `-O0` only (item 19);
     - "expensive scopes are never read" (item 6);
     - an adapter crash's `endReason`, which can't happen with CodeLLDB (item 2);
     - "nothing changes a session after it has ended": a restart under the same id does, by design;
@@ -213,29 +249,31 @@ listed. The first sweep's 59 items were fixed in the "Tech debt, chunk 1" to "ch
     - the writer "still running" is true only if VS Code deactivates the extension; the process id is the reliable check;
     - "writes only for a session in a ... folder that contains its own source" omits that a session with no folder goes to the first Fillscope folder;
     - the resuming requests listed include `goto` and `restartFrame` (item 12).
-38. **RUNNING.md:**
+43. **RUNNING.md:**
+    - the example output line says `anchor.cpp:69`, the function's signature, where no stop lands (also in `debug_state.js`'s comment);
+    - "F10 from the anchor steps back into the loop": from the self-stop only;
     - "Each Continue adds one point": each frame adds two plotted points (a bucket's low and high), and after 4,096 frames, buckets merge;
     - "Every form builds first" isn't true of the forms for scripts;
-    - "the table's highlights" are tested only through `row_marks` (item 28);
-    - "Both always restore the source, even when stopped by a signal" isn't true of SIGKILL, or of an edit made during the run (item 18).
-39. **AI-USE.md:**
+    - "the table's highlights" are tested only through `row_marks` (item 33);
+    - "Both always restore the source, even when stopped by a signal" isn't true of SIGKILL, or of an edit made during the run (item 21).
+44. **AI-USE.md:**
     - the extension's row says "four mutants" (there are 17);
     - the selection row doesn't say `selection_check.py` now also runs and records.
-40. **`extension.js`** says `onExit` is "the only word that the session is over" after a crash; it
+45. **`extension.js`** says `onExit` is "the only word that the session is over" after a crash; it
     also fires after every normal end.
-41. **For the owner:**
+46. **For the owner:**
     - the charter's decision 3 says the app "logs the context of what is selected"; it writes a file, replaced on every change, as README.md now says;
     - README.md lacks the Purpose / Status / Read when lines that CLAUDE.md requires of every document.
 
 ## Left in place deliberately
-42. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
+47. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
     GDB and LLDB use here, that is the whole truth. In non-stop debugging, another thread can still
     be stopped after the published one resumes. *Fix, if non-stop debugging is ever used:* publish
     stops per thread.
-43. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
+48. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
     file names its writer's process id, and the documents say to use one window.
-44. **A writer that crashes leaves its file saying "running"** (a signal it can handle is item 1).
+49. **A writer that crashes leaves its file saying "running"** (a signal it can handle is item 1).
     Both files name their writer's process id and start time; a reader that must be sure checks
     that the process is alive.
-45. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
+50. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
     so each run records the toolchain's versions instead.
