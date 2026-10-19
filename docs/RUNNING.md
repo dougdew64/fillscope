@@ -66,6 +66,10 @@ adds the tier to its name.
 - **`docs_tests` (GoogleTest, `unit`):** every relative link in the repository's Markdown documents
   resolves. Each document is a run-time file of the test, so editing any document re-runs it.
 
+**CI** ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) runs `run-tests.sh` and both checks
+below on every push, in a Fedora container, with `FILLSCOPE_REQUIRE_DEBUGGERS` set so a missing
+debugger fails the debugger tests instead of skipping them.
+
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh
 python3 -I tests/scripts/mutants.py          # 17 deliberate bugs, each must fail a named test (~45 s)
