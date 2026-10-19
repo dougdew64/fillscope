@@ -10,7 +10,9 @@ procedure. **Read when:** building, running or changing it.
 | `src/lockstep/` | `anchor.h`, `anchor.cpp`: the debugger anchor and the debugger check ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `src/viewer/` | `viewer_view.h`, `viewer_view.cpp`, what the viewer draws as a function of its state; `main.cpp`, the window |
 | `tools/frame_source/` | a stand-in that produces fake frames until real ones exist; not the matching engine |
-| `tests/` | the tests, `run-tests.sh` and `mutants.py` (below) |
+| `tests/<area>/` | the tests of one area, mirroring `src/` and `tools/` (`tests/channel/` tests `src/channel/`), with the area's `CMakeLists.txt` |
+| `tests/support/` | helpers shared by every area's tests |
+| `tests/scripts/` | the commands that run the tests and check them (below) |
 
 ## Build
 ```sh
@@ -25,19 +27,20 @@ links `compile_commands.json` for clangd.
 **Iterating and gating are different acts.** Between edits, run only what the edit affects; before
 a commit, run everything.
 ```sh
-python3 -I tests/iterate.py          # between edits: the affected fast tests, debug build (seconds)
-python3 -I tests/iterate.py -R Name  # between edits: fast tests matching a name
-tests/run-tests.sh                   # before a commit: every test, normal and sanitizer builds
+python3 -I tests/scripts/iterate.py          # between edits: affected fast tests, debug build
+python3 -I tests/scripts/iterate.py -R Name  # between edits: fast tests matching a name
+tests/scripts/run-tests.sh                   # before a commit: every test, both builds
 ```
 **What `iterate.py` runs.** CMake writes `build/debug/test-manifest.txt`: each test program, its
 tier, and the files it uses at run time (a program it starts, a script). A program is affected
-when its binary, one of those files, or `CMakeLists.txt` differs from its last passing run, so
+when its binary, one of those files, or any `CMakeLists.txt` differs from its last passing run, so
 the selection follows the build's own dependencies rather than a hand-kept map. `--list` shows
 what's affected without running it; `--all` runs every fast program. `run-tests.sh` records a full
 pass, so `iterate.py` starts from there.
 
-**Tiers.** Every test program has one cost tier, set where it is registered in `CMakeLists.txt`
-(`fillscope_test_program`), which gives each of its tests a label and a timeout, so a test that
+**Tiers.** Every test program has one cost tier, set where its area's `CMakeLists.txt` registers it
+(`fillscope_gtest` or `fillscope_test_program`, defined in `tests/CMakeLists.txt`), which gives
+each of its tests a label and a timeout, so a test that
 grows slow fails as slow the day it does:
 
 | Tier | Timeout per test | Run by |
@@ -63,8 +66,8 @@ adds the tier to its name.
 
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh
-python3 -I tests/mutants.py          # 15 deliberate bugs, each must fail a named test (~40 s)
-python3 -I tests/selection_check.py  # iterate.py selects the right programs for 8 changes (~20 s)
+python3 -I tests/scripts/mutants.py          # 15 deliberate bugs, each must fail a named test (~40 s)
+python3 -I tests/scripts/selection_check.py  # iterate.py selects the right programs for 9 changes (~25 s)
 ```
 Both always restore the source. `selection_check.py` uses its own pass record, never the real one.
 

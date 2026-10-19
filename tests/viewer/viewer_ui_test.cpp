@@ -12,7 +12,7 @@
 
 #include "channel/net.h"
 #include "frame_source.h"
-#include "test_support.h"
+#include "support/test_support.h"
 #include "viewer/viewer_view.h"
 
 #include <imgui.h>

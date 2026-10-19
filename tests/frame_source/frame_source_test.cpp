@@ -3,7 +3,7 @@
 
 #include "frame_source.h"
 #include "lockstep/anchor.h"
-#include "test_support.h"
+#include "support/test_support.h"
 
 #include <gtest/gtest.h>
 

@@ -1,7 +1,7 @@
 # Checks that the tests catch bugs: each mutant breaks the code in one deliberate way, and the
 # tests named for it must then fail. The source is always restored, even on interruption.
 #
-#   python3 -I tests/mutants.py [BUILD_DIR]     (default build/debug)
+#   python3 -I tests/scripts/mutants.py [BUILD_DIR]     (default build/debug)
 #
 # A mutant whose text no longer matches the source is an error, not a pass: the check must not go
 # silently stale when the code changes.
@@ -9,7 +9,7 @@ import pathlib
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 ANCHOR = "src/lockstep/anchor.cpp"
 CHANNEL = "src/channel/net.cpp"

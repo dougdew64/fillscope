@@ -1,0 +1,84 @@
+# The tests: one directory per area, mirroring src/ and tools/, plus support/ (shared helpers) and
+# scripts/ (the commands that run and check them; docs/RUNNING.md).
+
+FetchContent_Declare(googletest GIT_REPOSITORY https://github.com/google/googletest.git GIT_TAG v1.17.0)
+FetchContent_Declare(imgui_test_engine GIT_REPOSITORY https://github.com/ocornut/imgui_test_engine.git
+  GIT_TAG v1.93.0)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest imgui_test_engine)
+
+include(GoogleTest)
+
+set(TEST_DEFINES FILLSCOPE_FRAME_SOURCE="$<TARGET_FILE:frame_source>")
+
+# Every test program is registered through fillscope_test_program, which gives its tests:
+#   - a cost tier, as a label and a per-test timeout, so a slow test fails as slow the day it
+#     is added: unit (2 s), ui (10 s, the whole program), debugger (30 s);
+#   - a label naming the program, exe:<name>, so tests/scripts/iterate.py can run one program's
+#     tests;
+#   - a line in test-manifest.txt: the program, its tier, and the files it uses at run time.
+# iterate.py re-runs a program only when the program or one of those files has changed.
+# A program's tests are all in one tier, so a program is either fast or slow, never both.
+# Programs are named for the area they test (channel_tests); when an area's tests span tiers, the
+# slower program adds the tier (lockstep_debugger_tests).
+set(FILLSCOPE_TIMEOUT_unit 2)
+set(FILLSCOPE_TIMEOUT_ui 10)
+set(FILLSCOPE_TIMEOUT_debugger 30)
+
+function(fillscope_test_program name tier)
+  cmake_parse_arguments(ARG "GTEST" "" "RUNTIME_DEPS" ${ARGN})
+  if(NOT DEFINED FILLSCOPE_TIMEOUT_${tier})
+    message(FATAL_ERROR "${name}: unknown test tier '${tier}'")
+  endif()
+  set(labels "${tier}\\;exe:${name}")
+  if(ARG_GTEST)
+    gtest_discover_tests(${name} DISCOVERY_MODE PRE_TEST
+      PROPERTIES LABELS "${labels}" TIMEOUT ${FILLSCOPE_TIMEOUT_${tier}})
+  else()
+    add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES LABELS "${tier};exe:${name}" TIMEOUT ${FILLSCOPE_TIMEOUT_${tier}})
+  endif()
+  list(JOIN ARG_RUNTIME_DEPS " " runtime_deps)
+  set_property(GLOBAL APPEND PROPERTY FILLSCOPE_TEST_MANIFEST
+    "${name} ${tier} $<TARGET_FILE:${name}> ${runtime_deps}")
+endfunction()
+
+# A GoogleTest program: its sources, the libraries it tests, and the files it uses at run time.
+function(fillscope_gtest name tier)
+  cmake_parse_arguments(ARG "" "" "SOURCES;LIBS;RUNTIME_DEPS" ${ARGN})
+  add_executable(${name} ${ARG_SOURCES})
+  target_link_libraries(${name} PRIVATE ${ARG_LIBS} GTest::gtest_main)
+  target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  target_compile_definitions(${name} PRIVATE ${TEST_DEFINES})
+  target_compile_options(${name} PRIVATE ${FILLSCOPE_WARNINGS})
+  fillscope_test_program(${name} ${tier} GTEST RUNTIME_DEPS ${ARG_RUNTIME_DEPS})
+endfunction()
+
+# Dear ImGui again, built with the Test Engine's hooks (viewer/imconfig_test_engine.h), plus the
+# Test Engine and its null backend: real Dear ImGui frames with no window. Kept apart from
+# imgui_app so the viewer itself has no hooks.
+set(TE_DIR ${imgui_test_engine_SOURCE_DIR})
+add_library(imgui_te STATIC ${IMGUI_SOURCES}
+  ${TE_DIR}/imgui_test_engine/imgui_te_context.cpp
+  ${TE_DIR}/imgui_test_engine/imgui_te_coroutine.cpp
+  ${TE_DIR}/imgui_test_engine/imgui_te_engine.cpp
+  ${TE_DIR}/imgui_test_engine/imgui_te_exporters.cpp
+  ${TE_DIR}/imgui_test_engine/imgui_te_perftool.cpp
+  ${TE_DIR}/imgui_test_engine/imgui_te_ui.cpp
+  ${TE_DIR}/imgui_test_engine/imgui_te_utils.cpp
+  ${TE_DIR}/imgui_test_engine/imgui_capture_tool.cpp
+  ${TE_DIR}/shared/imgui_app.cpp)
+target_include_directories(imgui_te PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends
+  ${TE_DIR} ${TE_DIR}/imgui_test_engine ${TE_DIR}/shared ${CMAKE_CURRENT_SOURCE_DIR}/viewer)
+target_compile_definitions(imgui_te PUBLIC IMGUI_USER_CONFIG="imconfig_test_engine.h")
+target_link_libraries(imgui_te PUBLIC Threads::Threads)
+
+add_subdirectory(channel)
+add_subdirectory(lockstep)
+add_subdirectory(frame_source)
+add_subdirectory(viewer)
+
+# One line per test program: name, tier, program, run-time files. Read by scripts/iterate.py.
+get_property(manifest GLOBAL PROPERTY FILLSCOPE_TEST_MANIFEST)
+list(JOIN manifest "\n" manifest)
+file(GENERATE OUTPUT ${PROJECT_BINARY_DIR}/test-manifest.txt CONTENT "${manifest}\n")

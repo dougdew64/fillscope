@@ -10,7 +10,7 @@ reads the trading domain; the stage-by-stage split of who writes what (charter Â
 
 ## 1. CI
 The top-level build and the test setup exist ([RUNNING.md](RUNNING.md)). What's left of the
-skeleton: CI on Linux running `tests/run-tests.sh` on every push, and the checks of the tests
+skeleton: CI on Linux running `tests/scripts/run-tests.sh` on every push, and the checks of the tests
 themselves (`mutants.py`, `selection_check.py`). The debugger tests need GDB and LLDB on the CI
 machine, or they are skipped there and the run says so.
 

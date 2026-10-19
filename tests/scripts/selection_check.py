@@ -1,8 +1,8 @@
-# Checks that tests/iterate.py selects the right test programs: changes one file at a time and
-# compares the programs it reports affected with the ones that should be. A wrong selection would
-# be silent (a test that should have run doesn't), which is why this check exists.
+# Checks that iterate.py selects the right test programs: changes one file at a time and compares
+# the programs it reports affected with the ones that should be. A wrong selection would be silent
+# (a test that should have run doesn't), which is why this check exists.
 #
-#   python3 -I tests/selection_check.py
+#   python3 -I tests/scripts/selection_check.py
 #
 # Uses its own pass record, never the real one; the source is always restored.
 import os
@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 ALL = {"channel_tests", "lockstep_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}
 
 # A change that reaches the binary: an extra string in the .comment section. (A comment in the
@@ -25,16 +25,18 @@ CASES = [
     ("src/channel/frame.h", CPP_PROBE, {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
     ("src/lockstep/anchor.cpp", CPP_PROBE, {"lockstep_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
     ("tools/frame_source/frame_source.cpp", CPP_PROBE, {"frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
-    ("tests/test_support.h", CPP_PROBE, ALL - {"lockstep_tests"}),
-    ("tests/lldb_self_stop.py", TEXT_PROBE, {"lockstep_debugger_tests"}),
+    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests"}),
+    ("tests/lockstep/lldb_self_stop.py", TEXT_PROBE, {"lockstep_debugger_tests"}),
     ("CMakeLists.txt", TEXT_PROBE, ALL),
+    # Any build file can change how a test runs (a timeout, a label), so each one counts for all.
+    ("tests/viewer/CMakeLists.txt", TEXT_PROBE, ALL),
     # Nothing tests the viewer's window yet, so changing it affects no test program.
     ("src/viewer/main.cpp", CPP_PROBE, set()),
 ]
 
 
 def iterate(*args, env):
-    return subprocess.run([sys.executable, "-I", str(ROOT / "tests" / "iterate.py"), *args], env=env,
+    return subprocess.run([sys.executable, "-I", str(ROOT / "tests" / "scripts" / "iterate.py"), *args], env=env,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=True).stdout
 
 

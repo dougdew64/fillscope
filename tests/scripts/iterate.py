@@ -1,17 +1,17 @@
 # Between edits: builds the debug build, then runs only the fast tests whose programs are affected
-# by what changed since their last passing run. Before a commit, run tests/run-tests.sh instead:
-# it runs everything, in both builds.
+# by what changed since their last passing run. Before a commit, run tests/scripts/run-tests.sh
+# instead: it runs everything, in both builds.
 #
-#   python3 -I tests/iterate.py              the affected fast test programs
-#   python3 -I tests/iterate.py --all        every fast test program
-#   python3 -I tests/iterate.py -R REGEX     fast tests whose names match REGEX (CTest -R)
-#   python3 -I tests/iterate.py --list       which programs are affected, without running them
-#   python3 -I tests/iterate.py --record-all mark every program as passed (run-tests.sh does this)
+#   python3 -I tests/scripts/iterate.py              the affected fast test programs
+#   python3 -I tests/scripts/iterate.py --all        every fast test program
+#   python3 -I tests/scripts/iterate.py -R REGEX     fast tests whose names match REGEX (CTest -R)
+#   python3 -I tests/scripts/iterate.py --list       which programs are affected, without running
+#   python3 -I tests/scripts/iterate.py --record-all mark every program as passed (run-tests.sh)
 #
 # "Affected" comes from the build, not from a hand-kept map: each test program, and each file it
-# uses at run time, is listed in build/debug/test-manifest.txt (written by CMakeLists.txt). A
-# program is affected when its binary, one of those files, or CMakeLists.txt differs from its last
-# passing run. A change the build doesn't propagate into a program can't change its result.
+# uses at run time, is listed in build/debug/test-manifest.txt (written by tests/CMakeLists.txt). A
+# program is affected when its binary, one of those files, or any CMakeLists.txt differs from its
+# last passing run. A change the build doesn't propagate into a program can't change its result.
 import hashlib
 import json
 import os
@@ -20,10 +20,10 @@ import re
 import subprocess
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 BUILD = ROOT / "build" / "debug"
 MANIFEST = BUILD / "test-manifest.txt"
-# tests/selection_check.py points this elsewhere, so checking the selection never touches the real
+# selection_check.py points this elsewhere, so checking the selection never touches the real
 # record of what has passed.
 STATE = pathlib.Path(os.environ.get("FILLSCOPE_ITERATE_STATE", BUILD / "last-pass.json"))
 FAST_TIERS = {"unit", "ui"}
@@ -45,9 +45,14 @@ def programs():
     return result
 
 
+def build_files():
+    """Every CMakeLists.txt of ours: a change to any of them can change how a test is run."""
+    return sorted(str(p) for p in ROOT.rglob("CMakeLists.txt") if "build" not in p.relative_to(ROOT).parts)
+
+
 def fingerprint(files):
     digest = hashlib.sha256()
-    for path in [*files, str(ROOT / "CMakeLists.txt")]:
+    for path in [*files, *build_files()]:
         digest.update(path.encode())
         digest.update(hashlib.sha256(pathlib.Path(path).read_bytes()).digest())
     return digest.hexdigest()
@@ -110,7 +115,7 @@ def main(args):
     changed = affected(everything)
     selected = fast if args == ["--all"] else fast & changed
     if changed & slow:
-        print("affected, slow tier (run tests/run-tests.sh): " + ", ".join(sorted(changed & slow)))
+        print("affected, slow tier (run tests/scripts/run-tests.sh): " + ", ".join(sorted(changed & slow)))
     if not selected:
         print("no fast test program affected since its last passing run")
         return 0

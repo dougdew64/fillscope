@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Before a commit: builds Fillscope twice (normal, and with AddressSanitizer and
 # UndefinedBehaviorSanitizer) and runs every test in both, in parallel. Exits nonzero if anything
-# fails. Between edits, tests/iterate.py runs only the affected fast tests.
+# fails. Between edits, tests/scripts/iterate.py runs only the affected fast tests.
 #
-#   tests/run-tests.sh            from anywhere in the repository
+#   tests/scripts/run-tests.sh            from anywhere in the repository
 set -euo pipefail
 
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -27,14 +27,16 @@ run() {  # run BUILD_DIR [CMAKE OPTIONS...]
 run "$root/build/debug"
 run "$root/build/asan" -DFILLSCOPE_SANITIZE=ON
 
-# The sanitizer build only means something if the sanitizers are really in it.
-for binary in channel_tests lockstep_tests frame_source_tests lockstep_debugger_tests viewer_ui_tests frame_source viewer; do
-    if ! ldd "$root/build/asan/$binary" | grep -q libasan; then
+# The sanitizer build only means something if the sanitizers are really in it: every test program
+# (from the manifest, so a new one is covered without editing this) and the two programs.
+for binary in $(awk '{print $3}' "$root/build/asan/test-manifest.txt") \
+              "$root/build/asan/frame_source" "$root/build/asan/viewer"; do
+    if ! ldd "$binary" | grep -q libasan; then
         echo "FAILED: $binary in the sanitizer build is not linked with AddressSanitizer" >&2
         exit 1
     fi
 done
 
-# Everything passed, so tests/iterate.py can start from here.
-python3 -I "$root/tests/iterate.py" --record-all
+# Everything passed, so iterate.py can start from here.
+python3 -I "$root/tests/scripts/iterate.py" --record-all
 echo "== all tests passed in both builds"

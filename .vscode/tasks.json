@@ -11,14 +11,14 @@
     {
       "label": "test: affected (between edits)",
       "type": "shell",
-      "command": "python3 -I tests/iterate.py",
+      "command": "python3 -I tests/scripts/iterate.py",
       "group": { "kind": "test", "isDefault": true },
       "problemMatcher": ["$gcc"]
     },
     {
       "label": "test: everything (before a commit)",
       "type": "shell",
-      "command": "tests/run-tests.sh",
+      "command": "tests/scripts/run-tests.sh",
       "group": "test",
       "problemMatcher": ["$gcc"]
     }

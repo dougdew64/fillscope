@@ -1,7 +1,7 @@
 // The socket that carries frames to the viewer.
 
 #include "channel/net.h"
-#include "test_support.h"
+#include "support/test_support.h"
 
 #include <gtest/gtest.h>
 

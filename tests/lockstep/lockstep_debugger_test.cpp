@@ -7,7 +7,7 @@
 // come from the build.
 
 #include "channel/net.h"
-#include "test_support.h"
+#include "support/test_support.h"
 
 #include <gtest/gtest.h>
 

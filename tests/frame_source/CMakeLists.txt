@@ -1,0 +1,1 @@
+fillscope_gtest(frame_source_tests unit SOURCES frame_source_test.cpp LIBS frame_source_lib)
