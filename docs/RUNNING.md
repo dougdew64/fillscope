@@ -51,9 +51,12 @@ Every run prints its five slowest tests.
 **The test programs:**
 - **`channel_tests`, `lockstep_tests`, `frame_source_tests` (GoogleTest, `unit`):** the socket;
   the anchor and the debugger check; the frame source (generation, the command line, a whole run).
-- **`debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't installed):**
-  the frame source under GDB and LLDB, by breakpoint and by self-stop; every stop is in the anchor,
-  in `anchor.cpp`, with the right frame index.
+- **`lockstep_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
+  installed):** the anchor under GDB and LLDB, driven through the frame source, by breakpoint and
+  by self-stop; every stop is in the anchor, in `anchor.cpp`, with the right frame index.
+
+Programs are named for the area they test; when an area's tests span tiers, the slower program
+adds the tier to its name.
 - **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** what the viewer shows, and frames
   from a real frame source process. Text is checked through Dear ImGui's logging, since plain text
   items have no ID for the Test Engine to find; the plot is found by its ID.

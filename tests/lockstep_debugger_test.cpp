@@ -1,6 +1,7 @@
-// The frame source under real debuggers: every stop is in the anchor, in our own source file, with
-// the right frame index, and Continue runs on to the next frame. Each test is skipped if its
-// debugger isn't installed.
+// The lockstep anchor under real debuggers, driven through the frame source (the program that calls
+// it): every stop is in the anchor, in our own source file, with the right frame index, and
+// Continue runs on to the next frame. Each test is skipped if its debugger isn't installed. Kept
+// apart from lockstep_test.cpp because these are slow (the debugger tier).
 //
 // FILLSCOPE_FRAME_SOURCE (the frame source binary) and FILLSCOPE_LLDB_SCRIPT (lldb_self_stop.py)
 // come from the build.
@@ -43,7 +44,7 @@ void expect_one_stop_per_frame_in_the_anchor(const std::vector<Stop>& stops, con
 
 // A listener for the frame source to send to, and the frame source's arguments pointing at it. The
 // frames are drained afterwards, to check every one arrived.
-class DebuggerTest : public ::testing::Test {
+class LockstepDebugger : public ::testing::Test {
 protected:
     void SetUp() override {
         // LeakSanitizer can't run under ptrace; without this the sanitizer build's frame source
@@ -65,7 +66,7 @@ protected:
     FrameReceiver receiver_{listen_on(name_)};
 };
 
-TEST_F(DebuggerTest, GdbBreakpointByNameStopsInTheAnchor) {
+TEST_F(LockstepDebugger, GdbBreakpointByNameStopsInTheAnchor) {
     if (!test::command_exists("gdb")) GTEST_SKIP() << "gdb not installed";
     const std::string output = test::run_command(
         "gdb -batch -nx -ex 'break fillscope_frame_anchor' -ex 'run " + source_args() +
@@ -77,7 +78,7 @@ TEST_F(DebuggerTest, GdbBreakpointByNameStopsInTheAnchor) {
     expect_all_frames_arrived();
 }
 
-TEST_F(DebuggerTest, GdbSelfStopStopsInTheAnchor) {
+TEST_F(LockstepDebugger, GdbSelfStopStopsInTheAnchor) {
     if (!test::command_exists("gdb")) GTEST_SKIP() << "gdb not installed";
     const std::string output = test::run_command("gdb -batch -nx -ex 'run --self-stop " + source_args() +
                                                  "' -ex continue -ex continue -ex continue " FILLSCOPE_FRAME_SOURCE);
@@ -88,7 +89,7 @@ TEST_F(DebuggerTest, GdbSelfStopStopsInTheAnchor) {
     expect_all_frames_arrived();
 }
 
-TEST_F(DebuggerTest, LldbBreakpointByNameStopsInTheAnchor) {
+TEST_F(LockstepDebugger, LldbBreakpointByNameStopsInTheAnchor) {
     if (!test::command_exists("lldb")) GTEST_SKIP() << "lldb not installed";
     const std::string output = test::run_command(
         "lldb --batch -o 'breakpoint set -n fillscope_frame_anchor' -o 'run " + source_args() +
@@ -102,7 +103,7 @@ TEST_F(DebuggerTest, LldbBreakpointByNameStopsInTheAnchor) {
 
 // LLDB's batch mode treats a stop by signal as a crash and runs no further commands, so the
 // self-stop test drives LLDB through its Python API instead.
-TEST_F(DebuggerTest, LldbSelfStopStopsInTheAnchor) {
+TEST_F(LockstepDebugger, LldbSelfStopStopsInTheAnchor) {
     if (!test::command_exists("lldb")) GTEST_SKIP() << "lldb not installed";
     std::string python_path = test::run_command("lldb -P");
     python_path.erase(python_path.find_last_not_of('\n') + 1);

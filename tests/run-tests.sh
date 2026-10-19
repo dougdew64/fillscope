@@ -28,7 +28,7 @@ run "$root/build/debug"
 run "$root/build/asan" -DFILLSCOPE_SANITIZE=ON
 
 # The sanitizer build only means something if the sanitizers are really in it.
-for binary in channel_tests lockstep_tests frame_source_tests debugger_tests viewer_ui_tests frame_source viewer; do
+for binary in channel_tests lockstep_tests frame_source_tests lockstep_debugger_tests viewer_ui_tests frame_source viewer; do
     if ! ldd "$root/build/asan/$binary" | grep -q libasan; then
         echo "FAILED: $binary in the sanitizer build is not linked with AddressSanitizer" >&2
         exit 1

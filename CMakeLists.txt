@@ -92,6 +92,8 @@ if(FILLSCOPE_TESTS)
   #   - a line in test-manifest.txt: the program, its tier, and the files it uses at run time.
   # tests/iterate.py re-runs a program only when the program or one of those files has changed.
   # A program's tests are all in one tier, so a program is either fast or slow, never both.
+  # Programs are named for the area they test (channel_tests); when an area's tests span tiers, the
+  # slower program adds the tier (lockstep_debugger_tests).
   set(FILLSCOPE_TIMEOUT_unit 2)
   set(FILLSCOPE_TIMEOUT_ui 10)
   set(FILLSCOPE_TIMEOUT_debugger 30)
@@ -127,9 +129,9 @@ if(FILLSCOPE_TESTS)
   fillscope_gtest(channel_tests unit SOURCES tests/channel_test.cpp LIBS fillscope_channel)
   fillscope_gtest(lockstep_tests unit SOURCES tests/lockstep_test.cpp LIBS fillscope_lockstep)
   fillscope_gtest(frame_source_tests unit SOURCES tests/frame_source_test.cpp LIBS frame_source_lib)
-  fillscope_gtest(debugger_tests debugger SOURCES tests/debugger_test.cpp LIBS fillscope_channel
+  fillscope_gtest(lockstep_debugger_tests debugger SOURCES tests/lockstep_debugger_test.cpp LIBS fillscope_channel
     RUNTIME_DEPS $<TARGET_FILE:frame_source> ${PROJECT_SOURCE_DIR}/tests/lldb_self_stop.py)
-  add_dependencies(debugger_tests frame_source)
+  add_dependencies(lockstep_debugger_tests frame_source)
 
   # Dear ImGui again, built with the Test Engine's hooks (tests/imconfig_test_engine.h), plus the
   # Test Engine and its null backend. Kept apart from imgui_app so the viewer itself has no hooks.

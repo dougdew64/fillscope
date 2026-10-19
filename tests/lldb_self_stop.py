@@ -1,5 +1,5 @@
 # Runs a program under LLDB through its Python API, synchronously, continuing through every stop.
-# Prints one line per stop and one at exit, for debugger_test.cpp to check:
+# Prints one line per stop and one at exit, for lockstep_debugger_test.cpp to check:
 #   stop: SIGTRAP in ::fillscope_frame_anchor(uint64_t) frame_index=0 file=anchor.cpp
 #   exited: 0
 #
