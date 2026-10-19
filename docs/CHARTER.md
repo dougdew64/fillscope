@@ -50,7 +50,7 @@ Where two priorities conflict, the higher wins.
    message of a real trading day.
 8. **Several processes and threads, not one.** The parts of the system communicate over sockets,
    as real trading systems do. The exact split, and how replay stays deterministic across it, are
-   decided as the design develops ([debugger-lockstep.md](debugger-lockstep.md)).
+   decided as the design develops ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)).
 
 ## 4. Open questions
 - Which code the owner writes: decided stage by stage, as the owner learns each stage's domain.

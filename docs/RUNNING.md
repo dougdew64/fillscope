@@ -7,7 +7,7 @@ procedure. **Read when:** building, running or changing it.
 | Path | What it holds |
 |---|---|
 | `src/channel/` | `frame.h`, the frame sent as raw bytes; `net.h`, `net.cpp`, the socket that carries frames to the viewer |
-| `src/lockstep/` | `anchor.h`, `anchor.cpp`: the debugger anchor and the debugger check ([debugger-lockstep.md](debugger-lockstep.md)) |
+| `src/lockstep/` | `anchor.h`, `anchor.cpp`: the debugger anchor and the debugger check ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `src/viewer/` | `viewer_view.h`, `viewer_view.cpp`, what the viewer draws as a function of its state; `main.cpp`, the window |
 | `tools/frame_source/` | a stand-in that produces fake frames until real ones exist; not the matching engine |
 | `tests/` | the tests, `run-tests.sh` and `mutants.py` (below) |

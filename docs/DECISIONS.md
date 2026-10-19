@@ -8,7 +8,7 @@ Newest first.
 
 | Date | Decision |
 |---|---|
-| 2026-10-19 | Plumbing starts now, before the domain reading is done: the processes, the frame channel, the animation and debugger lockstep, starting with the experiment in [debugger-lockstep.md](debugger-lockstep.md). The owner reads the domain in parallel. |
+| 2026-10-19 | Plumbing starts now, before the domain reading is done: the processes, the frame channel, the animation and debugger lockstep, starting with the experiment in [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md). The owner reads the domain in parallel. |
 | 2026-10-19 | Several processes and threads, not one: the parts communicate over sockets, so the system shows networking and concurrency. The split is decided as the design develops. |
 | 2026-10-19 | Linux is the platform for everything, the UI included (was: the UI's platform being settled). |
 | 2026-10-19 | Who writes what: the owner hand-writes the code that demonstrates modern C++ design, decided stage by stage as the owner learns each stage's domain (the owner is new to it); Claude writes the rest. Replaces "the core (book, matching, replay, fill models) is hand-written". |

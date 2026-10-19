@@ -1,5 +1,5 @@
 {
-  // Debugger lockstep (docs/debugger-lockstep.md), under CodeLLDB. Start one of the compounds: the
+  // Debugger lockstep (docs/DEBUGGER-LOCKSTEP.md), under CodeLLDB. Start one of the compounds: the
   // viewer and the frame source each get a debug session.
   "version": "0.2.0",
   "configurations": [

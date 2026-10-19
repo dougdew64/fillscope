@@ -1,6 +1,6 @@
 // The debugger anchor: the function a process calls after each frame it sends, so that a debugger
 // stopped there advances the viewer's animation by one frame per Continue
-// (docs/debugger-lockstep.md).
+// (docs/DEBUGGER-LOCKSTEP.md).
 #pragma once
 
 #include <cstdint>

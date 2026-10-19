@@ -5,7 +5,7 @@ step is removed when it lands (git keeps it), and the file is deleted when it's 
 **Read when:** choosing what to work on next.
 
 Decisions behind the steps are in the [charter](CHARTER.md); the lockstep design and its
-experiment results are in [debugger-lockstep.md](debugger-lockstep.md). In parallel, the owner
+experiment results are in [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md). In parallel, the owner
 reads the trading domain; the stage-by-stage split of who writes what (charter §4) waits on that.
 
 ## 1. CI
@@ -22,4 +22,4 @@ library with tests.
 ## 3. Publishing the debugger's state
 A VS Code extension that writes the stack and locals to a file on every stop, so the assistant can
 explain what is being stepped through. Its requirements are in
-[debugger-lockstep.md](debugger-lockstep.md).
+[DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md).
