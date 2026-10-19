@@ -1,0 +1,44 @@
+{
+  // The debugger-lockstep experiment (docs/debugger-lockstep.md), under CodeLLDB.
+  // Start one of the compounds: the viewer and the engine each get a debug session.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Lockstep: viewer",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/lockstep/viewer",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Lockstep: engine (self-stop)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/lockstep/engine",
+      "args": ["--self-stop"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Lockstep: engine (breakpoint by name)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/lockstep/engine",
+      "preRunCommands": ["breakpoint set -n fillscope_frame_anchor"],
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Lockstep: viewer + engine (self-stop)",
+      "configurations": ["Lockstep: viewer", "Lockstep: engine (self-stop)"],
+      "preLaunchTask": "build lockstep",
+      "stopAll": true
+    },
+    {
+      "name": "Lockstep: viewer + engine (breakpoint by name)",
+      "configurations": ["Lockstep: viewer", "Lockstep: engine (breakpoint by name)"],
+      "preLaunchTask": "build lockstep",
+      "stopAll": true
+    }
+  ]
+}

@@ -59,14 +59,21 @@ an assistant working beside the debugger can't see where the program is.
 **The same shape.** The matching engine pushes one frame per event (an order added, a fill, a
 cancel); the UI animates frames; an anchor carries the breakpoint.
 
-**Hypotheses to test** (all **verify**):
-- **A separate UI process removes the sleep window.** A breakpoint freezes only the process being
-  debugged, so a UI in another process keeps painting from frames it has already received. That
-  would also make all-threads stepping unnecessary. VS Code can debug several processes at once.
-- **The app can stop itself, removing the arming handshake.** Either `raise(SIGTRAP)` at the anchor
-  when a debugger is attached (checked through `TracerPid` in `/proc/self/status`, because without
-  a debugger SIGTRAP terminates the process), or a conditional breakpoint on the anchor set by GDB
-  setup commands in `launch.json`.
+**Hypotheses, and what the experiment found** (2026-10-19, GCC 16.2.1, GDB 17.2, LLDB, from the
+command line; VS Code itself is still **verify**):
+- **A separate UI process removes the sleep window: confirmed.** A breakpoint freezes only the
+  process being debugged. With the engine stopped for four seconds, the viewer kept painting at 60
+  frames a second, and each Continue delivered exactly one more frame. No sleep, and no
+  all-threads stepping.
+- **The app can stop itself, removing the arming handshake: confirmed, with `int3`.** When a
+  debugger is attached (checked through `TracerPid` in `/proc/self/status`), the anchor executes a
+  breakpoint instruction (`asm volatile("int3")` on x86-64, what C++26's `std::breakpoint()` does).
+  GDB and LLDB both stop inside the anchor with `frame_index` readable, and Continue passes it.
+  Without a debugger nothing happens. **`raise(SIGTRAP)` was rejected:** under GDB it stops two
+  frames down inside libc.
+- **A breakpoint set by name at launch also works,** under GDB (`break fillscope_frame_anchor`) and
+  LLDB (`breakpoint set -n`): it binds on the first run, so no pre-warm is needed. Whether VS Code
+  shows a breakpoint set this way is **verify**.
 - **GDB lets other threads run during a step,** which matters if the UI and the engine share a
   process. The `scheduler-locking` default is `replay` (confirmed on GDB 17.2), which GDB documents
   as letting other threads run during normal execution; whether that gives the UI enough time to
@@ -92,10 +99,12 @@ The process split, the threads in each, and whether backtesting runs over socket
 decisions for the owner.
 
 ## The experiment
-Before the animation is designed: a minimal C++ program with an engine process pushing frames to a
-Dear ImGui process, built with GCC at `-O0`, debugged from VS Code with GDB on Linux. It answers
-four questions:
-- Does the UI keep painting while the engine is stopped?
-- Does an anchor stop (by `SIGTRAP`, and by a GDB-set breakpoint) bind reliably on the first run?
-- Does stepping with F10 advance the animation?
-- Does the UI survive a pause of several minutes?
+[experiments/lockstep/](../experiments/lockstep/README.md): an engine process sending frames over a
+Unix socket to a Dear ImGui viewer process, built at `-O0`. The first two questions are answered
+above from the command line. Still open, in VS Code with CodeLLDB:
+- Do both stop methods behave as they do on the command line?
+- Does stepping with F10 from the anchor advance the animation when `send` runs?
+- Does the viewer survive a pause of several minutes?
+
+In the `-O2` build the anchor keeps its own address and its store (checked with `nm` and
+`objdump`).
