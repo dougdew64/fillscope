@@ -84,6 +84,10 @@ command line; VS Code itself is still **verify**):
   at `-O2` on GCC 16.2.1), so the
   anchor needs `noinline` plus a body the optimizer cannot remove.
 - **The code under study builds at `-O0`.**
+- **A breakpoint by name lands on the function's first statement,** so that statement must be in
+  our own source. The anchor's first statement was a `std::atomic` store, which libstdc++ inlines
+  even at `-O0`, and the breakpoint opened in `atomic_base.h` (found in VS Code, 2026-10-19). With
+  a plain store, GDB stops on the store's line and LLDB on the line after it, both in `engine.cpp`.
 - **The extension is still needed** to publish the stack and locals for the assistant.
 
 ## Processes, threads and deterministic replay

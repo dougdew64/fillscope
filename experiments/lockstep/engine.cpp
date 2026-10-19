@@ -15,7 +15,6 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -26,7 +25,9 @@
 
 namespace {
 
-std::atomic<std::uint64_t> g_last_anchor_index{0};
+// Plain, not std::atomic: only this thread touches it. An atomic's store() is inlined from a
+// libstdc++ header even at -O0, so a breakpoint on the anchor by name landed in atomic_base.h.
+std::uint64_t g_last_anchor_index = 0;
 bool g_self_stop = false;
 
 // Whether a debugger is attached: Linux reports the tracer's pid in /proc/self/status.
@@ -63,11 +64,11 @@ int connect_to_viewer() {
 // fire from unrelated code. The store has a reader (main prints it), and the asm statement tells
 // the compiler memory may be read here, so the store cannot be removed.
 extern "C" [[gnu::noinline]] void fillscope_frame_anchor(std::uint64_t frame_index) {
-    g_last_anchor_index.store(frame_index, std::memory_order_release);
+    g_last_anchor_index = frame_index;
     asm volatile("" ::: "memory");
     if (g_self_stop && debugger_attached()) {
-        // A breakpoint instruction, executed here. raise(SIGTRAP) stopped two frames down inside
-        // libc under GDB, and under LLDB a Continue passed the signal on and killed the process.
+        // A breakpoint instruction, executed here; raise(SIGTRAP) stopped two frames down inside
+        // libc under GDB.
         asm volatile("int3");  // ---- the debugger stops here; Continue for the next frame ----
     }
 }
@@ -113,6 +114,6 @@ int main(int argc, char** argv) {
     }
     ::close(fd);
     std::printf("engine: last anchored frame %llu\n",
-                static_cast<unsigned long long>(g_last_anchor_index.load(std::memory_order_acquire)));
+                static_cast<unsigned long long>(g_last_anchor_index));
     return 0;
 }
