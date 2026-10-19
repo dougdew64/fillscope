@@ -44,12 +44,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    fillscope::Fd listener = fillscope::listen_on(socket_name);
+    auto listener = fillscope::listen_on(socket_name);
     if (!listener) {
-        std::fprintf(stderr, "viewer: cannot listen on %s (another viewer running?)\n", socket_name.c_str());
+        std::fprintf(stderr, "viewer: can't listen on %s: %s\n", socket_name.c_str(), listener.error().message().c_str());
         return 1;
     }
-    fillscope::MessageReceiver receiver{std::move(listener)};
+    fillscope::MessageReceiver receiver{std::move(*listener)};
 
     if (!glfwInit()) {
         return 1;
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
 
         // Take in everything the source has sent since the last paint.
         received.clear();
-        if (receiver.drain(received) > 0) {
+        if (receiver.drain(received).received > 0) {
             last_frame_at = std::chrono::steady_clock::now();
         }
         for (const fillscope::Message& message : received) {

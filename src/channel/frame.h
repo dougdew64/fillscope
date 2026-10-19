@@ -21,10 +21,12 @@ struct Frame {
     friend bool operator==(const Frame&, const Frame&) = default;
 };
 
-// A Frame crosses the socket as raw bytes (see channel/message.h), which is only meaningful for a
-// type whose bytes are its whole value: trivially copyable, with a fixed size. If a later edit
-// broke either, these fail at compile time instead of corrupting frames at run time.
-static_assert(std::is_trivially_copyable_v<Frame>);
+// A Frame crosses the socket as raw bytes (channel/message.h), which is only meaningful if its
+// bytes are exactly its value. has_unique_object_representations is the exact test: trivially
+// copyable *and* no padding bytes, so two equal Frames have identical bytes. (Trivially copyable
+// alone would allow padding, whose bytes are indeterminate.) If a later edit broke this, the build
+// fails here instead of frames being corrupted at run time.
+static_assert(std::has_unique_object_representations_v<Frame>);
 static_assert(sizeof(Frame) == 24);
 
 }  // namespace fillscope

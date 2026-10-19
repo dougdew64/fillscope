@@ -103,8 +103,8 @@ bar says so in red and keeps showing what the file actually holds.
 
 ## Debug in lockstep (VS Code, CodeLLDB)
 Run and Debug, then one of the two compounds (each builds first):
-- **viewer + frame source (self-stop):** the anchor executes a breakpoint instruction when a
-  debugger is attached.
+- **viewer + frame source (self-stop):** the anchor executes a breakpoint instruction when the
+  process is traced (by a debugger, here; under another tracer such as `strace`, that ends it).
 - **viewer + frame source (breakpoint by name):** LLDB sets a breakpoint on the anchor at launch.
 
 The frame source stops at frame 0. Each Continue (F5) adds one point to the viewer's price line;

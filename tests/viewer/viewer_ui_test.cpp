@@ -310,7 +310,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
     viewer_test(engine, "a_real_source_process_describes_its_run_and_sends_frames", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         const std::string name = fillscope::test::unique_socket_name();
-        vars.receiver = std::make_unique<fillscope::MessageReceiver>(fillscope::listen_on(name));
+        vars.receiver = std::make_unique<fillscope::MessageReceiver>(fillscope::test::listen(name));
         constexpr std::uint64_t kFrames = 5;
         fillscope::test::ChildProcess source{{FILLSCOPE_FRAME_SOURCE, "--socket", name, "--frames",
                                               std::to_string(kFrames), "--interval-ms", "0", "--seed", "11"}};

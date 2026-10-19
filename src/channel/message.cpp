@@ -6,23 +6,25 @@
 namespace fillscope {
 namespace {
 
-// Writes the header and a trivially copyable payload into `out`.
-template <typename Payload>
+// Writes the header and a payload into `out`. The static_assert is the guarantee that the payload
+// fits: it holds for every alternative because kMaxMessageSize is computed from them all.
+template <WirePayload Payload>
 void encode_as(MessageKind kind, const Payload& payload, EncodedMessage& out) {
+    static_assert(kMessageHeaderSize + sizeof(Payload) <= kMaxMessageSize);
     const auto kind_value = static_cast<std::uint32_t>(kind);
     std::memcpy(out.bytes.data(), &kind_value, sizeof kind_value);
     std::memcpy(out.bytes.data() + kMessageHeaderSize, &payload, sizeof payload);
     out.size = kMessageHeaderSize + sizeof payload;
 }
 
-// Reads a trivially copyable payload after the header, if the datagram is exactly its size.
-// memcpy into a properly aligned local object is the well-defined way to read an object's bytes
-// from a buffer; casting the buffer's pointer to Payload* would break C++'s aliasing rules.
-template <typename Payload>
-std::expected<Message, std::string> decode_as(std::span<const std::byte> datagram, const char* name) {
-    if (datagram.size() != kMessageHeaderSize + sizeof(Payload)) {
-        return std::unexpected{std::format("a {} message of {} bytes; expected {}", name, datagram.size(),
-                                           kMessageHeaderSize + sizeof(Payload))};
+// Reads a payload after the header, if the datagram is exactly its size. std::memcpy into a local
+// object is the well-defined way to read an object's bytes from a buffer; casting the buffer's
+// pointer to Payload* would break C++'s aliasing rules (and could be misaligned).
+template <WirePayload Payload>
+std::expected<Message, std::string> decode_as(std::span<const std::byte> datagram, std::string_view name) {
+    constexpr std::size_t expected_size = kMessageHeaderSize + sizeof(Payload);
+    if (datagram.size() != expected_size) {
+        return std::unexpected{std::format("a {} message of {} bytes; expected {}", name, datagram.size(), expected_size)};
     }
     Payload payload;
     std::memcpy(&payload, datagram.data() + kMessageHeaderSize, sizeof payload);
@@ -54,7 +56,7 @@ std::expected<Message, std::string> decode(std::span<const std::byte> datagram) 
         case MessageKind::frame:
             return decode_as<Frame>(datagram, "frame");
     }
-    // Not inside the switch's default: with no default, the compiler warns (-Wswitch) if a new
+    // Not a `default:` inside the switch: with no default, the compiler warns (-Wswitch) if a new
     // MessageKind is added and not handled above.
     return std::unexpected{std::format("unknown message kind {}", kind_value)};
 }

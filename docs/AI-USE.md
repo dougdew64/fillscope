@@ -20,6 +20,9 @@ Newest first. "Who caught it" is the check, not the author of the fix.
 
 | Date | Defect | Who caught it |
 |---|---|---|
+| 2026-10-19 | Changing the anchor's stored index to `std::optional` (and trying `[[gnu::noipa]]`) moved GDB's breakpoint, in the sanitizer build only, to before the argument was stored: every stop read `frame_index` as 0 | `LockstepDebugger.GdbBreakpointByName` in the sanitizer build. The fix: plain stores; the comment and DEBUGGER-LOCKSTEP.md rule 2 record why |
+| 2026-10-19 | A new test assumed a listener's queue holds exactly its backlog; Linux holds one more | The test, failing on correct code |
+| 2026-10-19 | The first sweep's 59 items: published state that can be false, test machinery that can answer wrongly, crashes, and more ([TECH-DEBT.md](TECH-DEBT.md)) | Four independent AI reviews and a document pass; every item reproduced or confirmed in the code before it was recorded |
 | 2026-10-19 | Three UI tests waited a number of frames for things that take real time (the publisher's interval, a tooltip's delay); the Test Engine's fast mode runs those frames in about a millisecond | The tests, failing on correct code |
 | 2026-10-19 | A test that waited for messages that by design never arrive took a full second, half its tier's two-second budget | Claude, from the slowest-tests list `run-tests.sh` prints |
 | 2026-10-19 | `EXPECT_EQ(x, Message{SourceHello{.seed = 7, .frame_count = 50}})` doesn't compile: a macro's arguments split at commas, and braces don't protect them | clangd, in the editor, before the build |

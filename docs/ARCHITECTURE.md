@@ -83,9 +83,12 @@ check both payloads are trivially copyable.
 - *Abstract namespace* means a name with no file on disk, so nothing to clean up after a crash.
 - `Fd` owns a file descriptor and closes it in its destructor (RAII); it is move-only, so a
   descriptor has exactly one owner.
+- `listen_on`, `connect_to` and `send_message` return `std::expected<..., std::error_code>`: the
+  result, or the operating system's reason it failed, which the caller reports as it is.
 - `MessageReceiver::drain` is the viewer's side. It never blocks: it accepts a sender if none is
-  connected, then takes every message waiting and returns. A sender that sends garbage is dropped
-  and `error()` says why.
+  connected (and says so, in its result: a new sender means a new connection), then takes the
+  messages waiting, up to a bound, and returns. A sender that sends garbage is dropped and
+  `error()` says why.
 
 ## 4. The frame source (`tools/frame_source/`)
 **The problem:** the viewer and the debugger integration need frames before the real system
@@ -95,16 +98,20 @@ exists.
 `SourceHello`, then for each frame:
 ```cpp
 const Frame frame = generator.next();       // the next frame, from the seed
-send_message(viewer.get(), frame);          // to the viewer
+send_message(*viewer, frame);               // to the viewer (its failure is reported, not shown here)
 fillscope_frame_anchor(frame.index);        // where a debugger stops
 std::this_thread::sleep_for(options.interval);
 ```
 `FrameGenerator` draws from `std::mt19937_64` seeded with the run's seed, in a fixed order (price
-step, qty, id), so a seed fully determines every frame. That is what a replay address relies on.
+step, qty, id), so a seed fully determines every frame. That is what a replay address relies on,
+and it holds on any compiler: the standard fixes `std::mt19937_64`'s output exactly, and the
+project's own `draw_uniform` turns raw draws into bounded values, where
+`std::uniform_int_distribution`'s method would vary from one standard library to another. A test
+pins seed 42's first frames to values computed independently.
 
 ## 5. The anchor (`src/lockstep/`)
 `fillscope_frame_anchor(frame_index)` is where a debugger stops after each frame, either by a
-breakpoint set on it by name or by the anchor stopping itself when a debugger is attached. Its
+breakpoint set on it by name or by the anchor stopping itself when the process is traced. Its
 rules (a body that survives optimization, a first statement in our own source) and their evidence
 are in [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md).
 

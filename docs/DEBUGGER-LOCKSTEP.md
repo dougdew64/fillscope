@@ -16,10 +16,13 @@ received. Each Continue delivers exactly one more frame; Step Over from the anch
 producer's loop, and the next frame appears in the viewer when `send` runs.
 
 **Two ways to stop at the anchor**, both binding on the first run, with nothing to arm:
-- **Self-stop:** when a debugger is attached (a nonzero `TracerPid` in `/proc/self/status`), the
-  anchor executes a breakpoint instruction (`asm volatile("int3")` on x86-64, what C++26's
-  `std::breakpoint()` does). Without a debugger it does nothing. `raise(SIGTRAP)` was rejected:
-  under GDB it stops two frames down, inside libc.
+- **Self-stop:** when the process is traced (a nonzero `TracerPid` line in `/proc/self/status`),
+  the anchor executes a breakpoint instruction (`asm volatile("int3")` on x86-64). Untraced, it
+  does nothing. Linux reports a tracer, not what kind of tool it is, so under a tracer that isn't a
+  debugger (`strace`, `rr`) the instruction's SIGTRAP ends the process: self-stop is for running
+  under a debugger only. Rejected: `raise(SIGTRAP)`, which under GDB stops two frames down inside
+  libc; and C++26's `std::breakpoint()`, which libstdc++ implements out of line, so it too would
+  stop inside the library.
 - **Breakpoint by name**, set from the launch configuration: `break fillscope_frame_anchor` in GDB,
   `breakpoint set -n fillscope_frame_anchor` in LLDB.
 
@@ -30,10 +33,13 @@ producer's loop, and the next frame appears in the viewer when `send` runs.
    has a reader (`last_anchored_frame`), and an `asm volatile` memory clobber keeps the store.
    Checked in the `-O2` build with `nm` and `objdump`: the anchor keeps its own address and its
    store.
-2. **Its first statement must be in our own source.** A breakpoint by name lands on the first
-   statement. When that was an `std::atomic` store, which libstdc++ inlines even at `-O0`, LLDB's
-   breakpoint opened `atomic_base.h` (GDB's stayed in our file). Guarded by
-   `LockstepDebugger.LldbBreakpointByNameStopsInTheAnchor` and a mutant of the original code.
+2. **Its first statement must be plain code of our own source.** A breakpoint by name lands on the
+   first statement. When that was an `std::atomic` store, which libstdc++ inlines even at `-O0`,
+   LLDB's breakpoint opened `atomic_base.h` (GDB's stayed in our file). When it was an
+   `std::optional` assignment, GDB's breakpoint in the sanitizer build stopped before the argument
+   was stored, and every stop read `frame_index` as 0. So the anchor stores to plain variables.
+   Guarded by the `LockstepDebugger` tests, which run in both builds, and a mutant of the atomic
+   version.
 3. **The code under study builds at `-O0`**, the default build type. At higher levels, line-table
    entries are dropped, and a breakpoint can bind and never fire.
 
