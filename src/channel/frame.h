@@ -1,14 +1,15 @@
-// The one message the engine sends the viewer: the state after one event.
+// A frame: the state after one event, sent from the process that produces it to the viewer. For now
+// a stand-in (a random-walk price) until the message interfaces exist.
 #pragma once
 
 #include <cstdint>
 #include <type_traits>
 
-namespace lockstep {
+namespace fillscope {
 
 struct Frame {
-    std::uint64_t index;  // 0, 1, 2, ... in the order the engine produced them
-    std::int64_t price;   // a random walk, standing in for book state
+    std::uint64_t index;  // 0, 1, 2, ... in the order the frames were produced
+    std::int64_t price;
     std::uint32_t qty;
     std::uint32_t reserved;
 
@@ -19,4 +20,4 @@ struct Frame {
 static_assert(std::is_trivially_copyable_v<Frame>);
 static_assert(sizeof(Frame) == 24);
 
-}  // namespace lockstep
+}  // namespace fillscope

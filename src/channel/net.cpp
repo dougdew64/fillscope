@@ -1,15 +1,16 @@
-#include "net.h"
+#include "channel/net.h"
 
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
 #include <thread>
 
-namespace lockstep {
+namespace fillscope {
 namespace {
 
 // Fills an abstract-namespace address: sun_path is '\0' followed by the name, and the address
@@ -61,23 +62,23 @@ bool send_frame(int fd, const Frame& frame) {
 }
 
 std::size_t FrameReceiver::drain(std::vector<Frame>& out) {
-    if (!engine_) {
-        engine_ = Fd{::accept4(listener_.get(), nullptr, nullptr, SOCK_NONBLOCK)};
+    if (!sender_) {
+        sender_ = Fd{::accept4(listener_.get(), nullptr, nullptr, SOCK_NONBLOCK)};
     }
     std::size_t received = 0;
-    while (engine_) {
+    while (sender_) {
         Frame frame;
-        const ssize_t n = ::recv(engine_.get(), &frame, sizeof frame, 0);
+        const ssize_t n = ::recv(sender_.get(), &frame, sizeof frame, 0);
         if (n == static_cast<ssize_t>(sizeof frame)) {
             out.push_back(frame);
             ++received;
         } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             break;  // nothing more waiting
         } else {
-            engine_.reset();  // 0: the engine closed its end; anything else: a broken connection
+            sender_.reset();  // 0: the sender closed its end; anything else: a broken connection
         }
     }
     return received;
 }
 
-}  // namespace lockstep
+}  // namespace fillscope

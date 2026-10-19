@@ -2,10 +2,17 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "build lockstep",
+      "label": "build",
       "type": "shell",
-      "command": "cmake -S experiments/lockstep -B build/lockstep -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/lockstep && ln -sf build/lockstep/compile_commands.json compile_commands.json",
-      "group": "build",
+      "command": "cmake -S . -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/debug && ln -sf build/debug/compile_commands.json compile_commands.json",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "tests/run-tests.sh",
+      "group": { "kind": "test", "isDefault": true },
       "problemMatcher": ["$gcc"]
     }
   ]

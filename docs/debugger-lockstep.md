@@ -1,10 +1,10 @@
-# Debugger lockstep: what HRW learned, and what Fillscope will test
+# Debugger lockstep: what HRW learned, and what Fillscope does
 
 **Purpose:** how HRW stepped a real algorithm in the VS Code debugger while its animation advanced
-in step, what that cost, and what Fillscope expects to carry over or simplify.
-**Status:** reference (the HRW study, 2026-10-19). Claims about Fillscope marked **verify** are
-untested until the experiment at the end has run. **Read when:** designing the animation, the
-frame interface between the core and the UI, the process split, or the debugger integration.
+in step, what that cost, and what Fillscope carried over or simplified, tested by experiment.
+**Status:** reference (the HRW study and the experiment, 2026-10-19). **Read when:** designing the
+animation, the frame interface between the core and the UI, the process split, or the debugger
+integration.
 
 The predecessor is [HRW](https://github.com/dougdew64/rumoca/tree/hrw/hrw), an observatory for the
 Rumoca Modelica compiler (Rust and egui, Windows). Its write-up is in
@@ -104,8 +104,10 @@ The process split, the threads in each, and whether backtesting runs over socket
 decisions for the owner.
 
 ## The experiment
-[experiments/lockstep/](../experiments/lockstep/README.md): an engine process sending frames over a
-Unix socket to a Dear ImGui viewer process, built at `-O0`. **Confirmed in VS Code with CodeLLDB**
+A stand-in process sending frames over a Unix socket to a Dear ImGui viewer process, built at
+`-O0`. It began as a throwaway experiment and is now the code in `src/channel/`, `src/lockstep/`,
+`src/viewer/` and `tools/frame_source/` ([RUNNING.md](RUNNING.md)), with debugger tests that run
+it under GDB and LLDB. **Confirmed in VS Code with CodeLLDB**
 (2026-10-19, by the owner): both stop methods behave as on the command line; each Continue adds
 one frame to the viewer; Step Over from the anchor returns to the loop, and the next frame appears
 when `send` runs; the viewer keeps painting through a pause of several minutes.

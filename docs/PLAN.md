@@ -8,14 +8,15 @@ Decisions behind the steps are in the [charter](CHARTER.md); the lockstep design
 experiment results are in [debugger-lockstep.md](debugger-lockstep.md). In parallel, the owner
 reads the trading domain; the stage-by-stage split of who writes what (charter §4) waits on that.
 
-## 1. The project skeleton
-A top-level CMake build for Fillscope itself, reusing the lockstep experiment's test setup
-(GoogleTest, the Dear ImGui Test Engine, the sanitizer build and the mutation check; see
-[its README](../experiments/lockstep/README.md)), plus CI on Linux running the tests on every push.
+## 1. CI
+The top-level build and the test setup exist ([RUNNING.md](RUNNING.md)). What's left of the
+skeleton: CI on Linux running `tests/run-tests.sh` on every push. The debugger tests need GDB and
+LLDB on the CI machine, or they are skipped there and the run says so.
 
-## 2. The frame channel and viewer shell
-The experiment's engine-to-viewer path turned into a reusable library with tests, using stand-in
-frames until the message interfaces exist.
+## 2. The viewer shell
+The viewer grown from the experiment's one window into the shell later views live in, still on
+stand-in frames until the message interfaces exist. The channel (`src/channel/`) is already a
+library with tests.
 
 ## 3. Publishing the debugger's state
 A VS Code extension, like HRW's, that writes the stack and locals to a file on every stop, so the

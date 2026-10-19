@@ -1,8 +1,8 @@
-// The socket between the engine and the viewer: a Unix SOCK_SEQPACKET socket in Linux's abstract
+// The socket that carries frames to the viewer: a Unix SOCK_SEQPACKET socket in Linux's abstract
 // namespace, so each send is one whole frame and there is no socket file to clean up.
 #pragma once
 
-#include "frame.h"
+#include "channel/frame.h"
 
 #include <chrono>
 #include <cstddef>
@@ -10,10 +10,10 @@
 #include <utility>
 #include <vector>
 
-namespace lockstep {
+namespace fillscope {
 
 // Socket names are given without the abstract namespace's leading NUL; the functions add it.
-inline constexpr std::string_view kDefaultSocketName = "fillscope-lockstep";
+inline constexpr std::string_view kDefaultSocketName = "fillscope-frames";
 
 // Owns a file descriptor and closes it on destruction. Move-only.
 class Fd {
@@ -49,21 +49,21 @@ private:
 // Sends one frame; false if the other side has gone.
 [[nodiscard]] bool send_frame(int fd, const Frame& frame);
 
-// The viewer's side: accepts one engine at a time and drains its frames, never blocking.
+// The viewer's side: accepts one sender at a time and drains its frames, never blocking.
 class FrameReceiver {
 public:
     explicit FrameReceiver(Fd listener) : listener_{std::move(listener)} {}
 
-    // Accepts an engine if none is connected, then appends every frame waiting on the socket.
-    // An engine that disconnects is dropped, and the next one is accepted. Returns how many
-    // frames were appended.
+    // Accepts a sender if none is connected, then appends every frame waiting on the socket. A
+    // sender that disconnects is dropped, and the next one is accepted. Returns how many frames
+    // were appended.
     std::size_t drain(std::vector<Frame>& out);
 
-    [[nodiscard]] bool connected() const noexcept { return static_cast<bool>(engine_); }
+    [[nodiscard]] bool connected() const noexcept { return static_cast<bool>(sender_); }
 
 private:
     Fd listener_;
-    Fd engine_;
+    Fd sender_;
 };
 
-}  // namespace lockstep
+}  // namespace fillscope

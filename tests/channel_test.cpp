@@ -1,13 +1,13 @@
-// The socket between the engine and the viewer.
+// The socket that carries frames to the viewer.
 
-#include "net.h"
+#include "channel/net.h"
 #include "test_support.h"
 
 #include <gtest/gtest.h>
 
 #include <thread>
 
-namespace lockstep {
+namespace fillscope {
 namespace {
 
 // Drains until `count` frames have arrived or a second has passed.
@@ -21,7 +21,7 @@ std::vector<Frame> drain_until(FrameReceiver& receiver, std::size_t count) {
     return frames;
 }
 
-TEST(Net, EveryFrameSentArrivesInOrder) {
+TEST(Channel, EveryFrameSentArrivesInOrder) {
     const std::string name = test::unique_socket_name();
     FrameReceiver receiver{listen_on(name)};
     const Fd sender = connect_to(name, 1, std::chrono::milliseconds{0});
@@ -35,7 +35,7 @@ TEST(Net, EveryFrameSentArrivesInOrder) {
     EXPECT_EQ(drain_until(receiver, sent.size()), sent);
 }
 
-TEST(Net, ReceiverReportsConnectAndDisconnect) {
+TEST(Channel, ReceiverReportsConnectAndDisconnect) {
     const std::string name = test::unique_socket_name();
     FrameReceiver receiver{listen_on(name)};
     std::vector<Frame> frames;
@@ -52,7 +52,7 @@ TEST(Net, ReceiverReportsConnectAndDisconnect) {
     EXPECT_FALSE(receiver.connected());
 }
 
-TEST(Net, ReceiverAcceptsTheNextEngineAfterOneLeaves) {
+TEST(Channel, ReceiverAcceptsTheNextSenderAfterOneLeaves) {
     const std::string name = test::unique_socket_name();
     FrameReceiver receiver{listen_on(name)};
     {
@@ -61,7 +61,7 @@ TEST(Net, ReceiverAcceptsTheNextEngineAfterOneLeaves) {
         EXPECT_EQ(drain_until(receiver, 1).size(), 1u);
     }
     std::vector<Frame> frames;
-    receiver.drain(frames);  // notices the first engine has gone
+    receiver.drain(frames);  // notices the first sender has gone
 
     const Fd second = connect_to(name, 1, std::chrono::milliseconds{0});
     ASSERT_TRUE(send_frame(second.get(), Frame{0, 2, 2, 0}));
@@ -70,18 +70,18 @@ TEST(Net, ReceiverAcceptsTheNextEngineAfterOneLeaves) {
     EXPECT_EQ(from_second[0].price, 2);
 }
 
-TEST(Net, ConnectFailsWithNoListener) {
+TEST(Channel, ConnectFailsWithNoListener) {
     EXPECT_FALSE(connect_to(test::unique_socket_name(), 2, std::chrono::milliseconds{1}));
 }
 
-TEST(Net, OnlyOneListenerPerName) {
+TEST(Channel, OnlyOneListenerPerName) {
     const std::string name = test::unique_socket_name();
     const Fd first = listen_on(name);
     EXPECT_TRUE(first);
     EXPECT_FALSE(listen_on(name));
 }
 
-TEST(Net, SendFailsOnceTheReceiverHasGone) {
+TEST(Channel, SendFailsOnceTheReceiverHasGone) {
     const std::string name = test::unique_socket_name();
     Fd sender;
     {
@@ -95,4 +95,4 @@ TEST(Net, SendFailsOnceTheReceiverHasGone) {
 }
 
 }  // namespace
-}  // namespace lockstep
+}  // namespace fillscope

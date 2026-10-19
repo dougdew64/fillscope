@@ -1,7 +1,7 @@
 # Checks that the tests catch bugs: each mutant breaks the code in one deliberate way, and the
 # tests named for it must then fail. The source is always restored, even on interruption.
 #
-#   python3 -I experiments/lockstep/tests/mutants.py [BUILD_DIR]     (default build/lockstep)
+#   python3 -I tests/mutants.py [BUILD_DIR]     (default build/debug)
 #
 # A mutant whose text no longer matches the source is an error, not a pass: the check must not go
 # silently stale when the code changes.
@@ -9,58 +9,61 @@ import pathlib
 import subprocess
 import sys
 
-HERE = pathlib.Path(__file__).resolve().parent
-SOURCE = HERE.parent
-ROOT = SOURCE.parent.parent
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+ANCHOR = "src/lockstep/anchor.cpp"
+CHANNEL = "src/channel/net.cpp"
+SOURCE = "tools/frame_source/frame_source.cpp"
+VIEW = "src/viewer/viewer_view.cpp"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
-    ("indices skip", "engine_lib.cpp",
+    ("indices skip", SOURCE,
      [("Frame{next_index_++,", "Frame{next_index_ += 2,")],
      "FrameGenerator.IndicesAreConsecutive"),
-    ("price step too large", "engine_lib.cpp",
+    ("price step too large", SOURCE,
      [("step{-kMaxPriceStep, kMaxPriceStep}", "step{-kMaxPriceStep - 1, kMaxPriceStep}")],
      "FrameGenerator.PriceWalks"),
-    ("any TracerPid means a debugger", "engine_lib.cpp",
+    ("any TracerPid means a debugger", ANCHOR,
      [("return error == std::errc{} && pid != 0;", "return error == std::errc{};")],
      "TracerAttached.ReadsTracerPid"),
-    ("anchor doesn't record", "engine_lib.cpp",
-     [("lockstep::g_last_anchor_index = frame_index;", "lockstep::g_last_anchor_index = 0;")],
+    ("anchor doesn't record", ANCHOR,
+     [("fillscope::g_last_anchor_index = frame_index;", "fillscope::g_last_anchor_index = 0;")],
      "Anchor.RecordsEachFrameIndex"),
-    ("self-stop ignores the debugger check", "engine_lib.cpp",
-     [("if (lockstep::g_self_stop && lockstep::debugger_attached())", "if (lockstep::g_self_stop)")],
+    ("self-stop ignores the debugger check", ANCHOR,
+     [("if (fillscope::g_self_stop && fillscope::debugger_attached())", "if (fillscope::g_self_stop)")],
      "Anchor.SelfStopWithoutADebugger"),
     # The bug found in VS Code, as it was: the anchor's first statement an std::atomic store,
     # inlined from libstdc++ even at -O0. LLDB's breakpoint by name lands in atomic_base.h; GDB's
     # stays in our file, so only the LLDB test can catch it.
-    ("anchor's first statement inlined from a header", "engine_lib.cpp",
+    ("anchor's first statement inlined from a header", ANCHOR,
      [("#include <charconv>", "#include <atomic>\n#include <charconv>"),
       ("std::uint64_t g_last_anchor_index = 0;", "std::atomic<std::uint64_t> g_last_anchor_index{0};"),
-      ("lockstep::g_last_anchor_index = frame_index;",
-       "lockstep::g_last_anchor_index.store(frame_index, std::memory_order_release);")],
+      ("fillscope::g_last_anchor_index = frame_index;",
+       "fillscope::g_last_anchor_index.store(frame_index, std::memory_order_release);")],
      "DebuggerTest.LldbBreakpointByName"),
-    ("engine skips the anchor", "engine_lib.cpp",
+    ("frame source skips the anchor", SOURCE,
      [("        fillscope_frame_anchor(frame.index);\n", "")],
-     "RunEngine.SendsEveryGeneratedFrame|DebuggerTest"),
-    ("--socket ignored", "engine_lib.cpp",
+     "RunFrameSource.SendsEveryGeneratedFrame|DebuggerTest"),
+    ("--socket ignored", SOURCE,
      [("options.socket_name = args[++i];", "++i;")],
-     "ParseEngineArgs|DebuggerTest|viewer_ui_tests"),
-    ("frames reordered on receipt", "net.cpp",
+     "ParseSourceArgs|DebuggerTest|viewer_ui_tests"),
+    ("frames reordered on receipt", CHANNEL,
      [("out.push_back(frame);", "out.insert(out.begin(), frame);")],
-     "Net.EveryFrameSentArrivesInOrder|RunEngine.SendsEveryGeneratedFrame|viewer_ui_tests"),
-    ("disconnect not noticed", "net.cpp",
-     [("engine_.reset();  // 0:", "break;  // 0:")],
-     "Net.ReceiverReportsConnectAndDisconnect|Net.ReceiverAcceptsTheNextEngine"),
-    ("frame count off by one", "viewer_view.cpp",
+     "Channel.EveryFrameSentArrivesInOrder|RunFrameSource.SendsEveryGeneratedFrame|viewer_ui_tests"),
+    ("disconnect not noticed", CHANNEL,
+     [("sender_.reset();  // 0:", "break;  // 0:")],
+     "Channel.ReceiverReportsConnectAndDisconnect|Channel.ReceiverAcceptsTheNextSender"),
+    ("frame count off by one", VIEW,
      [("state.frames.size());", "state.frames.size() + 1);")],
      "viewer_ui_tests"),
-    ("always shows connected", "viewer_view.cpp",
-     [('state.engine_connected ? "connected" : "waiting"', '"connected"')],
+    ("always shows connected", VIEW,
+     [('state.source_connected ? "connected" : "waiting"', '"connected"')],
      "viewer_ui_tests"),
-    ("last frame's index off by one", "viewer_view.cpp",
+    ("last frame's index off by one", VIEW,
      [("static_cast<unsigned long long>(last.index)", "static_cast<unsigned long long>(last.index + 1)")],
      "viewer_ui_tests"),
-    ("plot hidden until many frames", "viewer_view.cpp",
+    ("plot hidden until many frames", VIEW,
      [("if (!state.prices.empty()) {", "if (state.prices.size() > 5) {")],
      "viewer_ui_tests"),
 ]
@@ -71,10 +74,10 @@ def run(args):
 
 
 def main():
-    build_dir = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "lockstep"
+    build_dir = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "debug"
     caught, problems = 0, []
     for name, file, edits, tests in MUTANTS:
-        path = SOURCE / file
+        path = ROOT / file
         original = path.read_text()
         mutated = original
         try:

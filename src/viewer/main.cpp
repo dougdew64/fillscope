@@ -1,12 +1,12 @@
-// The viewer: receives frames from the engine and draws them with Dear ImGui.
+// The viewer: receives frames and draws them with Dear ImGui.
 //
 //   viewer [--exit-after SECONDS] [--socket NAME]
 //
 // It prints one line per second, "viewer: t=… paints=… frames=…", so a script can check that it
-// keeps painting while the engine is stopped in a debugger.
+// keeps painting while the frame source is stopped in a debugger.
 
-#include "net.h"
-#include "viewer_view.h"
+#include "channel/net.h"
+#include "viewer/viewer_view.h"
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -20,7 +20,7 @@
 
 int main(int argc, char** argv) {
     double exit_after = 0;  // 0: run until the window is closed
-    std::string socket_name{lockstep::kDefaultSocketName};
+    std::string socket_name{fillscope::kDefaultSocketName};
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
         if (arg == "--exit-after" && i + 1 < argc) {
@@ -33,12 +33,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    lockstep::Fd listener = lockstep::listen_on(socket_name);
+    fillscope::Fd listener = fillscope::listen_on(socket_name);
     if (!listener) {
         std::fprintf(stderr, "viewer: cannot listen on %s (another viewer running?)\n", socket_name.c_str());
         return 1;
     }
-    lockstep::FrameReceiver receiver{std::move(listener)};
+    fillscope::FrameReceiver receiver{std::move(listener)};
 
     if (!glfwInit()) {
         return 1;
@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    GLFWwindow* window = glfwCreateWindow(900, 500, "Fillscope lockstep experiment", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(900, 500, "Fillscope viewer", nullptr, nullptr);
     if (window == nullptr) {
         return 1;
     }
@@ -58,8 +58,8 @@ int main(int argc, char** argv) {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-    lockstep::ViewerState state;
-    std::vector<lockstep::Frame> received;
+    fillscope::ViewerState state;
+    std::vector<fillscope::Frame> received;
     const auto start = std::chrono::steady_clock::now();
     auto last_frame_at = start;
     int last_report_second = 0;
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
         for (const auto& frame : received) {
             state.append(frame);
         }
-        state.engine_connected = receiver.connected();
+        state.source_connected = receiver.connected();
         const auto now = std::chrono::steady_clock::now();
         const double t = std::chrono::duration<double>(now - start).count();
         state.seconds_since_frame = std::chrono::duration<double>(now - last_frame_at).count();
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        lockstep::draw_viewer(state);
+        fillscope::draw_viewer(state);
         ImGui::Render();
 
         int width = 0;

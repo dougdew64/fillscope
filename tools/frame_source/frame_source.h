@@ -1,8 +1,10 @@
-// The engine's logic, separate from main so tests can call it.
+// A stand-in frame source: produces fake frames and sends them to the viewer, calling the anchor
+// after each. It exercises the channel, the viewer and debugger lockstep until real frames exist;
+// it is not the matching engine.
 #pragma once
 
-#include "frame.h"
-#include "net.h"
+#include "channel/frame.h"
+#include "channel/net.h"
 
 #include <chrono>
 #include <cstdint>
@@ -10,9 +12,8 @@
 #include <random>
 #include <span>
 #include <string>
-#include <string_view>
 
-namespace lockstep {
+namespace fillscope {
 
 // Produces frames with consecutive indices and a random-walk price. The same seed gives the same
 // frames, so a run can be repeated exactly.
@@ -32,19 +33,7 @@ private:
     std::int64_t price_ = kStartPrice;
 };
 
-// Whether the text of a /proc/<pid>/status file names a tracer (a nonzero TracerPid).
-[[nodiscard]] bool tracer_attached(std::string_view proc_status);
-
-// Whether a debugger is attached to this process now.
-[[nodiscard]] bool debugger_attached();
-
-// Self-stop: the anchor executes a breakpoint instruction when a debugger is attached.
-void set_self_stop(bool on);
-
-// The index most recently passed to the anchor.
-[[nodiscard]] std::uint64_t last_anchored_frame();
-
-struct EngineOptions {
+struct SourceOptions {
     std::uint64_t frames = 1000;
     std::chrono::milliseconds interval{200};
     bool self_stop = false;
@@ -53,13 +42,9 @@ struct EngineOptions {
 };
 
 // The command line, or nothing if it is malformed. args excludes the program name.
-[[nodiscard]] std::optional<EngineOptions> parse_engine_args(std::span<const char* const> args);
+[[nodiscard]] std::optional<SourceOptions> parse_source_args(std::span<const char* const> args);
 
 // Connects to the viewer and sends the frames, calling the anchor after each. Returns the exit code.
-int run_engine(const EngineOptions& options);
+int run_frame_source(const SourceOptions& options);
 
-}  // namespace lockstep
-
-// The breakpoint anchor, called after each frame is sent. extern "C" so a debugger finds it by a
-// plain name: break fillscope_frame_anchor.
-extern "C" void fillscope_frame_anchor(std::uint64_t frame_index);
+}  // namespace fillscope

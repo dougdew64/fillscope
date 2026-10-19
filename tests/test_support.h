@@ -1,4 +1,4 @@
-// Helpers shared by the tests: unique socket names, and child processes.
+// Helpers shared by the tests: unique socket names, child processes and shell commands.
 #pragma once
 
 #include <spawn.h>
@@ -12,7 +12,7 @@
 
 extern char** environ;
 
-namespace lockstep::test {
+namespace fillscope::test {
 
 // A socket name no other test, and no running viewer, is using.
 inline std::string unique_socket_name() {
@@ -73,4 +73,4 @@ inline bool command_exists(const std::string& name) {
     return !run_command("command -v " + name).empty();
 }
 
-}  // namespace lockstep::test
+}  // namespace fillscope::test

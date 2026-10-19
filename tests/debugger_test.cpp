@@ -1,11 +1,11 @@
-// The engine under real debuggers: every stop is in the anchor, in our own source file, with the
-// right frame index, and Continue runs on to the next frame. Each test is skipped if its debugger
-// isn't installed.
+// The frame source under real debuggers: every stop is in the anchor, in our own source file, with
+// the right frame index, and Continue runs on to the next frame. Each test is skipped if its
+// debugger isn't installed.
 //
-// LOCKSTEP_ENGINE (the engine binary) and LOCKSTEP_LLDB_SCRIPT (lldb_self_stop.py) come from the
-// build.
+// FILLSCOPE_FRAME_SOURCE (the frame source binary) and FILLSCOPE_LLDB_SCRIPT (lldb_self_stop.py)
+// come from the build.
 
-#include "net.h"
+#include "channel/net.h"
 #include "test_support.h"
 
 #include <gtest/gtest.h>
@@ -14,7 +14,7 @@
 #include <filesystem>
 #include <regex>
 
-namespace lockstep {
+namespace fillscope {
 namespace {
 
 constexpr int kFrames = 3;
@@ -37,20 +37,21 @@ void expect_one_stop_per_frame_in_the_anchor(const std::vector<Stop>& stops, con
     ASSERT_EQ(stops.size(), static_cast<std::size_t>(kFrames)) << output;
     for (int i = 0; i < kFrames; ++i) {
         EXPECT_EQ(stops[i].frame_index, i) << output;
-        EXPECT_EQ(stops[i].file, "engine_lib.cpp") << "the stop should open our own source\n" << output;
+        EXPECT_EQ(stops[i].file, "anchor.cpp") << "the stop should open our own source\n" << output;
     }
 }
 
-// A listener for the engine to send to, and the engine's arguments pointing at it. The frames are
-// drained afterwards, to check every one arrived.
+// A listener for the frame source to send to, and the frame source's arguments pointing at it. The
+// frames are drained afterwards, to check every one arrived.
 class DebuggerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // LeakSanitizer can't run under ptrace; without this the sanitizer build's engine fails at exit.
+        // LeakSanitizer can't run under ptrace; without this the sanitizer build's frame source
+        // fails at exit.
         ::setenv("ASAN_OPTIONS", "detect_leaks=0", 1);
     }
 
-    std::string engine_args() const {
+    std::string source_args() const {
         return "--socket " + name_ + " --frames " + std::to_string(kFrames) + " --interval-ms 0";
     }
 
@@ -67,8 +68,8 @@ protected:
 TEST_F(DebuggerTest, GdbBreakpointByNameStopsInTheAnchor) {
     if (!test::command_exists("gdb")) GTEST_SKIP() << "gdb not installed";
     const std::string output = test::run_command(
-        "gdb -batch -nx -ex 'break fillscope_frame_anchor' -ex 'run " + engine_args() +
-        "' -ex continue -ex continue -ex continue " LOCKSTEP_ENGINE);
+        "gdb -batch -nx -ex 'break fillscope_frame_anchor' -ex 'run " + source_args() +
+        "' -ex continue -ex continue -ex continue " FILLSCOPE_FRAME_SOURCE);
     expect_one_stop_per_frame_in_the_anchor(
         find_stops(output, std::regex{R"(Breakpoint 1, fillscope_frame_anchor \(frame_index=(\d+)\) at (\S+):\d+)"}),
         output);
@@ -78,8 +79,8 @@ TEST_F(DebuggerTest, GdbBreakpointByNameStopsInTheAnchor) {
 
 TEST_F(DebuggerTest, GdbSelfStopStopsInTheAnchor) {
     if (!test::command_exists("gdb")) GTEST_SKIP() << "gdb not installed";
-    const std::string output = test::run_command("gdb -batch -nx -ex 'run --self-stop " + engine_args() +
-                                                 "' -ex continue -ex continue -ex continue " LOCKSTEP_ENGINE);
+    const std::string output = test::run_command("gdb -batch -nx -ex 'run --self-stop " + source_args() +
+                                                 "' -ex continue -ex continue -ex continue " FILLSCOPE_FRAME_SOURCE);
     expect_one_stop_per_frame_in_the_anchor(
         find_stops(output, std::regex{R"(SIGTRAP[^\n]*\n(?:0x[0-9a-f]+ in )?fillscope_frame_anchor \(frame_index=(\d+)\) at (\S+):\d+)"}),
         output);
@@ -90,8 +91,8 @@ TEST_F(DebuggerTest, GdbSelfStopStopsInTheAnchor) {
 TEST_F(DebuggerTest, LldbBreakpointByNameStopsInTheAnchor) {
     if (!test::command_exists("lldb")) GTEST_SKIP() << "lldb not installed";
     const std::string output = test::run_command(
-        "lldb --batch -o 'breakpoint set -n fillscope_frame_anchor' -o 'run " + engine_args() +
-        "' -o continue -o continue -o continue " LOCKSTEP_ENGINE);
+        "lldb --batch -o 'breakpoint set -n fillscope_frame_anchor' -o 'run " + source_args() +
+        "' -o continue -o continue -o continue " FILLSCOPE_FRAME_SOURCE);
     expect_one_stop_per_frame_in_the_anchor(
         find_stops(output, std::regex{R"(stop reason = breakpoint[^\n]*\n\s*frame #0: [^\n]*fillscope_frame_anchor\(frame_index=(\d+)\) at ([^:\s]+):\d+)"}),
         output);
@@ -105,8 +106,8 @@ TEST_F(DebuggerTest, LldbSelfStopStopsInTheAnchor) {
     if (!test::command_exists("lldb")) GTEST_SKIP() << "lldb not installed";
     std::string python_path = test::run_command("lldb -P");
     python_path.erase(python_path.find_last_not_of('\n') + 1);
-    const std::string output = test::run_command("PYTHONPATH='" + python_path + "' python3 -I " LOCKSTEP_LLDB_SCRIPT
-                                                 " " LOCKSTEP_ENGINE " --self-stop " + engine_args());
+    const std::string output = test::run_command("PYTHONPATH='" + python_path + "' python3 -I " FILLSCOPE_LLDB_SCRIPT
+                                                 " " FILLSCOPE_FRAME_SOURCE " --self-stop " + source_args());
     expect_one_stop_per_frame_in_the_anchor(
         // LLDB names it "::fillscope_frame_anchor(uint64_t)".
         find_stops(output, std::regex{R"(stop: SIGTRAP in \S*fillscope_frame_anchor\S* frame_index=(\d+) file=(\S+))"}),
@@ -116,4 +117,4 @@ TEST_F(DebuggerTest, LldbSelfStopStopsInTheAnchor) {
 }
 
 }  // namespace
-}  // namespace lockstep
+}  // namespace fillscope

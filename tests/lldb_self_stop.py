@@ -1,9 +1,9 @@
-# Runs the engine under LLDB through its Python API, synchronously, continuing through every stop.
+# Runs a program under LLDB through its Python API, synchronously, continuing through every stop.
 # Prints one line per stop and one at exit, for debugger_test.cpp to check:
-#   stop: SIGTRAP in fillscope_frame_anchor frame_index=0 file=engine_lib.cpp
+#   stop: SIGTRAP in ::fillscope_frame_anchor(uint64_t) frame_index=0 file=anchor.cpp
 #   exited: 0
 #
-#   python3 -I lldb_self_stop.py ENGINE [ENGINE ARGS...]     (with PYTHONPATH from `lldb -P`)
+#   python3 -I lldb_self_stop.py PROGRAM [ARGS...]     (with PYTHONPATH from `lldb -P`)
 import sys
 
 import lldb

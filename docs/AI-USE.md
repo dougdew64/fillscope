@@ -10,8 +10,8 @@ hand is listed nowhere here; commits co-authored by Claude carry a `Co-Authored-
 ## Uses
 | What | Written by | Checked by |
 |---|---|---|
-| The lockstep experiment ([experiments/lockstep/](../experiments/lockstep/README.md)): engine, viewer, socket, anchor | Claude | Its tests, in a normal and a sanitizer build; a mutation check (14 deliberate bugs, each must fail a named test); the owner, stepping it in VS Code |
-| The experiment's tests | Claude | The mutation check (a test that can't fail is caught there); each new test seen to fail before its fix |
+| The channel, the debugger anchor, the viewer and the stand-in frame source (`src/`, `tools/`; [RUNNING.md](RUNNING.md)), begun as the lockstep experiment | Claude | Their tests, in a normal and a sanitizer build; a mutation check (14 deliberate bugs, each must fail a named test); the owner, stepping them in VS Code |
+| The tests (`tests/`) | Claude | The mutation check (a test that can't fail is caught there); each new test seen to fail before its fix |
 
 ## Defects caught
 Newest first. "Who caught it" is the check, not the author of the fix.
