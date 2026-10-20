@@ -20,9 +20,10 @@ include(GoogleTest)
 #     tests;
 #   - a line in test-manifest.txt: the program, its tier, whether it always runs, and the files
 #     it uses at run time.
-# iterate.py re-runs a program only when the program, one of those files, or any CMakeLists.txt
-# (which can change how any test runs) has changed, or on every iteration if it is ALWAYS (its
-# result depends on files it can't list). A program that runs
+# iterate.py re-runs a program only when the program, one of those files, a shared library it
+# loads, a FILLSCOPE_ environment variable, or any CMakeLists.txt (which can change how any test
+# runs) has changed, or on every iteration if it is ALWAYS (its result depends on files it can't
+# list). A program that runs
 # the frame source says so (USES_FRAME_SOURCE): it then gets the frame source's path, is built
 # after it, and lists it as a run-time file, so all three can't fall out of step.
 # tests/scripts/iterate.py --check-registration (run by run-tests.sh) fails on any test registered
@@ -83,13 +84,12 @@ function(fillscope_gtest name tier)
   target_link_libraries(${name} PRIVATE ${ARG_LIBS} GTest::gtest_main)
   target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
   target_compile_options(${name} PRIVATE ${FILLSCOPE_WARNINGS})
-  set(options)
-  if(ARG_ALWAYS)
-    list(APPEND options ALWAYS)
-  endif()
-  if(ARG_USES_FRAME_SOURCE)
-    list(APPEND options USES_FRAME_SOURCE)
-  endif()
+  set(options)  # the options given, passed on as given
+  foreach(option ALWAYS USES_FRAME_SOURCE)
+    if(ARG_${option})
+      list(APPEND options ${option})
+    endif()
+  endforeach()
   fillscope_test_program(${name} ${tier} GTEST ${options} RUNTIME_DEPS ${ARG_RUNTIME_DEPS})
 endfunction()
 
@@ -118,6 +118,7 @@ add_subdirectory(lockstep)
 add_subdirectory(frame_source)
 add_subdirectory(viewer)
 add_subdirectory(vscode-debug-state)
+add_subdirectory(scripts)
 
 # One line per test program, tab-separated: name, tier, "always" or "-", program ("-" for a
 # command), run-time files. Read by scripts/iterate.py and scripts/run-tests.sh.

@@ -3,10 +3,12 @@
 # Each document is a run-time file of docs_tests. Its result also depends on every file a link
 # names, which could be any file in the repository, so it is ALWAYS run: it takes milliseconds.
 file(GLOB documents CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/*.md)
+# tools/ only to one level of subdirectory, so the glob (which CMake re-checks on every build)
+# never walks an installed package's node_modules: every npm ci would make CMake configure again.
 file(GLOB_RECURSE nested_documents CONFIGURE_DEPENDS
-  ${PROJECT_SOURCE_DIR}/docs/*.md ${PROJECT_SOURCE_DIR}/src/*.md
-  ${PROJECT_SOURCE_DIR}/tools/*.md ${PROJECT_SOURCE_DIR}/tests/*.md)
-list(APPEND documents ${nested_documents})
+  ${PROJECT_SOURCE_DIR}/docs/*.md ${PROJECT_SOURCE_DIR}/src/*.md ${PROJECT_SOURCE_DIR}/tests/*.md)
+file(GLOB tool_documents CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tools/*.md ${PROJECT_SOURCE_DIR}/tools/*/*.md)
+list(APPEND documents ${nested_documents} ${tool_documents})
 list(FILTER documents EXCLUDE REGEX "/CLAUDE\\.local\\.md$")
 list(FILTER documents EXCLUDE REGEX "/node_modules/")  # installed packages' documents aren't ours
 list(SORT documents)

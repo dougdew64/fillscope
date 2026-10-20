@@ -36,19 +36,22 @@ python3 -I tests/scripts/iterate.py -R Name  # between edits: fast tests matchin
 tests/scripts/run-tests.sh                   # before a commit: every test, both builds
 ```
 **What `iterate.py` runs.** CMake writes `build/debug/test-manifest.txt`: each test program, its
-tier, and the files it uses at run time (a program it starts, a script). A program is affected
-when its binary, one of those files, a shared library it loads, the Node.js that runs it, a
-`FILLSCOPE_` environment variable, or any `CMakeLists.txt` differs from its last passing run, so
-the selection follows the build's own dependencies rather than a hand-kept map. `docs_tests` runs
-every time, since a link can name any file. `--list` shows what's affected without running it;
-`--all` runs every fast program. Every form builds first. Fingerprints are taken before the tests run, so a file edited
-during a run is re-tested next time. `run-tests.sh` records a full pass, except programs whose
-tests were all skipped, so `iterate.py` starts from there.
+tier, and the files it uses at run time (a program it starts, a script). A program is affected when
+its binary, one of those files (the Node.js the extension's tests run with is one of theirs), a
+shared library it loads, a `FILLSCOPE_` environment variable (other than `FILLSCOPE_WERROR`), or any
+`CMakeLists.txt` differs from its last passing run, so the selection follows the build's own
+dependencies rather than a hand-kept map. `docs_tests` runs every time, since a link can name any
+file. `--list` shows what's affected without running it; `--all` runs every fast program. These
+forms all build first. Fingerprints are taken before the tests run, so a file edited during a run is
+re-tested next time. Nothing is recorded for a program that has no tests or skipped them all.
+`run-tests.sh` records a full pass, so `iterate.py` starts from there. Both hold a lock on the build
+directory while they build and test it, so two runs never use it at once.
 
 **What `run-tests.sh` also checks:** that every test is registered through
-`fillscope_test_program` (one that isn't would be invisible to the selection), that every program
-in the sanitizer build is linked with both AddressSanitizer and UndefinedBehaviorSanitizer, and
-that none in the normal build is.
+`fillscope_test_program` and runs its program, and every program has a test (otherwise the
+selection wouldn't know it, or it would pass having tested nothing); that every program in the
+sanitizer build is linked with both AddressSanitizer and UndefinedBehaviorSanitizer, and that
+none in the normal build is.
 
 **Tiers.** Every test program has one cost tier, set where its area's `CMakeLists.txt` registers it
 (`fillscope_gtest` or `fillscope_test_program`, defined in `tests/CMakeLists.txt`), which gives
@@ -58,9 +61,9 @@ frame source's path and makes the frame source one of its run-time files:
 
 | Tier | Timeout per test | Run by |
 |---|---|---|
-| `unit` | 2 s (the extension's Node tests: the whole program) | `iterate.py`, `run-tests.sh` |
+| `unit` | 2 s | `iterate.py`, `run-tests.sh` |
 | `ui` | 10 s (the whole program) | `iterate.py`, `run-tests.sh` |
-| `check` | 30 s (a whole checker run, e.g. a type check) | `iterate.py`, `run-tests.sh` |
+| `check` | 30 s (a whole run of a checker or a test runner: the type check, the extension's Node tests) | `iterate.py`, `run-tests.sh` |
 | `debugger` | 30 s | `run-tests.sh` |
 
 Every passing run prints its five slowest tests. To run one program's tests by hand, select it by
@@ -90,7 +93,10 @@ the slower program adds the tier to its name.
   IDs.
 - **`docs_tests` (GoogleTest, `unit`):** every relative link in the repository's Markdown documents
   resolves. A link can name any file, so `iterate.py` runs it every time.
-- **`vscode_debug_state_tests` (Node's test runner, `unit`) and `vscode_debug_state_typecheck`
+- **`scripts_tests` (Python's unittest, `unit`):** the test machinery's own logic in `iterate.py`:
+  reading the manifest, what is never recorded as passed, the registration and sanitizer checks,
+  fingerprints and the pass record.
+- **`vscode_debug_state_tests` (Node's test runner, `check`) and `vscode_debug_state_typecheck`
   (the TypeScript compiler, `check`):** the debug-state extension's logic, driven by fake debug
   sessions; its VS Code side, run against a fake `vscode` module; and its JavaScript checked
   against VS Code's and the Debug Adapter Protocol's types.
@@ -102,12 +108,15 @@ debugger tests instead of skipping them.
 
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh
-python3 -I tests/scripts/mutants.py          # deliberate bugs, each must fail a named test (~3 min)
-python3 -I tests/scripts/selection_check.py  # iterate.py selects, runs and records the right programs (~1 min)
+python3 -I tests/scripts/mutants.py [NAME]   # deliberate bugs, each must fail the tests it names (~10 min)
+python3 -I tests/scripts/selection_check.py  # iterate.py selects, runs and records the right programs (~2 min)
 ```
-`mutants.py` first checks that every test it names passes on the real code, so a test that already
-fails can't make a mutant look caught. Both always restore the source, even when stopped by a
-signal. `selection_check.py` uses its own pass record, never the real one.
+Both work in a scratch copy of the working tree, with a build of their own, so the files being
+edited, the build in use and the real pass record are never touched, whatever stops them; the copy
+is deleted afterwards. A mutant names the tests meant to catch it: CTest names, single Test Engine
+tests (`ui:`) or single Node tests (`node:`). `mutants.py` first checks that every test it names
+passes on the real code, so a test that already fails can't make a mutant look caught; with a
+`NAME`, it runs only the mutants whose names contain it.
 
 ## Run
 Start `build/debug/viewer`, then `build/debug/frame_source`. The frame source waits for the viewer

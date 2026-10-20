@@ -1,12 +1,16 @@
 # Checks that the tests catch bugs: each mutant breaks the code in one deliberate way, and the
-# tests named for it must then fail, though they pass on the real code (checked first). The source
-# is always restored, even on Ctrl-C, SIGTERM or a closed terminal.
+# tests named for it must then fail, though they pass on the real code (checked first). It works in
+# a scratch copy of the working tree with a build of its own (scratch_tree.py), so the files being
+# edited and the build in use are never touched, whatever stops it.
 #
-#   python3 -I tests/scripts/mutants.py [BUILD_DIR]     (default build/debug)
+#   python3 -I tests/scripts/mutants.py [NAME]     every mutant, or those whose names contain NAME
 #
 # A mutant whose text no longer matches the source is an error, not a pass: the check must not go
 # silently stale when the code changes.
+import importlib.util
 import pathlib
+import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -100,10 +104,10 @@ MUTANTS = [
      "LockstepDebugger"),
     ("--socket ignored", SOURCE,
      [("options.socket_name = value;", "(void)value;")],
-     "ParseSourceArgs|LockstepDebugger|viewer_ui_tests"),
+     "ParseSourceArgs|LockstepDebugger + ui:a_real_source_process_describes_its_run_and_sends_frames,a_new_source_never_inherits_the_last_ones_run,a_connection_that_sends_nothing_valid_leaves_the_run_in_place"),
     ("messages reordered on receipt", CHANNEL,
      [("out.push_back(*message);", "out.insert(out.begin(), *message);")],
-     "Channel.EveryMessageSentArrivesInOrder|RunFrameSource.DescribesTheRun|viewer_ui_tests"),
+     "Channel.EveryMessageSentArrivesInOrder|RunFrameSource.DescribesTheRun + ui:a_real_source_process_describes_its_run_and_sends_frames,a_new_source_never_inherits_the_last_ones_run,a_connection_that_sends_nothing_valid_leaves_the_run_in_place"),
     ("a datagram of the wrong size decodes", MESSAGE,
      [("if (datagram.size() != expected_size) {", "if (false) {")],
      "Message.DecodeRejects"),
@@ -142,6 +146,47 @@ MUTANTS = [
     ("the frame source takes an empty socket name", SOURCE,
      [('                return std::unexpected{"--socket needs a name"};', '                options.socket_name = value;')],
      "ParseSourceArgs.RejectsUnknown"),
+    ("a NaN --exit-after is accepted", "src/viewer/viewer_options.cpp",
+     [("if (!(*seconds >= 0) || std::isinf(*seconds)) {", "if (*seconds < 0 || std::isinf(*seconds)) {")],
+     "ParseViewerArgs.RefusesWhatIsntAnOption"),
+    ("an empty --context-file is accepted", "src/viewer/viewer_options.cpp",
+     [('                return std::unexpected{"--context-file needs a path"};', '                options.context_file = "";')],
+     "ParseViewerArgs.RefusesWhatIsntAnOption"),
+    ("the frame source's bad command line exits 1", "tools/frame_source/main.cpp",
+     [("        return 2;", "        return 1;")],
+     "FrameSourceProgram.RefusesABadCommandLine"),
+    # The lockstep driver counts what arrived at each stop; a miscount must fail the lockstep check.
+    ("the LLDB driver miscounts the messages", "tests/lockstep/lldb_driver.py",
+     [("                self.received += 1", "                self.received += 2")],
+     "LockstepDebugger.LldbSelfStop|LockstepDebugger.LldbBreakpointByName"),
+    # Each tier's timeout fails a program that grows too slow (the unit tier's has its own mutant).
+    ("a UI test takes 11 seconds", "tests/viewer/viewer_ui_test.cpp",
+     [("int main(int argc, char** argv) {\n", "int main(int argc, char** argv) {\n    std::this_thread::sleep_for(std::chrono::seconds{11});\n"),
+      ("#include <deque>\n", "#include <deque>\n#include <thread>\n")],
+     "viewer_ui_tests"),
+    ("the type check takes 31 seconds", "tests/vscode-debug-state/CMakeLists.txt",
+     [("  COMMAND ${FLOCK} --shared ${EXTENSION} ${NODE} ${EXTENSION}/node_modules/typescript/bin/tsc -p ${EXTENSION}",
+       "  COMMAND ${CMAKE_COMMAND} -E sleep 31")],
+     "vscode_debug_state_typecheck"),
+    ("a debugger test takes 31 seconds", "tests/lockstep/lldb_driver.py",
+     [("MAX_STOPS = 1000", "import time\ntime.sleep(31)\nMAX_STOPS = 1000")],
+     "LockstepDebugger.LldbDriverNamesTheSignal"),
+    ("a program with no tests passes registration", "tests/scripts/iterate.py",
+     [("        if not with_tests.get(program.name):", "        if False:")],
+     "scripts_tests"),
+    ("a test that copies a program's labels passes registration", "tests/scripts/iterate.py",
+     [("        elif program.binary is not None and program.binary not in command:", "        elif False:")],
+     "scripts_tests"),
+    ("a program that tested nothing is recorded", "tests/scripts/iterate.py",
+     [("    return {p.name for p in everything if not by_program.get(p.name) or set(by_program[p.name]) <= skipped}",
+       "    return {p.name for p in everything if by_program.get(p.name) and set(by_program[p.name]) <= skipped}")],
+     "scripts_tests"),
+    ("the sanitizer check ignores UBSan", "tests/scripts/iterate.py",
+     [('        for library in ("libasan", "libubsan"):', '        for library in ("libasan",):')],
+     "scripts_tests"),
+    ("a deleted run-time file crashes the fingerprint", "tests/scripts/iterate.py",
+     [("    if not file.exists():\n        return b\"missing\"\n", "")],
+     "scripts_tests"),
     ("a drain takes everything waiting", CHANNEL,
      [("while (sender_ && result.received < max_per_drain_) {", "while (sender_) {")],
      "Channel.ADrainTakesAtMostItsBound"),
@@ -166,59 +211,59 @@ MUTANTS = [
      "Channel.SendSaysWhenTheReceiverHasGone"),
     ("frame count off by one", VIEW,
      [('text(std::format("frames received: {}", received));', 'text(std::format("frames received: {}", received + 1));')],
-     "viewer_ui_tests"),
+     "ui:shows_counts_and_last_frame,shows_waiting_without_source,a_hello_without_frames_shows_no_plot_or_table"),
     ("always shows connected", VIEW,
      [("    if (state.source_connected) {\n", "    if (true) {\n")],
-     "viewer_ui_tests"),
+     "ui:shows_waiting_without_source,says_why_the_last_source_was_dropped,a_connection_that_sends_nothing_valid_leaves_the_run_in_place"),
     ("last frame's index off by one", VIEW,
      [("price {}  qty {}\", last.index, last.id", "price {}  qty {}\", last.index + 1, last.id")],
-     "viewer_ui_tests"),
+     "ui:shows_counts_and_last_frame,a_new_run_drops_the_point_and_keeps_the_follow"),
     ("plot and table hidden until many frames", VIEW,
      [("if (view.state.run && !view.state.run->frames().empty()) {",
        "if (view.state.run && view.state.run->frames().size() > 5) {")],
-     "viewer_ui_tests"),
+     "ui:plot_and_table_appear_with_frames"),
     ("clicking an id also points at its frame", VIEW,
      [("                actions.follow = frame.id;\n",
        "                actions.follow = frame.id;\n                actions.point_at = frame;\n")],
-     "viewer_ui_tests"),
+     "ui:clicking_an_id_follows_it,the_bar_says_exactly_what_the_file_holds"),
     # The table's marks, like the bar, must say what was published, not what the user clicked.
     ("the table marks the live selection", VIEW,
      [(".pointed = published->point && published->point->frame == frame,", ".pointed = true,")],
-     "viewer_ui_tests"),
+     "ui:the_bar_says_exactly_what_the_file_holds,a_new_run_drops_the_point_and_keeps_the_follow"),
     ("an old run's point marks the new run", VIEW,
      [("if (!published || published->source.run_number != run_number) {", "if (!published) {")],
-     "viewer_ui_tests"),
+     "ui:the_old_runs_published_point_marks_nothing_in_a_new_run"),
     ("the drawn table doesn't show the point", VIEW,
      [("            report_marked(row_label, marks.pointed);", "            report_marked(row_label, false);")],
-     "viewer_ui_tests"),
+     "ui:the_bar_says_exactly_what_the_file_holds"),
     ("a hello counts as a frame for the timing", "src/viewer/viewer_app.cpp",
      [("    if (std::holds_alternative<Frame>(message)) {\n", "    if (true) {\n")],
-     "viewer_ui_tests"),
+     "ui:a_hello_without_frames_shows_no_plot_or_table"),
     ("a new source joins the last one's run", "src/viewer/viewer_app.cpp",
      [("        if (connection_pending_) {\n", "        if (false) {\n")],
-     "viewer_ui_tests"),
+     "ui:a_new_source_never_inherits_the_last_ones_run"),
     ("a connection that sends nothing valid wipes the run", "src/viewer/viewer_app.cpp",
      [("    if (receiver.drain(received_).new_sender) {\n        connection_pending_ = true;\n    }\n",
        "    if (receiver.drain(received_).new_sender) {\n        begin_connection();\n    }\n")],
-     "viewer_ui_tests"),
+     "ui:a_connection_that_sends_nothing_valid_leaves_the_run_in_place"),
     ("the receiver's error isn't recorded", "src/viewer/viewer_app.cpp",
      [("    state_.source_error = receiver.error();\n", "")],
-     "viewer_ui_tests"),
+     "ui:a_connection_that_sends_nothing_valid_leaves_the_run_in_place"),
     ("finish publishes nothing", "src/viewer/viewer_app.cpp",
      [("    publisher_.finish(make_context(state_, selection_));\n", "")],
-     "viewer_ui_tests"),
+     "ui:finish_publishes_that_the_viewer_has_stopped"),
     ("the seconds since the last frame are always zero", "src/viewer/viewer_app.cpp",
      [("std::chrono::duration<double>(now - *last_frame_at_).count()", "std::chrono::duration<double>(now - now).count()")],
-     "viewer_ui_tests"),
+     "ui:the_seconds_since_the_last_frame_count_from_it"),
     ("a publishing failure is never reported", "src/viewer/viewer_app.cpp",
      [("    if (error == reported_error_) {\n", "    if (true) {\n")],
-     "viewer_ui_tests"),
+     "ui:publishing_failing_and_recovering_is_reported_once_each"),
     ("a new connection keeps the old run", VIEWER_STATE_HEADER,
      [("void begin_connection() { run.reset(); }", "void begin_connection() {}")],
      "ViewerState.ANewConnectionNeverInherits"),
     ("an id's frames are indexed under the wrong id", VIEWER_STATE,
      [("indices_by_id_[frame.id].push_back(frame.index);", "indices_by_id_[frame.id + 1].push_back(frame.index);")],
-     "Run.IndexesEachIdsFrames|MakeContext.FollowLists|viewer_ui_tests"),
+     "Run.IndexesEachIdsFrames|MakeContext.FollowLists + ui:clicking_an_id_follows_it,a_new_run_drops_the_point_and_keeps_the_follow"),
     ("the envelope grows without bound", VIEWER_STATE,
      [("    if (buckets_.size() <= kMaxBuckets) {\n", "    if (true) {\n")],
      "PriceEnvelope.EveryPriceStaysInTheBucket|PriceEnvelope.KeepsEveryLowAndHigh"),
@@ -227,14 +272,14 @@ MUTANTS = [
      "PriceEnvelope.EveryPriceStaysInTheBucket|PriceEnvelope.KeepsEveryLowAndHigh"),
     ("a new run keeps the old point", CONTEXT,
      [("    pointed_.reset();  // point_seq_ unchanged: the user didn't do this\n", "")],
-     "Selection.ANewRunClearsThePoint|viewer_ui_tests"),
+     "Selection.ANewRunClearsThePoint + ui:a_new_run_drops_the_point_and_keeps_the_follow,a_new_source_never_inherits_the_last_ones_run"),
     ("a new run takes a sequence number", CONTEXT,
      [("    pointed_.reset();  // point_seq_ unchanged: the user didn't do this\n",
        "    clear_point();\n")],
-     "Selection.ANewRunTakesNoSequenceNumber|viewer_ui_tests"),
+     "Selection.ANewRunTakesNoSequenceNumber + ui:a_new_run_drops_the_point_and_keeps_the_follow"),
     ("the replay address names the wrong frame", CONTEXT,
      [(".frame_index = frame->index", ".frame_index = 0")],
-     "MakeContext.ThePointHasAReplayAddress|viewer_ui_tests"),
+     "MakeContext.ThePointHasAReplayAddress + ui:clicking_a_row_points_at_its_frame"),
     ("a user action waits like a background change", PUBLISHER,
      [("if (trigger == PublishTrigger::background && last_attempt_ && now - *last_attempt_ < min_interval_) {",
        "if (last_attempt_ && now - *last_attempt_ < min_interval_) {")],
@@ -246,10 +291,10 @@ MUTANTS = [
     ("a failed write is claimed as published", PUBLISHER,
      [("        error_ = std::move(written.error());  // the bar shows this\n",
        "        error_ = std::move(written.error());\n        published_ = context;\n")],
-     "Publisher.AFailedWriteKeeps|viewer_ui_tests"),
+     "Publisher.AFailedWriteKeeps + ui:a_failed_write_shows_in_the_bar_and_the_table,the_old_runs_published_point_marks_nothing_in_a_new_run"),
     ("a failed write leaves the old file", PUBLISHER,
      [("        if (::unlink(file_.c_str()) == 0) {", "        if (false) {")],
-     "Publisher.AFailedWriteRemovesTheOldFile"),
+     "Publisher.AFailedWriteRemovesTheOldFile + node:a failed write removes the old file, is logged, and the next write works again"),
     ("a failed write is retried only when the context changes", PUBLISHER,
      [("    if (published_ == context && !error_) {", "    if (published_ == context) {")],
      "Publisher.AFailedWriteIsRetriedWhenTheContextReturns"),
@@ -281,7 +326,7 @@ MUTANTS = [
      "Publisher.ABareFileName"),
     ("a failed write leaves its temporary file", PUBLISHER,
      [("        ::unlink(temporary.c_str());\n", "")],
-     "Publisher.AFailedWriteIsRetried"),
+     "Publisher.AFailedWriteIsRetried + node:a failed write throws and leaves no temporary file"),
     ("finish says the viewer is still running", PUBLISHER,
      [("writer_.running = false;", "writer_.running = true;")],
      "Publisher.FinishSays"),
@@ -293,104 +338,104 @@ MUTANTS = [
      "DocLinks.FindsRelativeLinksOnly"),
     ("a stale stop is published", DEBUG_STATE,
      [("            if (isStale()) {\n                return;  // the program moved on", "            if (false) {\n                return;  // the program moved on")],
-     "vscode_debug_state_tests"),
+     "node:a stop whose details arrive after the program resumed is not published, and asks nothing more|of two overlapping stops, only the later is published|a session that ends while a stop is being read stays ended"),
     ("only 'continue' resumes", DEBUG_STATE,
      [("        if (RESUMING_REQUESTS.has(request.command) || MOVING_REQUESTS.has(request.command)",
        "        if (request.command === 'continue' || MOVING_REQUESTS.has(request.command)")],
-     "vscode_debug_state_tests"),
+     "node:every resuming request publishes running once the debugger accepts it, not when it is sent|stepping another thread alone leaves the published stop|a stop whose details arrive after the program resumed is not published, and asks nothing more"),
     ("a refused resume is published as running", DEBUG_STATE,
      [("        if (!response.success) {\n", "        if (false) {\n")],
-     "vscode_debug_state_tests"),
+     "node:a refused resuming request leaves the stop published|a launch that fails leaves the session starting, never running"),
     ("a late resume hides a newer stop", DEBUG_STATE,
      [("        if (record.generation !== pending.generation) {\n", "        if (false) {\n")],
-     "vscode_debug_state_tests"),
+     "node:a resume accepted after a newer stop arrived does not hide that stop"),
     ("an earlier incarnation's calls are obeyed", DEBUG_STATE,
      [("        return incarnation === undefined || this.records.get(id)?.incarnation === incarnation;", "        return true;")],
-     "vscode_debug_state_tests"),
+     "node:calls from a session's earlier incarnation change nothing|after a restart under the same id, the old adapter's late exit and messages change nothing"),
     ("an ended session is changed by later events", DEBUG_STATE,
      [("        if (record === undefined || this.hasEnded(session.id) || !this.isCurrent(session.id, incarnation)) {\n            return;\n        }\n        if (message?.type === 'response') {",
        "        if (record === undefined) {\n            return;\n        }\n        if (message?.type === 'response') {")],
-     "vscode_debug_state_tests"),
+     "node:nothing changes a session after it has ended|calls from a session's earlier incarnation change nothing|after a restart under the same id, the old adapter's late exit and messages change nothing"),
     ("the debugger's frame estimate decides completeness", DEBUG_STATE,
      [("    const complete = got < asked;", "    const complete = false;")],
-     "vscode_debug_state_tests"),
+     "node:a stop publishes the stack, the locals and the stop reason|an empty stack says there were no locals to read|a stack returned whole has an exact count, even when the debugger's total says more"),
     ("another thread continuing clears the stop", DEBUG_STATE,
      [("if (body?.allThreadsContinued === false && this.isAnotherThread(session.id, body.threadId)) {", "if (false) {")],
-     "vscode_debug_state_tests"),
+     "node:another thread continuing alone leaves the published stop; the stopped thread continuing clears it|a stop being read survives another thread resuming alone|a stop that names no thread publishes whose stack it shows, and keeps it against another thread's resume"),
     ("the stop being read isn't counted as the stopped thread", DEBUG_STATE,
      [("        if (record?.describing && record.describing.generation === record.generation) {", "        if (false) {")],
-     "vscode_debug_state_tests"),
+     "node:a stop being read survives another thread resuming alone"),
     ("continue's response is taken for every thread", DEBUG_STATE,
      [("if (pending.command === 'continue' && allContinued === false && this.isAnotherThread(session.id, pending.threadId)) {",
        "if (false) {")],
-     "vscode_debug_state_tests"),
+     "node:a continue the debugger says resumed only another thread leaves the stop"),
     ("a thread-less stop's thread isn't the stopped one", DEBUG_STATE,
      [("                stopped = entry.framesThreadId ?? entry.stop.threadId;", "                stopped = entry.stop.threadId;")],
-     "vscode_debug_state_tests"),
+     "node:a stop that names no thread publishes whose stack it shows, and keeps it against another thread's resume"),
     ("goto is published as running", DEBUG_STATE,
      [("            this.change(session, { state: 'moving' });", "            this.change(session, { state: 'running' });")],
-     "vscode_debug_state_tests"),
+     "node:goto and restartFrame make the stop out of date without claiming the program runs"),
     ("terminated is published as exited", DEBUG_STATE,
      [("                this.change(session, { state: 'terminated' });", "                this.change(session, { state: 'exited', exitCode: null });")],
-     "vscode_debug_state_tests"),
+     "node:\"terminated\" says debugging ended, not that the program exited"),
     ("a session is running before its launch succeeds", DEBUG_STATE,
      [("        this.publish(session, { state: 'starting' });", "        this.publish(session, { state: 'running' });")],
-     "vscode_debug_state_tests"),
+     "node:a session that ends is published as ended, and dropped when a new session starts|a session is starting until its launch is accepted, then running|a launch that fails leaves the session starting, never running"),
     ("an expensive scope named Locals is read", DEBUG_STATE,
      [("    const cheap = scopes.filter((s) => !s.expensive);", "    const cheap = scopes;")],
-     "vscode_debug_state_tests"),
+     "node:without a scope named for locals, the first inexpensive one is read, never an expensive one|the locals are the scope the debugger marks as such, else the one named so, never an expensive one"),
     ("any scope containing 'local' is the locals", DEBUG_STATE,
      [("        ?? cheap.find((s) => /^locals?$/i.test(s.name))", "        ?? cheap.find((s) => /local/i.test(s.name))")],
-     "vscode_debug_state_tests"),
+     "node:the locals are the scope the debugger marks as such, else the one named so, never an expensive one"),
     ("a stop's text is published as its description", DEBUG_STATE,
      [("            description: body?.description ?? null,", "            description: body?.description ?? body?.text ?? null,")],
-     "vscode_debug_state_tests"),
+     "node:a stop's text and description are published as the debugger gave them"),
     ("every structured local is expanded", DEBUG_STATE,
      [("            if (expanded === EXPANDED_LIMIT) {\n", "            if (false) {\n")],
-     "vscode_debug_state_tests"),
+     "node:only the first few structured locals are expanded, and the rest say so"),
     ("a stale stop keeps asking", DEBUG_STATE,
      [("    const ask = async (command, args) => {\n        if (isStale()) {\n", "    const ask = async (command, args) => {\n        if (false) {\n")],
-     "vscode_debug_state_tests"),
+     "node:a stop whose details arrive after the program resumed is not published, and asks nothing more|a stop that goes stale while members are being read asks nothing more|every write by the writer has a higher sequence number, its last one too"),
     ("stop() doesn't take a new sequence number", DEBUG_STATE,
      [("    stop() {\n        this.seq += 1;\n", "    stop() {\n")],
-     "vscode_debug_state_tests"),
+     "node:the output line names the session, the place and the counts|every write by the writer has a higher sequence number, its last one too"),
     ("a failed write leaves its temporary file", DEBUG_STATE,
      [("        io.rmSync(temporary, { force: true });\n", "")],
-     "vscode_debug_state_tests"),
+     "node:a failed write throws and leaves no temporary file"),
     # Caught by a test that watches the calls, so it doesn't depend on a race with a reader.
     ("the file is written in place", DEBUG_STATE,
      [("        io.writeFileSync(temporary, JSON.stringify(state, null, 1) + '\\n');\n        io.renameSync(temporary, file);\n",
        "        io.writeFileSync(file, JSON.stringify(state, null, 1) + '\\n');\n")],
-     "vscode_debug_state_tests"),
+     "node:the file is written to a temporary file in its directory, then renamed over the old one|a reader never sees part of a write|a failed write removes the old file, is logged, and the next write works again"),
     ("a session in any folder is published", EXTENSION,
      [("return isFillscope(session.workspaceFolder) ? session.workspaceFolder : undefined;", "return session.workspaceFolder;")],
-     "vscode_debug_state_tests"),
+     "node:a session outside a Fillscope folder gets no tracker and writes nothing|in a workspace with a Fillscope folder, a session of another folder is still not published"),
     ("a session of another folder goes to the Fillscope folder", EXTENSION,
      [("    if (session.workspaceFolder !== undefined) {\n        return isFillscope(session.workspaceFolder) ? session.workspaceFolder : undefined;\n    }\n", "")],
-     "vscode_debug_state_tests"),
+     "node:in a workspace with a Fillscope folder, a session of another folder is still not published|each Fillscope folder has its own file, including one added after activation"),
     ("shutting down leaves the sessions as they were", EXTENSION,
      [("        publisher.stop();\n", "")],
-     "vscode_debug_state_tests"),
+     "node:when VS Code shuts the extension down, the file says so"),
     ("a normal adapter exit is published as a failure", EXTENSION,
      [("    if (code === 0) {\n        return null;\n    }\n", "")],
-     "vscode_debug_state_tests"),
+     "node:an adapter process that exits says why only when it didn't end normally"),
     ("a session ended by VS Code otherwise stays", EXTENSION,
      [("            entry.publisher.sessionEnded(session.id, null, entry.incarnation);\n", "")],
-     "vscode_debug_state_tests"),
+     "node:a session VS Code ends any other way is ended too"),
     ("a restarted session's old adapter is obeyed", EXTENSION,
      [("                onExit: (code) => publisher.sessionEnded(session.id, adapterExitReason(code), incarnation),",
        "                onExit: (code) => publisher.sessionEnded(session.id, adapterExitReason(code)),")],
-     "vscode_debug_state_tests"),
+     "node:after a restart under the same id, the old adapter's late exit and messages change nothing"),
     ("a failed write leaves the old file", EXTENSION,
      [("                fs.rmSync(file, { force: true });\n", "")],
-     "vscode_debug_state_tests"),
+     "node:a failed write removes the old file, is logged, and the next write works again"),
     ("a symlinked folder gets a publisher of its own", EXTENSION,
      [("        const key = fs.realpathSync(folder.uri.fsPath);", "        const key = folder.uri.fsPath;")],
-     "vscode_debug_state_tests"),
+     "node:two workspace folders that reach one directory share one file"),
     ("unread locals published as none", DEBUG_STATE,
      [("        details.variables = null;\n        details.variablesError = messageOf(error);",
        "        details.variables = [];\n        details.variablesError = messageOf(error);")],
-     "vscode_debug_state_tests"),
+     "node:locals that could not be read are null with a reason, never an empty list|failed scopes leave the locals unread, with the reason"),
     # Only the type check can catch this one: at run time the misspelt property is just undefined.
     ("a misspelt property", DEBUG_STATE,
      [("            text: body?.text ?? null,", "            text: body?.txt ?? null,")],
@@ -398,55 +443,85 @@ MUTANTS = [
 ]
 
 
-def run(args):
-    return subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+def run(args, cwd=None):
+    return subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd)
 
 
-def ctest(build_dir, tests):
-    """Runs the tests matching `tests`; (passed, ran any)."""
-    result = run(["ctest", "--test-dir", str(build_dir), "-R", tests])
-    return result.returncode == 0, "No tests were found" not in result.stdout
+def load_scratch_tree():
+    """scratch_tree.py, beside this script. Loaded by path: python3 -I puts no script directory on
+    the import path."""
+    spec = importlib.util.spec_from_file_location("scratch_tree", pathlib.Path(__file__).with_name("scratch_tree.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class Runner:
+    """Runs the tests a mutant names, in the scratch copy's build. A name is one of:
+      a CTest regular expression, as `ctest -R` takes;
+      "ui:FILTER", Dear ImGui Test Engine tests, as viewer_ui_tests takes a filter (comma-separated
+        parts of test names);
+      "node:PATTERN", the extension's Node tests whose names match, as `node --test-name-pattern`
+        takes;
+    and several, joined by " + ", are all run. Each check returns (passed, ran any)."""
+
+    def __init__(self, copy, build):
+        self.copy = copy
+        self.build = build
+        self.node = shutil.which("node") or "node"
+        self.node_tests = sorted(str(p) for p in (copy / "tests" / "vscode-debug-state").glob("*.test.js"))
+
+    def check(self, spec):
+        results = [self.check_one(part.strip()) for part in spec.split(" + ")]
+        return all(passed for passed, _ in results), all(ran for _, ran in results)
+
+    def check_one(self, spec):
+        if spec.startswith("ui:"):
+            result = run([str(self.build / "tests" / "viewer" / "viewer_ui_tests"), spec[len("ui:"):]], cwd=self.build)
+            ran = re.search(r"passed of ([1-9]\d*) run", result.stdout) is not None
+            return result.returncode == 0, ran
+        if spec.startswith("node:"):
+            result = run([self.node, "--test", f"--test-name-pattern={spec[len('node:'):]}", *self.node_tests])
+            tests = re.search(r"^# tests (\d+)", result.stdout, re.MULTILINE)
+            failed = re.search(r"^# fail (\d+)", result.stdout, re.MULTILINE)
+            ran = tests is not None and int(tests.group(1)) > 0
+            return result.returncode == 0 and failed is not None and failed.group(1) == "0", ran
+        result = run(["ctest", "--test-dir", str(self.build), "-R", spec])
+        return result.returncode == 0, "No tests were found" not in result.stdout
 
 
 def stop_on_signal(signum, _frame):
-    # Raised in the main thread, so the `finally` that restores the source runs, as on Ctrl-C.
+    # Raised in the main thread, so the `finally` that removes the copy runs, as on Ctrl-C.
     raise SystemExit(128 + signum)
-
-
-def werror(build_dir):
-    """The build's FILLSCOPE_WERROR setting, from its cache."""
-    cache = (build_dir / "CMakeCache.txt").read_text()
-    return "ON" if "FILLSCOPE_WERROR:BOOL=ON" in cache else "OFF"
-
-
-def set_werror(build_dir, value):
-    return run(["cmake", "-S", str(ROOT), "-B", str(build_dir), f"-DFILLSCOPE_WERROR={value}"]).returncode == 0
 
 
 def main():
     for signum in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, stop_on_signal)
-    build_dir = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "build" / "debug"
-    # A mutant is broken code, which may well draw a warning (an unused parameter, say); what is
-    # checked here is the tests, so warnings don't fail a mutant's build. The setting is restored.
-    previous = werror(build_dir)
+    only = sys.argv[1] if len(sys.argv) > 1 else None
+    mutants = [m for m in MUTANTS if only is None or only in m[0]]
+    scratch_tree = load_scratch_tree()
+    copy = scratch_tree.make(ROOT)
     try:
-        set_werror(build_dir, "OFF")
-        check(build_dir)
+        build = scratch_tree.configure(copy, ROOT)
+        if build is None:
+            print("PROBLEM: the copy of the working tree couldn't be configured")
+            sys.exit(1)
+        check(Runner(copy, build), copy, build, mutants)
     finally:
-        set_werror(build_dir, previous)
+        scratch_tree.remove(copy)
 
 
-def check(build_dir):
-    if run(["cmake", "--build", str(build_dir)]).returncode != 0:
+def check(runner, copy, build, mutants):
+    if run(["cmake", "--build", str(build)]).returncode != 0:
         print("PROBLEM: the real code does not build")
         sys.exit(1)
 
     # The baseline: every set of tests a mutant names must pass on the real code. Otherwise a test
     # already failing (or flaky) would count every mutant naming it as caught.
     baseline_failures = []
-    for tests in sorted({tests for _, _, _, tests in MUTANTS}):
-        passed, ran = ctest(build_dir, tests)
+    for tests in sorted({tests for _, _, _, tests in mutants}):
+        passed, ran = runner.check(tests)
         if not (passed and ran):
             baseline_failures.append(f"'{tests}' {'fails' if ran else 'matches no test'} on the real code")
     if baseline_failures:
@@ -456,8 +531,8 @@ def check(build_dir):
         sys.exit(1)
 
     caught, problems = 0, []
-    for name, file, edits, tests in MUTANTS:
-        path = ROOT / file
+    for name, file, edits, tests in mutants:
+        path = copy / file
         original = path.read_text()
         mutated = original
         try:
@@ -466,11 +541,11 @@ def check(build_dir):
                     raise LookupError(f"'{old}' occurs {mutated.count(old)} times in {file}, not once")
                 mutated = mutated.replace(old, new)
             path.write_text(mutated)
-            build = run(["cmake", "--build", str(build_dir)])
-            if build.returncode != 0:
-                problems.append(f"{name}: the mutant does not compile\n{build.stdout[-2000:]}")
+            built = run(["cmake", "--build", str(build)])
+            if built.returncode != 0:
+                problems.append(f"{name}: the mutant does not compile\n{built.stdout[-2000:]}")
                 continue
-            passed, ran = ctest(build_dir, tests)
+            passed, ran = runner.check(tests)
             if ran and not passed:
                 caught += 1
                 print(f"caught:  {name}")
@@ -480,12 +555,10 @@ def check(build_dir):
             problems.append(f"{name}: {error}")
         finally:
             path.write_text(original)
-    if run(["cmake", "--build", str(build_dir)]).returncode != 0:  # back to the real code
-        problems.append("the real code no longer builds after the mutants were restored")
     for problem in problems:
         print(f"PROBLEM: {problem}")
-    print(f"{caught} of {len(MUTANTS)} mutants caught")
-    sys.exit(0 if caught == len(MUTANTS) and not problems else 1)
+    print(f"{caught} of {len(mutants)} mutants caught")
+    sys.exit(0 if caught == len(mutants) and not problems else 1)
 
 
 main()

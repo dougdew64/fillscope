@@ -12,28 +12,39 @@
 #   --record-snapshot FILE CTEST_LOG    record the snapshot's programs as passed, except any whose
 #                                       tests were all skipped in CTEST_LOG (CTest's output)
 #   --record-all                        record every program as passed, as the files are now
-#   --check-registration                every CTest test belongs to a program in the manifest
+#   --check-registration                every CTest test belongs to a program in the manifest, and
+#                                       every program has a test
+#   --check-sanitizers yes|no           every program in the build (its manifest's, and the frame
+#                                       source and viewer) is linked with both sanitizers (yes), or
+#                                       with neither (no)
 #
 # FILLSCOPE_ITERATE_BUILD and FILLSCOPE_ITERATE_STATE choose another build directory and pass
-# record; the other FILLSCOPE_ variables configure the tests, so they count in the fingerprint.
+# record; the other FILLSCOPE_ variables configure the tests, so they count in the fingerprint
+# (all but FILLSCOPE_WERROR, which matters only when the build is configured, and so already shows
+# in what the build produces).
 #
 # "Affected" comes from the build, not from a hand-kept map: each test program, and each file it
 # uses at run time, is listed in build/debug/test-manifest.txt (written by tests/CMakeLists.txt). A
-# program is affected when its binary, one of those files, a shared library it loads, the Node.js
-# that runs it, a FILLSCOPE_ environment variable, or any CMakeLists.txt differs from its last
-# passing run. A change the build doesn't propagate into a program can't change its result.
+# program is affected when its binary, one of those files (for the extension's tests, the Node.js
+# that runs them among them), a shared library it loads, a FILLSCOPE_ environment variable, or any
+# CMakeLists.txt differs from its last passing run. A change the build doesn't propagate into a
+# program can't change its result.
 #
 # A program marked "always" in the manifest runs on every iteration: its result depends on files
 # it can't list (docs_tests follows links to any file in the repository), and it is fast.
 #
-# Each program's fingerprint is taken before its tests run, and recorded only if they pass: a file
-# edited while the tests ran is then seen as changed next time, rather than recorded as tested.
+# Each program's fingerprint is taken before its tests run, and recorded only if they pass, and
+# only for a program that has tests and didn't skip them all: a file edited while the tests ran is
+# then seen as changed next time, rather than recorded as tested.
+#
+# While it builds and runs tests, it holds a lock on the build directory, so two runs (this and
+# run-tests.sh, or this from a terminal and from the editor) never build or test it at once.
+import fcntl
 import hashlib
 import json
 import os
 import pathlib
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -48,9 +59,15 @@ MANIFEST = BUILD / "test-manifest.txt"
 STATE = pathlib.Path(os.environ.get("FILLSCOPE_ITERATE_STATE", BUILD / "last-pass.json"))
 # Run between edits when affected. The debugger tier waits for run-tests.sh.
 FAST_TIERS = {"unit", "ui", "check"}
+# A file at least this large is fingerprinted by its size and modification time rather than its
+# contents (Node.js's binary is about 100 MB), which costs nothing and still sees it replaced.
+LARGE_FILE = 8 * 1024 * 1024
+# Environment variables that don't change a test's result once the build exists.
+NOT_FINGERPRINTED = ("FILLSCOPE_ITERATE_", "FILLSCOPE_WERROR")
 
 USAGE = """usage: iterate.py [--all | --list | -R REGEX]
-       iterate.py --snapshot FILE | --record-snapshot FILE CTEST_LOG | --record-all | --check-registration"""
+       iterate.py --snapshot FILE | --record-snapshot FILE CTEST_LOG | --record-all
+       iterate.py --check-registration | --check-sanitizers yes|no"""
 
 
 class Program:
@@ -75,8 +92,9 @@ def build():
             subprocess.run(["cmake", "--build", str(BUILD)]).returncode == 0)
 
 
-def programs():
-    return [Program(line) for line in MANIFEST.read_text().splitlines() if line.strip()]
+def programs(manifest=None):
+    text = (manifest if manifest is not None else MANIFEST.read_text())
+    return [Program(line) for line in text.splitlines() if line.strip()]
 
 
 def build_files():
@@ -89,19 +107,25 @@ def build_files():
 
 
 def environment():
-    """What a program's results can depend on beyond its files: the variables that configure our
-    tests, and the Node.js that runs the extension's (its path, size and modification time)."""
-    parts = [f"{key}={value}" for key, value in sorted(os.environ.items())
-             if key.startswith("FILLSCOPE_") and not key.startswith("FILLSCOPE_ITERATE_")]
-    node = shutil.which("node")
-    if node:
-        parts.append(stat_of(node))
-    return "\n".join(parts)
+    """The environment variables that configure our tests, as text."""
+    return "\n".join(f"{key}={value}" for key, value in sorted(os.environ.items())
+                     if key.startswith("FILLSCOPE_") and not key.startswith(NOT_FINGERPRINTED))
 
 
 def stat_of(path):
     s = os.stat(path)
     return f"{path} {s.st_size} {s.st_mtime_ns}"
+
+
+def file_digest(path):
+    """What a file's fingerprint takes from it: its contents' hash, its size and time if it is
+    large, or that it is missing (a run-time file deleted is a change too, not an error)."""
+    file = pathlib.Path(path)
+    if not file.exists():
+        return b"missing"
+    if file.stat().st_size >= LARGE_FILE:
+        return stat_of(path).encode()
+    return hashlib.sha256(file.read_bytes()).digest()
 
 
 def shared_libraries(binary):
@@ -112,13 +136,13 @@ def shared_libraries(binary):
     return [stat_of(p) for p in paths if os.path.exists(p)]
 
 
-def fingerprint(program, shared):
-    """`shared` is what every program depends on: the build files and the environment."""
-    digest = hashlib.sha256(shared.encode())
+def fingerprint(program, common):
+    """`common` is what every program depends on: the build files and the environment."""
+    digest = hashlib.sha256(common.encode())
     for path in program.files:
         digest.update(path.encode())
-        digest.update(hashlib.sha256(pathlib.Path(path).read_bytes()).digest())
-    if program.binary is not None:
+        digest.update(file_digest(path))
+    if program.binary is not None and os.path.exists(program.binary):
         for line in shared_libraries(program.binary):
             digest.update(line.encode())
     return digest.hexdigest()
@@ -126,12 +150,12 @@ def fingerprint(program, shared):
 
 def fingerprints(selected):
     """{name: fingerprint} for each program in `selected`, as the files are now."""
-    shared = hashlib.sha256()
+    build_digest = hashlib.sha256()
     for path in build_files():
-        shared.update(path.encode())
-        shared.update(hashlib.sha256(pathlib.Path(path).read_bytes()).digest())
-    shared = shared.hexdigest() + environment()
-    return {p.name: fingerprint(p, shared) for p in selected}
+        build_digest.update(path.encode())
+        build_digest.update(file_digest(path))
+    common = build_digest.hexdigest() + environment()
+    return {p.name: fingerprint(p, common) for p in selected}
 
 
 def load_state():
@@ -158,42 +182,80 @@ def record(passed):
     write_atomically(STATE, json.dumps(state, indent=1, sort_keys=True) + "\n")
 
 
-def tests_by_program():
-    """{program name: [CTest test names]}, from CTest's own listing of the tests' labels."""
+def ctest_listing():
+    """CTest's own description of every test: name, command and labels."""
     listing = subprocess.run(["ctest", "--test-dir", str(BUILD), "--show-only=json-v1"],
                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=True).stdout
+    return json.loads(listing)["tests"]
+
+
+def labels_of(test):
+    return next((p["value"] for p in test.get("properties", []) if p["name"] == "LABELS"), [])
+
+
+def tests_by_program(listing):
+    """{program name: [CTest test names]}, from the tests' exe: labels."""
     result = {}
-    for test in json.loads(listing)["tests"]:
-        labels = next((p["value"] for p in test.get("properties", []) if p["name"] == "LABELS"), [])
-        for label in labels:
+    for test in listing:
+        for label in labels_of(test):
             if label.startswith("exe:"):
                 result.setdefault(label[len("exe:"):], []).append(test["name"])
     return result
 
 
-def all_skipped(ctest_log, by_program):
-    """The programs every one of whose tests was skipped in `ctest_log`: they passed, but tested
-    nothing, so they aren't recorded as passed."""
+def not_to_record(ctest_log, everything, by_program):
+    """The programs that passed but tested nothing, so aren't recorded as passed: those with no
+    tests at all, and those every one of whose tests was skipped in `ctest_log`."""
     skipped = set(re.findall(r"Test +#\d+: (\S+) \.+\s*\*+Skipped", ctest_log))
-    return {name for name, tests in by_program.items() if tests and set(tests) <= skipped}
+    return {p.name for p in everything if not by_program.get(p.name) or set(by_program[p.name]) <= skipped}
 
 
-def check_registration(everything):
+def check_registration(everything, listing):
     """Every CTest test must carry the exe: and tier labels of a program in the manifest, as
-    fillscope_test_program gives them; a test registered any other way would be invisible to the
-    selection and to run-tests.sh's checks. Returns the problems."""
-    tiers = {p.name: p.tier for p in everything}
-    listing = subprocess.run(["ctest", "--test-dir", str(BUILD), "--show-only=json-v1"],
-                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, check=True).stdout
+    fillscope_test_program gives them, and run that program (or, for a program that is a command,
+    be the one test of that name); every program must have a test. A test registered any other way
+    would be invisible to the selection and to run-tests.sh's checks, or recorded under a program
+    whose fingerprint doesn't cover what it runs. Returns the problems."""
+    by_name = {p.name: p for p in everything}
     problems = []
-    for test in json.loads(listing)["tests"]:
-        labels = next((p["value"] for p in test.get("properties", []) if p["name"] == "LABELS"), [])
+    for test in listing:
+        labels = labels_of(test)
         owners = [label[len("exe:"):] for label in labels if label.startswith("exe:")]
-        if len(owners) != 1 or owners[0] not in tiers:
+        if len(owners) != 1 or owners[0] not in by_name:
             problems.append(f"{test['name']}: not registered through fillscope_test_program (labels {labels})")
-        elif tiers[owners[0]] not in labels:
-            problems.append(f"{test['name']}: lacks its program's tier label '{tiers[owners[0]]}'")
+            continue
+        program = by_name[owners[0]]
+        command = test.get("command", [])
+        if program.tier not in labels:
+            problems.append(f"{test['name']}: lacks its program's tier label '{program.tier}'")
+        elif program.binary is not None and program.binary not in command:
+            problems.append(f"{test['name']}: labelled {program.name}, but doesn't run it ({command})")
+        elif program.binary is None and test["name"] != program.name:
+            problems.append(f"{test['name']}: labelled {program.name}, a command registered as a test of that name")
+    with_tests = tests_by_program(listing)
+    for program in everything:
+        if not with_tests.get(program.name):
+            problems.append(f"{program.name}: has no tests, so it would pass having tested nothing")
     return problems
+
+
+def sanitizer_problems(binaries, sanitized, ldd):
+    """Whether each of `binaries` is linked with AddressSanitizer and UndefinedBehaviorSanitizer
+    (`sanitized`), or with neither. `ldd(binary)` gives ldd's output. Returns the problems."""
+    problems = []
+    for binary in binaries:
+        libraries = ldd(binary)
+        for library in ("libasan", "libubsan"):
+            linked = library in libraries
+            if sanitized and not linked:
+                problems.append(f"{binary} is in the sanitizer build but not linked with {library}")
+            elif not sanitized and linked:
+                problems.append(f"{binary} is in the normal build but linked with {library}")
+    return problems
+
+
+def run_ldd(binary):
+    return subprocess.run(["ldd", binary], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout
 
 
 def ctest(args):
@@ -213,6 +275,19 @@ def exe_labels(names):
     return ["-L", "^exe:(" + "|".join(sorted(names)) + ")$"]
 
 
+def lock_build():
+    """Holds an exclusive lock on the build directory until this process ends, waiting for any
+    other run that holds it. run-tests.sh takes the same lock (flock on the same file)."""
+    BUILD.mkdir(parents=True, exist_ok=True)
+    lock = open(BUILD / ".fillscope-lock", "w")  # kept open: closing it would release the lock
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print(f"waiting for another run using {BUILD}")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    return lock
+
+
 def main(args):
     if args == ["--record-all"]:
         record(fingerprints(programs()))
@@ -222,13 +297,21 @@ def main(args):
         return 0
     if len(args) == 3 and args[0] == "--record-snapshot":
         snapshot = json.loads(pathlib.Path(args[1]).read_text())
-        skipped = all_skipped(pathlib.Path(args[2]).read_text(), tests_by_program())
-        for name in sorted(skipped):
-            print(f"not recorded as passed, since every test was skipped: {name}")
-        record({name: value for name, value in snapshot.items() if name not in skipped})
+        everything = programs()
+        excluded = not_to_record(pathlib.Path(args[2]).read_text(), everything, tests_by_program(ctest_listing()))
+        for name in sorted(excluded):
+            print(f"not recorded as passed, since it tested nothing: {name}")
+        record({name: value for name, value in snapshot.items() if name not in excluded})
         return 0
+    if len(args) == 2 and args[0] == "--check-sanitizers" and args[1] in ("yes", "no"):
+        binaries = [p.binary for p in programs() if p.binary is not None] + [str(BUILD / "frame_source"),
+                                                                              str(BUILD / "viewer")]
+        problems = sanitizer_problems(binaries, args[1] == "yes", run_ldd)
+        for problem in problems:
+            print(f"PROBLEM: {problem}")
+        return 1 if problems else 0
     if args == ["--check-registration"]:
-        problems = check_registration(programs())
+        problems = check_registration(programs(), ctest_listing())
         for problem in problems:
             print(f"PROBLEM: {problem}")
         return 1 if problems else 0
@@ -236,6 +319,7 @@ def main(args):
         print(USAGE, file=sys.stderr)
         return 2
 
+    lock = lock_build()  # noqa: F841 (held, not used: released when the process ends)
     if not build():
         print("the build failed, so no tests were run")
         return 1
@@ -258,16 +342,16 @@ def main(args):
     slow_changed = sorted(p.name for p in everything if not p.fast and p.name in changed)
     if slow_changed:
         print("affected, slow tier (run tests/scripts/run-tests.sh): " + ", ".join(slow_changed))
-    if not selected:
-        print("no fast test program affected since its last passing run")
-        return 0
+    if not any(p.name in selected and not p.always for p in fast):
+        print("no fast test program affected since its last passing run; running only those that always run")
     print("running: " + ", ".join(sorted(selected)))
     passed, output = ctest(exe_labels(selected))
     if not passed:
         return 1
-    skipped = all_skipped(output, tests_by_program())
-    record({name: now[name] for name in selected - skipped})
+    excluded = not_to_record(output, [p for p in everything if p.name in selected], tests_by_program(ctest_listing()))
+    record({name: now[name] for name in selected - excluded})
     return 0
 
 
-sys.exit(main(sys.argv[1:]))
+if __name__ == "__main__":  # imported by the scripts' own tests
+    sys.exit(main(sys.argv[1:]))

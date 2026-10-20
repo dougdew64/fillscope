@@ -33,6 +33,8 @@
 
 #include <chrono>
 #include <cstdio>
+#include <deque>
+#include <exception>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -128,12 +130,30 @@ bool yield_until(ImGuiTestContext* ctx, Predicate done, std::chrono::seconds lim
     return done();
 }
 
+using TestBody = void (*)(ImGuiTestContext*);
+
+// Runs a test's body, failing just that test, and saying why, if an exception escapes it (reading
+// a JSON field of the wrong type, say). Uncaught, it would end the whole program, and every test
+// after it would go unrun.
+void run_body(ImGuiTestContext* ctx) {
+    const TestBody body = *static_cast<const TestBody*>(ctx->Test->UserData);
+    try {
+        body(ctx);
+    } catch (const std::exception& error) {
+        IM_ERRORF("an exception escaped the test: %s", error.what());
+    }
+}
+
 // Registers a test that runs the viewer's loop, with `body` as its test function.
-ImGuiTest* viewer_test(ImGuiTestEngine* engine, const char* name, void (*body)(ImGuiTestContext*)) {
+ImGuiTest* viewer_test(ImGuiTestEngine* engine, const char* name, TestBody body) {
+    // The bodies live here, where their addresses stay fixed, for the tests' UserData to point at.
+    static std::deque<TestBody> bodies;
+    bodies.push_back(body);
     ImGuiTest* t = IM_REGISTER_TEST(engine, "viewer", name);
     t->SetVarsDataType<UiVars>(set_up);
     t->GuiFunc = viewer_frame;
-    t->TestFunc = body;
+    t->TestFunc = run_body;
+    t->UserData = &bodies.back();
     return t;
 }
 
@@ -450,6 +470,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
             return contains(vars.text, "Context a source that didn't describe its run · 1 frames");
         }));
         IM_CHECK(!contains(vars.text, "Pointing at"));
+        IM_CHECK(vars.app->state().run.has_value());
         IM_CHECK(!vars.app->state().run->hello());
         IM_CHECK(read_context(vars)["background"]["source"]["run"].is_null());
         vars.receiver.reset();
@@ -475,6 +496,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
             IM_CHECK_EQ(::send(socket->get(), "abc", 3, MSG_NOSIGNAL), 3);
             IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "source: waiting (the last source was dropped: "); }));
         }
+        IM_CHECK(vars.app->state().run.has_value());
         IM_CHECK_EQ(vars.app->state().run->frames().size(), 3u);
         IM_CHECK(vars.app->selection().pointed().has_value());
         IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "not connected (the last source was dropped: "); }));
@@ -487,6 +509,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
             IM_CHECK(yield_until(ctx, [&] { return vars.app->state().source_connected; }));
         }
         IM_CHECK(yield_until(ctx, [&] { return !vars.app->state().source_connected; }));
+        IM_CHECK(vars.app->state().run.has_value());
         IM_CHECK_EQ(vars.app->state().run->frames().size(), 3u);
         IM_CHECK(vars.app->selection().pointed().has_value());
         vars.receiver.reset();
@@ -573,6 +596,14 @@ int main(int argc, char** argv) {
 
     ImGuiTestEngineResultSummary summary;
     ImGuiTestEngine_GetResultSummary(engine, &summary);
+    // Each failed test by name, for a reader (and mutants.py) to see which.
+    ImVector<ImGuiTest*> tests;
+    ImGuiTestEngine_GetTestList(engine, &tests);
+    for (const ImGuiTest* test : tests) {
+        if (test->Output.Status == ImGuiTestStatus_Error) {
+            std::printf("FAILED: %s\n", test->Name);
+        }
+    }
     ImGuiTestEngine_Stop(engine);
     app->ShutdownBackends(app);
     app->ShutdownCloseWindow(app);

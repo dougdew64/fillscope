@@ -11,10 +11,11 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same branch or pull request supersedes a run still in progress.
+# A newer push to the same pull request supersedes a run still in progress. Runs on main are never
+# cancelled, so every commit there gets its own result.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -49,7 +50,8 @@ jobs:
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: .cache/ccache
-          key: ccache-${{ hashFiles('**/CMakeLists.txt') }}-${{ github.sha }}
+          # A new key each run, so each saves its store; a run starts from the newest saved one.
+          key: ccache-${{ github.sha }}
           restore-keys: ccache-
       - name: Toolchain versions
         run: g++ --version | head -1; cmake --version | head -1; gdb --version | head -1; lldb --version; node --version

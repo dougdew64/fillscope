@@ -320,6 +320,14 @@ template <typename T>
 concept Parsable = requires(std::string_view text) { parse_number<T>(text); };
 static_assert(Parsable<int> && Parsable<double> && !Parsable<bool>);
 
+// The program itself: a command line it can't read gets the reason, the usage, and exit status 2.
+TEST(FrameSourceProgram, RefusesABadCommandLineWithItsUsage) {
+    const test::CommandResult result = test::run_command(test::shell_quote(FILLSCOPE_FRAME_SOURCE) + " --frames x");
+    EXPECT_EQ(result.status, 2);
+    EXPECT_NE(result.output.find("frame_source: --frames: 'x' is not a number"), std::string::npos) << result.output;
+    EXPECT_NE(result.output.find("usage: frame_source "), std::string::npos) << result.output;
+}
+
 TEST(RunFrameSource, FailsWithoutAViewer) {
     SourceOptions options = quick_options(test::unique_socket_name(), 1);  // nobody listening
     options.connect_attempts = 1;

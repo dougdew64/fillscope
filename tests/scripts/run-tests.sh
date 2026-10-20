@@ -13,6 +13,20 @@ iterate=(python3 -I "$root/tests/scripts/iterate.py")
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
+# Holds a build directory's lock, the one iterate.py takes, until this script ends: two runs never
+# build or test one build directory at once.
+lock() {  # lock BUILD_DIR
+    mkdir -p "$1"
+    local fd
+    exec {fd}>"$1/.fillscope-lock"
+    if ! flock --nonblock "$fd"; then
+        echo "waiting for another run using $1"
+        flock "$fd"
+    fi
+}
+lock "$root/build/debug"
+lock "$root/build/asan"
+
 build() {  # build BUILD_DIR [CMAKE OPTIONS...]
     local build_dir=$1
     shift
@@ -35,13 +49,6 @@ run_tests() {  # run_tests BUILD_DIR LOG: runs every test, keeping CTest's outpu
     grep -E 'Test +#' "$log" | sed -E 's/.*Test +#[0-9]+: ([^ ]+) .* ([0-9.]+) sec/  \2s \1/' | sort -rn | sed -n 1,5p
 }
 
-# Every test program in a build's manifest (the fourth tab-separated field is the program, "-" for
-# a command), so a new one is covered without editing this, and the two programs.
-binaries() {  # binaries BUILD_DIR
-    awk -F'\t' '$4 != "-" {print $4}' "$1/test-manifest.txt"
-    printf '%s\n' "$1/frame_source" "$1/viewer"
-}
-
 build "$root/build/debug"
 # What the debug build's tests are about to run on, taken now: a file edited during the minutes
 # that follow is then seen as changed by iterate.py, not recorded as tested.
@@ -58,21 +65,8 @@ done
 
 # The sanitizer build only means something if both sanitizers are really in it, and the normal
 # build only means something if neither is.
-while read -r binary; do
-    libraries=$(ldd "$binary")
-    for library in libasan libubsan; do
-        if ! grep -q "$library" <<< "$libraries"; then
-            echo "FAILED: $binary in the sanitizer build is not linked with $library" >&2
-            exit 1
-        fi
-    done
-done < <(binaries "$root/build/asan")
-while read -r binary; do
-    if ldd "$binary" | grep -qE 'libasan|libubsan'; then
-        echo "FAILED: $binary in the normal build is linked with a sanitizer" >&2
-        exit 1
-    fi
-done < <(binaries "$root/build/debug")
+FILLSCOPE_ITERATE_BUILD="$root/build/asan" "${iterate[@]}" --check-sanitizers yes
+FILLSCOPE_ITERATE_BUILD="$root/build/debug" "${iterate[@]}" --check-sanitizers no
 
 # Everything passed, so iterate.py can start from here: from the files as they were tested, and
 # without the programs whose tests were all skipped (they tested nothing).
