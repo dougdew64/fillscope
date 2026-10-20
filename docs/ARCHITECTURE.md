@@ -40,6 +40,11 @@ viewer in its own process, it keeps painting while you step through the frame so
 animation and the debugger stay in step ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)). Separate
 processes also mean the parts talk over sockets, as trading systems do (charter decision 8).
 
+**The assistant** is today Claude, in Claude Code beside the debugger in VS Code: when you ask
+about what you have pointed at or where the program is stopped, it reads the two files and
+answers. Nothing ties the files to it: they are plain JSON in the workspace, and neither the viewer
+nor the extension knows who reads them. It reads them only when you ask; it doesn't watch them.
+
 **Why files for the assistant:** the assistant runs in another program and can't see inside the
 viewer or the debugger. Each writes what it knows to a file the assistant reads. Neither waits to
 be asked: you ask your question in the editor, which the viewer never sees, so the viewer publishes
