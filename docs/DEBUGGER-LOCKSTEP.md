@@ -17,15 +17,9 @@ producer's loop (from a breakpoint by name, it first steps through the rest of t
 the next frame appears in the viewer when `send` runs.
 
 **Two ways to stop at the anchor**, both binding on the first run, with nothing to arm:
-- **Self-stop:** when the process is traced (a nonzero `TracerPid` line in `/proc/self/status`),
-  the anchor executes a breakpoint instruction (`int3` on x86-64), followed by a `nop` so that the
-  stop is reported on that line: after `int3` the program counter is the next instruction, which
-  could belong to another line (as first written, the closing brace). Untraced, it does nothing.
-  If the status file can't be read, it says so once on stderr and doesn't stop. Linux reports a tracer, not what kind of tool it is, so under a tracer that isn't a
-  debugger (`strace`, `rr`) the instruction's SIGTRAP ends the process: self-stop is for running
-  under a debugger only. Rejected: `raise(SIGTRAP)`, which under GDB stops two frames down inside
-  libc; and C++26's `std::breakpoint()`, which libstdc++ implements out of line, so it too would
-  stop inside the library.
+- **Self-stop:** when the process is traced, the anchor executes a breakpoint instruction (`int3`
+  on x86-64); untraced, it does nothing. How it works, and why it is written as it is, are in
+  [ARCHITECTURE.md](ARCHITECTURE.md), §5.
 - **Breakpoint by name**, set from the launch configuration: `break fillscope_frame_anchor` in GDB,
   `breakpoint set -n fillscope_frame_anchor` in LLDB.
 

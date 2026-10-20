@@ -30,6 +30,10 @@ Every document opens with three lines: Purpose, Status, Read when. Status is one
 **historical**. One owner per fact; others link to it. A conclusion from conversation is a ruling
 for the record, not a new rule; when uncertain, ask the owner.
 
+When the owner asks how or why the code does something, answer, then write the answer into
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) in the same session, rewriting what is there rather
+than appending; move the fact there if another document owned it.
+
 ## Craft
 - **Verify, never recite:** build and run anything claimed to work; name the compiler version.
 - **Accuracy over appearance:** a display or explanation that isn't exactly true is a defect

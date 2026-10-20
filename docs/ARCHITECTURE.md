@@ -5,6 +5,9 @@ and the path one frame and one click take through the code. **Status:** referenc
 the code (a change that moves structure or data flow updates this in the same commit). **Read
 when:** learning the code, or before changing how its parts connect.
 
+This document grows from questions. When the owner asks how or why the code does something, the
+answer is written here, where the next reader will look, and not left in a conversation.
+
 Facts owned elsewhere are linked, not repeated: the debugger's rules in
 [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md), commands and tests in [RUNNING.md](RUNNING.md), why
 things were decided in [DECISIONS.md](DECISIONS.md).
@@ -116,11 +119,75 @@ project's own `draw_uniform` turns raw draws into bounded values, where
 `std::uniform_int_distribution`'s method would vary from one standard library to another. A test
 pins seed 42's first frames to values computed independently.
 
-## 5. The anchor (`src/lockstep/`)
-`fillscope_frame_anchor(frame_index)` is where a debugger stops after each frame, either by a
-breakpoint set on it by name or by the anchor stopping itself when the process is traced. Its
-rules (a body that survives optimization, a first statement in our own source) and their evidence
-are in [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md).
+## 5. The anchor: how the debugger stops once per frame (`src/lockstep/`)
+**The problem:** to step through the frames one at a time, a debugger must stop the frame source
+once per frame. Each stop must come after that frame has reached the viewer, be in our own code
+rather than a library's, and have the frame's index readable.
+
+`fillscope_frame_anchor(frame_index)` is where it stops. The frame source calls it right after
+sending each frame (§4), so at the stop for frame N the viewer already has frames 0 to N. The
+launch configuration picks one of two ways to stop there:
+- **Self-stop:** the program stops itself. Nobody sets a breakpoint; the program *is* the
+  breakpoint.
+- **Breakpoint by name:** the debugger sets a breakpoint on the function, as on any other.
+
+### Self-stop, step by step
+Under a debugger with self-stop, execution halts at this line of `anchor.cpp`, and the debugger
+reports the stop as `signal SIGTRAP`:
+```cpp
+asm volatile("int3\n\tnop" ::"r"(frame_index));
+```
+How it gets there:
+1. The launch configuration starts `frame_source --self-stop`. The frame source passes that on
+   with `set_self_stop(true)`.
+2. Its loop sends a frame to the viewer, then calls `fillscope_frame_anchor(frame.index)`.
+3. The anchor records the index. Self-stop is on, so it asks whether a debugger is attached:
+   `tracer_attached_now()` reads the `TracerPid` line of `/proc/self/status`. A nonzero value is
+   the process id of another process tracing this one, such as LLDB or GDB.
+4. If it's traced, the anchor executes `int3`.
+
+**What `int3` does:** it is x86's breakpoint instruction, the same one a debugger writes into
+your code when you set a breakpoint. The CPU traps, and the Linux kernel turns the trap into a
+`SIGTRAP` signal. Because a debugger is tracing the process (through `ptrace`), the kernel doesn't
+deliver the signal. It stops the process and tells the debugger, which reports the stop. VS Code
+then highlights the line.
+
+**Why it is written this way:**
+- **The tracer check keeps it safe without a debugger.** An unhandled `SIGTRAP` ends a program,
+  so untraced, the anchor does nothing, and `frame_source --self-stop` run from a terminal just
+  runs. If the status file can't be read, it says so once on stderr and doesn't stop. Linux
+  reports *that* a process is traced, not by what, so under a tracer that isn't a debugger
+  (`strace`, `rr`) the `SIGTRAP` ends the process: self-stop is for running under a debugger only.
+- **The `nop` keeps the highlight on that line.** After `int3`, the program counter points at the
+  next instruction, and that is where the debugger reports the stop. Without the `nop`, the next
+  instruction would belong to the function's closing brace.
+- **Continue needs nothing special.** The program counter is already past `int3`, so Continue
+  resumes at the `nop`, and the debugger doesn't pass the `SIGTRAP` on. The anchor returns, the
+  loop sleeps, sends the next frame and stops again: one frame per Continue. Step Over from the
+  stop returns to the frame source's loop.
+- **`"r"(frame_index)` keeps the frame's index readable at the stop.** It makes the instruction
+  take the index as an input in a register, so the value exists right there, and a debugger can
+  show it even in an optimized build, where it might otherwise be gone.
+- **Not `raise(SIGTRAP)` or C++26's `std::breakpoint()`.** Under GDB, `raise(SIGTRAP)` stopped two
+  frames down, inside libc. libstdc++ implements `std::breakpoint()` out of line, so it too would
+  stop inside the library. Either way the debugger would open the library's source, not ours.
+- **x86 only, for now.** Another architecture needs its own breakpoint instruction and its own
+  answer to how its debuggers resume past it; until then the code doesn't compile there.
+
+### Breakpoint by name
+Without `--self-stop`, the anchor never executes `int3`. Instead the launch configuration tells
+the debugger to set a breakpoint on the function: `breakpoint set -n fillscope_frame_anchor` in
+LLDB, `break fillscope_frame_anchor` in GDB. A breakpoint by name stops after the function's
+prologue, and the debuggers place it differently: GDB 17.2 stops at the first statement, the store
+of `frame_index`; LLDB 22.1.8 stops after the stores, at the `if`. Step Over from there steps
+through the rest of the anchor before it returns to the loop.
+
+### What keeps both working
+The anchor is shaped so that both ways stop in `anchor.cpp`, with `frame_index` readable, at every
+optimization level. That is why it stores to plain variables rather than an `std::atomic`, whose
+`store()` is inlined from a libstdc++ header: LLDB's breakpoint by name once stopped in
+`atomic_base.h`. These rules, and the tests that guard them, are in
+[DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md).
 
 ## 6. The viewer (`src/viewer/`)
 **The problem:** show what a source sends, let you point at and follow things, and publish exactly
