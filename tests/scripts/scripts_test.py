@@ -13,6 +13,9 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 
+# Loading the scripts beside this one by path would otherwise leave __pycache__ files in the tree.
+sys.dont_write_bytecode = True
+
 HERE = pathlib.Path(__file__).resolve().parent
 
 

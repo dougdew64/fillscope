@@ -15,6 +15,9 @@ import signal
 import subprocess
 import sys
 
+# Loading the scripts beside this one by path would otherwise leave __pycache__ files in the tree.
+sys.dont_write_bytecode = True
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 ANCHOR = "src/lockstep/anchor.cpp"

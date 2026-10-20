@@ -17,6 +17,9 @@ import subprocess
 import sys
 import tempfile
 
+# Loading the scripts beside this one by path would otherwise leave __pycache__ files in the tree.
+sys.dont_write_bytecode = True
+
 EXTENSION = {"vscode_debug_state_tests", "vscode_debug_state_typecheck"}
 ALL = {"channel_tests", "docs_tests", "lockstep_tests", "frame_source_tests", "lockstep_debugger_tests",
        "viewer_tests", "viewer_ui_tests", "scripts_tests"} | EXTENSION

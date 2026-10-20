@@ -5,6 +5,7 @@ out/
 compile_commands.json
 .cache/
 node_modules/
+__pycache__/
 
 # What the viewer and the debug-state extension publish for the assistant
 .fillscope/
