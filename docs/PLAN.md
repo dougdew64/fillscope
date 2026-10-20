@@ -16,7 +16,3 @@ on stand-in frames with a stand-in `id` to follow (rulings in [DECISIONS.md](DEC
 owner's test,** pointing and following in the viewer and asking the assistant about it. The views
 of the domain (the book, an order's history) wait on the message interfaces, which wait on the
 owner's reading.
-
-## 2. The second tech debt backlog
-Work through [TECH-DEBT.md](TECH-DEBT.md), from the second sweep: published state that can be false
-first, then lost work, the test machinery, input checking, test gaps, code quality and documents.

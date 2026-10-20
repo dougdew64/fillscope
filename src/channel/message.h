@@ -2,7 +2,9 @@
 //
 // There are two kinds, held in a std::variant (a type-safe union: a Message is exactly one of its
 // alternatives at a time, and the compiler checks that code handling it covers each one):
-//   - SourceHello opens every connection and describes the run the frames that follow come from.
+//   - SourceHello is the first thing the frame source sends on a connection, and describes the run
+//     the frames that follow come from. (A source may send frames without one; the viewer then
+//     shows them, with no replay address.)
 //     With its seed, a frame index becomes a replay address: the frame source produces the same
 //     frames from the same seed (tools/frame_source/frame_source.h says how it guarantees that),
 //     so (seed, index) identifies one exact state that can be rebuilt.
