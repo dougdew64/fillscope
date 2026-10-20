@@ -90,33 +90,50 @@ existed, so it meets these requirements, each checked by its tests (and each sho
 fail a test when broken):
 - **One entry per debug session.** A lockstep run debugs two programs at once; the viewer's
   "running" must not overwrite the frame source's stop. A child session names its parent.
+- **What the program is doing, exactly:** "starting" until the launch or attach succeeds;
+  "running"; "stopped", with the stack and locals; "moving" after an accepted `goto` or
+  `restartFrame`, which reposition the program without running it (a stop follows); "exited", with
+  the exit code; "terminated" when debugging has ended, which the protocol says does not mean the
+  program has exited; "ended" when the session is over.
 - **"Not fetched" is distinct from "fetched, and empty":** `variables: null` with
   `variablesError`, versus an empty list.
 - **Resuming publishes too:** "running" on a `continued` event *and* when the debugger accepts a
-  resuming request from VS Code (continue, next, step, restart...), which debuggers are not
-  expected to announce. A refused request leaves the stop published, since the program never
-  moved; a request accepted after a newer stop arrived doesn't hide that stop; another thread
-  resuming alone doesn't clear the stopped thread's stop.
+  resuming request from VS Code (continue, next, the steps, reverse continue, restart), which
+  debuggers are not expected to announce. A refused request leaves the stop published, since the
+  program never moved; a request accepted after a newer stop arrived doesn't hide that stop;
+  another thread resuming alone (by its event, its request, or a continue the debugger says
+  resumed only some threads) doesn't clear the stopped thread's stop, even while that stop is
+  still being read. A stop that names no thread shows the first thread's stack and says which
+  (`framesThreadId`).
 - **Out-of-date stops are dropped:** a stop whose details arrive after the program has moved on
   (resumed, stopped again, or restarted under the same session id) is not published, and no more
   requests are made for it.
-- **An ended session stays ended:** "exited" (with the exit code) when the program ends, "ended"
-  when the session does, including when the debug adapter crashes; nothing changes a session after
-  it has ended.
+- **An ended session stays ended,** and nothing from a session's earlier incarnation (an old debug
+  adapter's last messages or exit, after a restart that reused the session's id) changes the
+  current one. A session ends when VS Code stops it, when VS Code reports it terminated, or, for a
+  debug adapter VS Code runs as a process of its own, when that process exits: then a reason is
+  given unless it exited with code 0. (CodeLLDB runs inside VS Code, so no exit is reported for
+  it.)
 - **A shortened stack, or list of locals, says so.** The frame count is published only when it is
-  exact; the debugger's own total is a hint that may overstate, so it is never published as exact.
-  At most ten structured locals have their members read, and expensive scopes (registers) are
-  never read, so a stop costs at most a dozen or so requests, which queue ahead of VS Code's own.
+  exact: a reply with fewer frames than were asked for is the whole stack (whatever the
+  debugger's total, a hint that may overstate, says). At most ten structured locals have their
+  members read; the locals are the scope the debugger marks as such, else the one named Local or
+  Locals, and expensive scopes (registers) are never read. So a stop costs at most a dozen or so
+  requests, which queue ahead of VS Code's own. A stop's `text` and `description` are published
+  separately, as the protocol defines them.
 - **The file says who wrote it and when:** the writer (its process id, start time, and whether it
-  is still running; VS Code shutting the extension down ends every session and says the writer has
-  stopped), a sequence number that increases with every write by one writer, and a timestamp; each
-  session entry carries those of its last change. Writes go through a temporary file and a rename,
-  so a reader never sees half a write (tested with a reader on another thread), and a failed write
-  leaves no temporary file.
+  is still running, which is false in the last write VS Code lets the extension make as it shuts
+  it down; after a crash of VS Code's extension host only the process id can tell), a sequence
+  number that increases with every write by one writer, and a timestamp; each session entry
+  carries those of its last change. Writes go to a temporary file in the same directory and are
+  renamed over the old one (checked by watching the calls, and by a reader on another thread that
+  never sees part of a file). A failed write leaves no temporary file and removes the old file, so
+  a reader finds no file rather than a wrong one.
 
 It is activated by any debug session, since VS Code extensions are installed per user, but writes
-only for a session in a workspace folder that contains its own source; each such folder has its
-own file. Open each Fillscope folder in one VS Code window only: two windows would overwrite each
+only for a session in a workspace folder that contains its own source (a session with no folder of
+its own, as from a multi-root workspace's own launch configuration, goes to the first such folder);
+each such folder has its own file, and two folders that reach one directory share it. Open each Fillscope folder in one VS Code window only: two windows would overwrite each
 other's file (the writer's process id tells them apart). Its JavaScript is type-checked by the
 TypeScript compiler in the tests; it runs from its source, so there is no compiled copy to fall
 out of date.

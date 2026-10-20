@@ -10,7 +10,7 @@ const { test } = require('node:test');
 const { Worker } = require('node:worker_threads');
 const {
     DebugStatePublisher, writeAtomically, summarize, FRAME_LIMIT, VARIABLE_LIMIT, CHILD_LIMIT, EXPANDED_LIMIT,
-    RESUMING_REQUESTS,
+    RESUMING_REQUESTS, MOVING_REQUESTS,
 } = require('../../tools/vscode-debug-state/src/debug_state.js');
 
 /** @typedef {import('../../tools/vscode-debug-state/src/debug_state.js').DebugStateFile} DebugStateFile */
@@ -58,8 +58,10 @@ let nextSeq = 1;
 const event = (name, body) => ({ seq: nextSeq++, type: 'event', event: name, body });
 /** @param {string} command @param {any} [args] */
 const request = (command, args) => ({ seq: nextSeq++, type: 'request', command, arguments: args });
-/** @param {{ seq: number, command: string }} to @param {boolean} [success] */
-const response = (to, success = true) => ({ seq: nextSeq++, type: 'response', request_seq: to.seq, command: to.command, success });
+/** @param {{ seq: number, command: string }} to @param {boolean} [success] @param {any} [body] */
+const response = (to, success = true, body = undefined) => ({
+    seq: nextSeq++, type: 'response', request_seq: to.seq, command: to.command, success, body,
+});
 
 const stopped = (threadId = 1) => event('stopped', { reason: 'breakpoint', threadId });
 
@@ -157,7 +159,7 @@ test('the file names its writer, and every write has a higher sequence number an
     assert.deepEqual(writes.map((w) => w.seq), [1, 2, 3]);
     for (const w of writes) {
         assert.ok(w.writtenAtMs > 0);
-        assert.equal(w.version, 2);
+        assert.equal(w.version, 3);
         assert.deepEqual(w.writer, { program: 'vscode-debug-state', pid: 4321, startedAtMs: 1000, running: true });
     }
     const last = writes[2];
@@ -205,14 +207,15 @@ test('a long stack is shortened and says so, and its count is unknown even if th
     assert.equal(entry.frameCount, null);
 });
 
-test('a stack returned whole has an exact count, unless the debugger says there is more', async () => {
+test('a stack returned whole has an exact count, even when the debugger\'s total says more', async () => {
+    // The protocol: a reply with fewer frames than were asked for marks the end of the stack.
     let entry = stoppedEntry((await stoppedInTheAnchor({ stackTrace: { stackFrames: frames(5) } })).last().sessions.s1);
     assert.equal(entry.frameCount, 5);
     assert.equal(entry.framesTruncated, false);
 
     entry = stoppedEntry((await stoppedInTheAnchor({ stackTrace: { stackFrames: frames(5), totalFrames: 9 } })).last().sessions.s1);
-    assert.equal(entry.frameCount, null, 'returned fewer than asked, but says more exist: not known');
-    assert.equal(entry.framesTruncated, true);
+    assert.equal(entry.frameCount, 5, 'the total is a hint that may overstate');
+    assert.equal(entry.framesTruncated, false);
 });
 
 test('many locals, or many members, are shortened and say so', async () => {
@@ -318,7 +321,8 @@ test('another thread continuing alone leaves the published stop; the stopped thr
 });
 
 test('every resuming request publishes running once the debugger accepts it, not when it is sent', async () => {
-    assert.equal(RESUMING_REQUESTS.size, 9);
+    assert.deepEqual([...RESUMING_REQUESTS].sort(),
+        ['continue', 'next', 'restart', 'reverseContinue', 'stepBack', 'stepIn', 'stepOut']);
     for (const command of RESUMING_REQUESTS) {
         const { publisher, last, session } = await stoppedInTheAnchor();
         const sent = request(command, { threadId: 1 });
@@ -455,7 +459,7 @@ test('a session that ends is published as ended, and dropped when a new session 
 
     publisher.sessionStarted({ id: 'new', name: 'frame source' });
     assert.equal(last().sessions.old, undefined);
-    assert.equal(last().sessions.new.state, 'running');
+    assert.equal(last().sessions.new.state, 'starting');
 });
 
 test('a program that exits is published as exited with its code, and can be restarted', async () => {
@@ -470,11 +474,12 @@ test('a program that exits is published as exited with its code, and can be rest
     assert.equal(last().sessions.s1.state, 'running');
 });
 
-test('a program that terminates without an exit code is published as exited, code unknown', async () => {
+test('"terminated" says debugging ended, not that the program exited', async () => {
+    // The protocol: terminated "does not mean that the debuggee itself has exited" (a detached
+    // attach session, say).
     const { publisher, last, session } = await stoppedInTheAnchor();
     await publisher.onAdapterMessage(session, event('terminated', {}));
-    const entry = last().sessions.s1;
-    assert.equal(entry.state === 'exited' && entry.exitCode, null);
+    assert.equal(last().sessions.s1.state, 'terminated');
 });
 
 // ---- Several sessions ----
@@ -552,37 +557,61 @@ test('a failed write throws and leaves no temporary file', (t) => {
     assert.deepEqual(fs.readdirSync(dir), ['debug-state.json']);
 });
 
+test('the file is written to a temporary file in its directory, then renamed over the old one', (t) => {
+    const file = path.join(scratch(t), 'debug-state.json');
+    /** @type {string[]} */
+    const calls = [];
+    const io = {
+        mkdirSync: /** @type {typeof fs.mkdirSync} */ ((...args) => fs.mkdirSync(...args)),
+        writeFileSync: /** @type {typeof fs.writeFileSync} */ ((target, data) => { calls.push(`write ${target}`); fs.writeFileSync(target, data); }),
+        renameSync: /** @type {typeof fs.renameSync} */ ((from, to) => { calls.push(`rename ${from} ${to}`); fs.renameSync(from, to); }),
+        rmSync: /** @type {typeof fs.rmSync} */ ((...args) => fs.rmSync(...args)),
+    };
+    writeAtomically(file, {
+        version: 3, writer: { program: 'test', pid: 1, startedAtMs: 0, running: true }, seq: 1, writtenAtMs: 0, sessions: {},
+    }, io);
+    const temporary = `${file}.${process.pid}.tmp`;
+    assert.deepEqual(calls, [`write ${temporary}`, `rename ${temporary} ${file}`]);
+    assert.equal(path.dirname(temporary), path.dirname(file), 'the same directory, so the rename is atomic');
+});
+
 test('a reader never sees part of a write', async (t) => {
     const file = path.join(scratch(t), 'debug-state.json');
     // Large enough that a write takes more than one system call, so a torn write could be seen.
     /** @type {DebugStateFile} */
     const state = {
-        version: 2, writer: { program: 'test', pid: 1, startedAtMs: 0, running: true }, seq: 0, writtenAtMs: 0,
+        version: 3, writer: { program: 'test', pid: 1, startedAtMs: 0, running: true }, seq: 0, writtenAtMs: 0,
         sessions: Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`s${i}`, {
             name: 'x'.repeat(200), parentId: null, state: /** @type {const} */ ('running'), seq: i, changedAtMs: 0,
         }])),
     };
     writeAtomically(file, state);
-    // The reader runs on another thread, reading and parsing the file as fast as it can.
+    // The reader runs on another thread, reading and parsing the file as fast as it can, and counts
+    // the reads it makes between the writer's "start" and "stop": only those overlap the writes.
+    // (The deterministic check of how the file is written is the test above; this one shows a real
+    // reader on another thread is never given part of a file.)
     const reader = new Worker(`
         const { parentPort, workerData } = require('node:worker_threads');
         const fs = require('node:fs');
-        let reads = 0, torn = 0, stop = false;
-        parentPort.on('message', () => { stop = true; });
+        let reads = 0, torn = 0, counting = false, done = false;
+        parentPort.on('message', (m) => {
+            if (m === 'start') { counting = true; parentPort.postMessage('started'); } else { done = true; }
+        });
         (function loop() {
-            for (let i = 0; i < 50; ++i) {
-                try { JSON.parse(fs.readFileSync(workerData, 'utf8')); } catch { ++torn; }
-                ++reads;
+            for (let i = 0; i < 20; ++i) {
+                try { JSON.parse(fs.readFileSync(workerData, 'utf8')); } catch { if (counting) ++torn; }
+                if (counting) ++reads;
             }
-            if (stop) { parentPort.postMessage({ reads, torn }); } else { setImmediate(loop); }
+            if (done) { parentPort.postMessage({ reads, torn }); } else { setImmediate(loop); }
         })();`, { eval: true, workerData: file });
+    await new Promise((resolve) => { reader.once('message', resolve); reader.postMessage('start'); });
     for (let seq = 1; seq <= 300; ++seq) {
         writeAtomically(file, { ...state, seq });
         await new Promise((resolve) => setImmediate(resolve));
     }
     const result = await new Promise((resolve) => { reader.once('message', resolve); reader.postMessage('stop'); });
     await reader.terminate();
-    assert.ok(result.reads > 0);
+    assert.ok(result.reads > 0, 'reads were made while the file was being written');
     assert.equal(result.torn, 0);
 });
 
@@ -593,6 +622,164 @@ test('the output line names the session, the place and the counts', async () => 
     assert.equal(summarize(last()), '#2 frame source: stopped at anchor.cpp:69 in fillscope_frame_anchor (3 frames, 2 locals)');
     await publisher.onAdapterMessage(session, event('exited', { exitCode: 3 }));
     assert.equal(summarize(last()), '#3 frame source: exited (code 3)');
-    publisher.sessionEnded('s1', 'the debug adapter exited (code 1, signal none)');
-    assert.equal(summarize(last()), '#4 frame source: ended (the debug adapter exited (code 1, signal none))');
+    publisher.sessionEnded('s1', 'the debug adapter exited with code 1');
+    assert.equal(summarize(last()), '#4 frame source: ended (the debug adapter exited with code 1)');
+    publisher.sessionStarted(fakeSession({ id: 's2', name: 'viewer' }));
+    publisher.sessionStarted(fakeSession({ id: 's3', name: 'other' }));
+    publisher.stop();
+    assert.equal(summarize(last()), '#7 the extension stopped; 2 sessions ended');
+});
+
+// ---- Starting ----
+
+test('a session is starting until its launch is accepted, then running', async () => {
+    const { publisher, last } = recordingPublisher();
+    const session = anchorSession();
+    publisher.sessionStarted(session);
+    assert.equal(last().sessions.s1.state, 'starting');
+    const launch = request('launch', {});
+    publisher.onClientMessage(session, launch);
+    assert.equal(last().sessions.s1.state, 'starting');
+    await publisher.onAdapterMessage(session, response(launch));
+    assert.equal(last().sessions.s1.state, 'running');
+});
+
+test('a launch that fails leaves the session starting, never running', async () => {
+    const { publisher, writes } = recordingPublisher();
+    const session = anchorSession();
+    publisher.sessionStarted(session);
+    const launch = request('launch', {});
+    publisher.onClientMessage(session, launch);
+    await publisher.onAdapterMessage(session, response(launch, false));
+    publisher.sessionEnded('s1');
+    assert.deepEqual(writes.map((w) => w.sessions.s1.state), ['starting', 'ended']);
+});
+
+// ---- Moving without running ----
+
+test('goto and restartFrame make the stop out of date without claiming the program runs', async () => {
+    assert.deepEqual([...MOVING_REQUESTS].sort(), ['goto', 'restartFrame']);
+    for (const command of MOVING_REQUESTS) {
+        const { publisher, last, session } = await stoppedInTheAnchor();
+        await resume(publisher, session, command, { threadId: 1 });
+        assert.equal(last().sessions.s1.state, 'moving', command);
+        await publisher.onAdapterMessage(session, stopped());  // the protocol: a stop follows
+        assert.equal(last().sessions.s1.state, 'stopped', command);
+    }
+});
+
+// ---- Threads while a stop is being read ----
+
+test('a stop being read survives another thread resuming alone', async () => {
+    for (const resumeOther of [
+        async (/** @type {DebugStatePublisher} */ p, /** @type {any} */ s) => p.onAdapterMessage(s, event('continued', { threadId: 2, allThreadsContinued: false })),
+        async (/** @type {DebugStatePublisher} */ p, /** @type {any} */ s) => resume(p, s, 'next', { threadId: 2, singleThread: true }),
+    ]) {
+        const { publisher, last } = recordingPublisher();
+        const held = heldReply();
+        const session = anchorSession({ stackTrace: held.reply });
+        publisher.sessionStarted(session);
+        const stopping = publisher.onAdapterMessage(session, stopped(1));
+        await resumeOther(publisher, session);
+        held.release({ stackFrames: frames(3) });
+        await stopping;
+        assert.equal(last().sessions.s1.state, 'stopped', 'thread 1 is still at its breakpoint');
+    }
+});
+
+test('a continue the debugger says resumed only another thread leaves the stop', async () => {
+    const { publisher, last, session } = await stoppedInTheAnchor();
+    const sent = request('continue', { threadId: 2 });
+    publisher.onClientMessage(session, sent);
+    await publisher.onAdapterMessage(session, response(sent, true, { allThreadsContinued: false }));
+    assert.equal(last().sessions.s1.state, 'stopped');
+
+    const all = request('continue', { threadId: 1 });
+    publisher.onClientMessage(session, all);
+    await publisher.onAdapterMessage(session, response(all, true, { allThreadsContinued: false }));
+    assert.equal(last().sessions.s1.state, 'running', 'the stopped thread itself resumed');
+});
+
+test('a stop that names no thread publishes whose stack it shows, and keeps it against another thread\'s resume', async () => {
+    const recorded = recordingPublisher();
+    const session = anchorSession({ threads: { threads: [{ id: 5, name: 'main' }] } });
+    recorded.publisher.sessionStarted(session);
+    await recorded.publisher.onAdapterMessage(session, event('stopped', { reason: 'pause', allThreadsStopped: true }));
+    assert.equal(stoppedEntry(recorded.last().sessions.s1).framesThreadId, 5);
+    await recorded.publisher.onAdapterMessage(session, event('continued', { threadId: 6, allThreadsContinued: false }));
+    assert.equal(recorded.last().sessions.s1.state, 'stopped');
+});
+
+// ---- Incarnations ----
+
+test('calls from a session\'s earlier incarnation change nothing', async () => {
+    const { publisher, writes } = recordingPublisher();
+    const session = anchorSession();
+    const old = publisher.sessionStarted(session);
+    publisher.sessionEnded('s1', null, old);
+    const current = publisher.sessionStarted(session);  // a restart under the same id
+    await publisher.onAdapterMessage(session, stopped(), current);
+    const count = writes.length;
+    publisher.sessionEnded('s1', 'the debug adapter exited with code 1', old);  // the old adapter's late exit
+    await publisher.onAdapterMessage(session, event('continued', { threadId: 1 }), old);
+    publisher.onClientMessage(session, request('continue', {}), old);
+    assert.equal(writes.length, count);
+    assert.equal(writes[count - 1].sessions.s1.state, 'stopped');
+});
+
+// ---- Choosing the locals ----
+
+test('the locals are the scope the debugger marks as such, else the one named so, never an expensive one', async () => {
+    /** @param {any[]} scopes */
+    const chosen = async (scopes) => stoppedEntry((await stoppedInTheAnchor({ scopes: { scopes } })).last().sessions.s1);
+    let entry = await chosen([{ name: 'Arguments', variablesReference: 8 }, { name: 'Frame', variablesReference: 7, presentationHint: 'locals' }]);
+    assert.equal(entry.variablesScope, 'Frame');
+    entry = await chosen([{ name: 'Arguments', variablesReference: 8 }, { name: 'Locals', variablesReference: 7 }]);
+    assert.equal(entry.variablesScope, 'Locals', 'by name, though not first');
+    entry = await chosen([{ name: 'Thread Locals', variablesReference: 8 }, { name: 'Local', variablesReference: 7 }]);
+    assert.equal(entry.variablesScope, 'Local', 'the name exactly, not one containing it');
+    entry = await chosen([{ name: 'Locals', variablesReference: 8, expensive: true }, { name: 'Arguments', variablesReference: 7 }]);
+    assert.equal(entry.variablesScope, 'Arguments', 'never an expensive scope, whatever its name');
+});
+
+test('a stop\'s text and description are published as the debugger gave them', async () => {
+    const recorded = recordingPublisher();
+    const session = anchorSession();
+    recorded.publisher.sessionStarted(session);
+    await recorded.publisher.onAdapterMessage(session,
+        event('stopped', { reason: 'exception', threadId: 1, text: 'std::bad_alloc', description: 'Exception thrown: std::bad_alloc' }));
+    const entry = stoppedEntry(recorded.last().sessions.s1);
+    assert.equal(entry.stop.text, 'std::bad_alloc');
+    assert.equal(entry.stop.description, 'Exception thrown: std::bad_alloc');
+
+    await recorded.publisher.onAdapterMessage(session, event('stopped', { reason: 'exception', threadId: 1, text: 'std::bad_alloc' }));
+    const textOnly = stoppedEntry(recorded.last().sessions.s1);
+    assert.equal(textOnly.stop.text, 'std::bad_alloc');
+    assert.equal(textOnly.stop.description, null, 'a text is not a description');
+});
+
+test('a stop that goes stale while members are being read asks nothing more', async () => {
+    const { publisher, last } = recordingPublisher();
+    const held = heldReply();
+    const session = anchorSession({
+        variables: (/** @type {any} */ args) => args.variablesReference === 7
+            ? { variables: [{ name: 'a', value: '{...}', variablesReference: 9 }, { name: 'b', value: '{...}', variablesReference: 10 }] }
+            : held.reply(),
+    });
+    publisher.sessionStarted(session);
+    const stopping = publisher.onAdapterMessage(session, stopped());
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    await resume(publisher, session, 'continue');
+    held.release({ variables: [] });
+    await stopping;
+    assert.equal(last().sessions.s1.state, 'running');
+    assert.equal(session.requests.filter((r) => r.command === 'variables').length, 2, 'the locals and a\'s members; not b\'s');
+});
+
+test('every write by the writer has a higher sequence number, its last one too', async () => {
+    const { publisher, writes } = recordingPublisher();
+    publisher.sessionStarted(fakeSession());
+    publisher.stop();
+    assert.deepEqual(writes.map((w) => w.seq), [1, 2]);
 });

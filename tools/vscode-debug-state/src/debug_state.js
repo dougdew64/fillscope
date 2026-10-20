@@ -1,20 +1,21 @@
 // @ts-check
 // The extension's logic, with no dependency on VS Code, so tests can drive it with fake sessions.
 //
-// It publishes, for every debug session, whether the program is running, stopped, exited or the
-// session has ended, and at a stop the stack and the innermost frame's locals
-// (docs/DEBUGGER-LOCKSTEP.md). A wrong file means an explanation of a program state that never
-// existed, which is why:
+// It publishes, for every debug session, what its program is doing (starting, running, stopped,
+// moving, exited, or debugging terminated) or that the session has ended, and at a stop the stack
+// and the innermost frame's locals (docs/DEBUGGER-LOCKSTEP.md). A wrong file means an explanation
+// of a program state that never existed, which is why:
 //   - there is one entry per session: a lockstep run debugs two programs at once, and one
 //     session's "running" must not overwrite the other's stop;
 //   - "not fetched" (variables: null, with variablesError) is distinct from "none" (variables: []);
 //   - resuming is published too, whether the debugger announces it (a "continued" event) or VS
 //     Code asks for it (continue, next, step...), which debuggers are not expected to announce; a
 //     request is published only once the debugger has accepted it, since a refused one leaves the
-//     program stopped;
+//     program stopped; a resume of only another thread leaves the stopped thread's stop;
 //   - a stop whose details arrive after the program has moved on is dropped, not published, and
 //     no more requests are made for it;
-//   - nothing changes a session once it has ended;
+//   - nothing changes a session once it has ended, and nothing from a session's earlier
+//     incarnation (before a restart that reused its id) changes the current one;
 //   - a shortened stack or list of locals says so, and a count the debugger only estimates is not
 //     published as exact;
 //   - the file names its writer, and every write carries a sequence number (increasing within one
@@ -26,7 +27,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const FORMAT_VERSION = 2;
+const FORMAT_VERSION = 3;
 const FRAME_LIMIT = 40;
 const VARIABLE_LIMIT = 100;
 const CHILD_LIMIT = 20;
@@ -37,12 +38,19 @@ const EXPANDED_LIMIT = 10;
 // Requests from VS Code that resume the program. Debug adapters are not expected to send a
 // "continued" event for these, so the request's success is the signal.
 const RESUMING_REQUESTS = new Set([
-    'continue', 'next', 'stepIn', 'stepOut', 'stepBack', 'reverseContinue', 'goto', 'restartFrame', 'restart',
+    'continue', 'next', 'stepIn', 'stepOut', 'stepBack', 'reverseContinue', 'restart',
 ]);
+// Requests that move the program to another place without running it freely. The protocol says
+// the adapter answers and then sends a "stopped" event, so the stop published until then is out
+// of date, but the program isn't running either.
+const MOVING_REQUESTS = new Set(['goto', 'restartFrame']);
+// Requests whose success means the program has been started (or attached to) and runs.
+const STARTING_REQUESTS = new Set(['launch', 'attach', 'configurationDone']);
 
 /** @typedef {import('@vscode/debugprotocol').DebugProtocol.ProtocolMessage} ProtocolMessage */
 /** @typedef {import('@vscode/debugprotocol').DebugProtocol.Request} Request */
 /** @typedef {import('@vscode/debugprotocol').DebugProtocol.Response} Response */
+/** @typedef {import('@vscode/debugprotocol').DebugProtocol.ContinueResponse} ContinueResponse */
 /** @typedef {import('@vscode/debugprotocol').DebugProtocol.Event} Event */
 /** @typedef {import('@vscode/debugprotocol').DebugProtocol.StoppedEvent} StoppedEvent */
 /** @typedef {import('@vscode/debugprotocol').DebugProtocol.ContinuedEvent} ContinuedEvent */
@@ -56,6 +64,8 @@ const RESUMING_REQUESTS = new Set([
  * @property {{ id: string }} [parentSession]   set for a session started by another
  * @property {(command: string, args?: any) => PromiseLike<any>} customRequest
  */
+
+/** @typedef {{ id: string, name: string, parentSession?: { id: string } }} SessionIdentity */
 
 /**
  * @typedef {object} PublishedVariable
@@ -77,7 +87,10 @@ const RESUMING_REQUESTS = new Set([
 
 /**
  * @typedef {object} StopDetails
- * @property {{ reason: string, description: string | null, threadId: number | null }} stop
+ * @property {{ reason: string, description: string | null, text: string | null, threadId: number | null }} stop
+ *           as the debugger reported it: `text` is short (an exception's name, say), `description` full
+ * @property {number | null} framesThreadId    the thread whose stack this is (for a stop that named
+ *                                             none, the first thread, as VS Code shows it)
  * @property {PublishedFrame[]} frames
  * @property {number | null} frameCount        the exact number of frames; null if not known
  * @property {boolean} framesTruncated
@@ -91,11 +104,14 @@ const RESUMING_REQUESTS = new Set([
 // A session's entry. A union on `state`, so the type checker knows that only a stopped entry has
 // stop details, and code that reads them must check the state first.
 /** @typedef {{ name: string, parentId: string | null, seq: number, changedAtMs: number }} EntryBase */
+/** @typedef {{ state: 'starting' }} Starting       the session exists; its program isn't running yet */
 /** @typedef {{ state: 'running' }} Running */
 /** @typedef {{ state: 'stopped' } & StopDetails} Stopped */
+/** @typedef {{ state: 'moving' }} Moving           goto or restartFrame accepted; a stop follows */
 /** @typedef {{ state: 'exited', exitCode: number | null }} Exited       the program ended; the session may restart it */
+/** @typedef {{ state: 'terminated' }} Terminated   debugging ended; the program may still be running */
 /** @typedef {{ state: 'ended', endReason: string | null }} Ended          the session is over; final */
-/** @typedef {Running | Stopped | Exited | Ended} StateFields */
+/** @typedef {Starting | Running | Stopped | Moving | Exited | Terminated | Ended} StateFields */
 /** @typedef {EntryBase & StateFields} SessionState */
 
 /**
@@ -153,6 +169,8 @@ async function readVariables(ask, reference, expand, limit) {
                     published.children = members.variables;
                     published.childrenTruncated = members.truncated;
                 } catch (error) {
+                    // A stale stop's result is dropped anyway; rethrown so the rest isn't read
+                    // into a result nobody will use.
                     if (error instanceof StaleStop) {
                         throw error;
                     }
@@ -166,31 +184,43 @@ async function readVariables(ask, reference, expand, limit) {
 }
 
 /**
- * Reads the stack and frame count from a stackTrace reply. The protocol calls `totalFrames` a
- * hint that may overstate, so a count is published only when it is known: when the debugger
- * returned fewer frames than were asked for, it returned them all.
- * @param {import('@vscode/debugprotocol').DebugProtocol.StackFrame[]} got
- * @param {number | null} total   the debugger's totalFrames, if it gave one
- * @param {number} asked
+ * Whether a stackTrace reply holds the whole stack. The protocol says a reply with fewer frames
+ * than were asked for marks the end of the stack, whatever `totalFrames` says (which is a hint and
+ * may overstate). With as many as were asked for, more may exist, and how many isn't known.
+ * @param {number} got     frames returned
+ * @param {number} asked   frames requested
  */
-function countFrames(got, total, asked) {
-    const complete = got.length < asked && (total === null || total === got.length);
-    return {
-        frameCount: complete ? got.length : null,
-        framesTruncated: !complete || got.length > FRAME_LIMIT,
-    };
+function countFrames(got, asked) {
+    const complete = got < asked;
+    return { frameCount: complete ? got : null, framesTruncated: !complete };
+}
+
+/**
+ * The scope whose variables are published as the innermost frame's locals: the one the debugger
+ * marks as the locals (the protocol's presentationHint), else the one named Local or Locals, else
+ * the first other one. Never a scope the debugger calls expensive (registers, say), which costs
+ * many requests and says little.
+ * @param {import('@vscode/debugprotocol').DebugProtocol.Scope[]} scopes
+ */
+function chooseScope(scopes) {
+    const cheap = scopes.filter((s) => !s.expensive);
+    return cheap.find((s) => s.presentationHint === 'locals')
+        ?? cheap.find((s) => /^locals?$/i.test(s.name))
+        ?? cheap[0];
 }
 
 /**
  * Asks the debugger for the stack and the innermost frame's locals at a stop. Once `isStale()`
  * says the stop is no longer wanted, no further requests are made; the result is then incomplete,
- * and the caller drops it.
+ * and the caller drops it. `onThread` is told the thread whose stack is read, as soon as it is
+ * known.
  * @param {Session} session
  * @param {StoppedEvent['body'] | undefined} body
  * @param {() => boolean} [isStale]
+ * @param {(threadId: number) => void} [onThread]
  * @returns {Promise<StopDetails>}
  */
-async function describeStop(session, body, isStale = () => false) {
+async function describeStop(session, body, isStale = () => false, onThread = () => {}) {
     /** @param {string} command @param {any} args */
     const ask = async (command, args) => {
         if (isStale()) {
@@ -202,9 +232,11 @@ async function describeStop(session, body, isStale = () => false) {
     const details = {
         stop: {
             reason: String(body?.reason ?? 'unknown'),
-            description: body?.description ?? body?.text ?? null,
+            description: body?.description ?? null,
+            text: body?.text ?? null,
             threadId: typeof body?.threadId === 'number' ? body.threadId : null,
         },
+        framesThreadId: null,
         frames: [],
         frameCount: null,
         framesTruncated: false,
@@ -218,7 +250,7 @@ async function describeStop(session, body, isStale = () => false) {
     let threadId = details.stop.threadId;
     if (threadId === null) {
         // The protocol lets a stop of every thread name none. The stack shown is then the first
-        // thread's, as VS Code shows it.
+        // thread's, as VS Code shows it, and framesThreadId says which that was.
         try {
             const reply = await ask('threads', {});
             const first = reply?.threads?.[0]?.id;
@@ -234,6 +266,8 @@ async function describeStop(session, body, isStale = () => false) {
             return details;
         }
     }
+    details.framesThreadId = threadId;
+    onThread(threadId);
 
     /** @type {import('@vscode/debugprotocol').DebugProtocol.StackFrame | undefined} */
     let top;
@@ -244,11 +278,10 @@ async function describeStop(session, body, isStale = () => false) {
         const reply = await ask('stackTrace', { threadId, startFrame: 0, levels: asked });
         /** @type {import('@vscode/debugprotocol').DebugProtocol.StackFrame[]} */
         const got = reply?.stackFrames ?? [];
-        const total = typeof reply?.totalFrames === 'number' ? reply.totalFrames : null;
         details.frames = got.slice(0, FRAME_LIMIT).map((f) => ({
             name: f.name, path: f.source?.path ?? null, line: f.line, column: f.column,
         }));
-        Object.assign(details, countFrames(got, total, asked));
+        Object.assign(details, countFrames(got.length, asked));
         top = got[0];
     } catch (error) {
         details.framesError = messageOf(error);
@@ -264,9 +297,7 @@ async function describeStop(session, body, isStale = () => false) {
         const reply = await ask('scopes', { frameId: top.id });
         /** @type {import('@vscode/debugprotocol').DebugProtocol.Scope[]} */
         const scopes = reply?.scopes ?? [];
-        // The locals by name; failing that, the first scope the debugger doesn't call expensive
-        // (registers, say, which cost many requests and say little).
-        const scope = scopes.find((s) => /local/i.test(s.name)) ?? scopes.find((s) => !s.expensive);
+        const scope = chooseScope(scopes);
         if (scope === undefined) {
             details.variablesError = scopes.length === 0
                 ? 'the innermost frame has no scopes'
@@ -285,11 +316,22 @@ async function describeStop(session, body, isStale = () => false) {
 }
 
 /**
- * A resuming request VS Code has sent and the debugger hasn't yet answered.
- * @typedef {object} PendingResume
- * @property {number | undefined} generation   the session's generation when it was sent
+ * A request VS Code has sent that will change what the program does, and the debugger hasn't yet
+ * answered.
+ * @typedef {object} PendingRequest
+ * @property {string} command
+ * @property {number} generation               the session's generation when it was sent
  * @property {number | null} threadId
  * @property {boolean} singleThread            resumes only `threadId`
+ */
+
+/**
+ * What the publisher knows of one session beyond its published entry.
+ * @typedef {object} SessionRecord
+ * @property {number} incarnation   which start of this session id this is (a restart reuses the id)
+ * @property {number} generation    the counter's value at the session's last change
+ * @property {Map<number, PendingRequest>} pending   keyed by the request's seq
+ * @property {{ generation: number, threadId: number | null } | null} describing   the stop being read
  */
 
 class DebugStatePublisher {
@@ -308,12 +350,10 @@ class DebugStatePublisher {
         this.sessions = new Map();
         // One counter for every session, which only increases. Each session records the value at
         // its last change, so a stop whose details arrive late can tell that the program has moved
-        // on, even across a restart that reuses the session's id.
-        this.generation = 0;
-        /** @type {Map<string, number>} */
-        this.generations = new Map();
-        /** @type {Map<string, PendingResume>} keyed by `${session id}#${request seq}` */
-        this.pendingResumes = new Map();
+        // on, even across a restart that reuses the session's id. Incarnations come from it too.
+        this.counter = 0;
+        /** @type {Map<string, SessionRecord>} */
+        this.records = new Map();
     }
 
     /** As the writer shuts down: every session not yet ended is ended, and the writer is not running. */
@@ -322,8 +362,10 @@ class DebugStatePublisher {
         const now = this.now();
         for (const [id, entry] of this.sessions) {
             if (entry.state !== 'ended') {
-                this.generation += 1;
-                this.generations.set(id, this.generation); // a stop still being read is now stale
+                const record = this.records.get(id);
+                if (record !== undefined) {
+                    record.generation = ++this.counter;  // a stop still being read is now stale
+                }
                 this.sessions.set(id, {
                     name: entry.name, parentId: entry.parentId, state: 'ended',
                     endReason: 'VS Code closed the extension', seq: this.seq, changedAtMs: now,
@@ -335,51 +377,61 @@ class DebugStatePublisher {
     }
 
     /**
-     * A session has started; it is running until it stops. Sessions that ended earlier are dropped.
-     * @param {{ id: string, name: string, parentSession?: { id: string } }} session
+     * A session has started: published as starting until its launch or attach succeeds. Sessions
+     * that ended earlier are dropped. Returns this incarnation's token: pass it to the other
+     * methods, so that anything still arriving from an earlier incarnation of the same session id
+     * (its old debug adapter's last messages, after a restart) is ignored.
+     * @param {SessionIdentity} session
+     * @returns {number}
      */
     sessionStarted(session) {
         for (const [id, state] of this.sessions) {
             if (state.state === 'ended') {
                 this.sessions.delete(id);
-                this.generations.delete(id);
+                this.records.delete(id);
             }
         }
-        this.change(session, { state: 'running' });
+        const incarnation = ++this.counter;
+        this.records.set(session.id, { incarnation, generation: incarnation, pending: new Map(), describing: null });
+        this.publish(session, { state: 'starting' });
+        return incarnation;
     }
 
     /**
      * The session is over: published once, as ended, and nothing changes it afterwards.
      * @param {string} id
      * @param {string | null} [reason]   why, if it didn't end normally
+     * @param {number} [incarnation]     from sessionStarted
      */
-    sessionEnded(id, reason = null) {
+    sessionEnded(id, reason = null, incarnation = undefined) {
         const entry = this.sessions.get(id);
-        if (entry !== undefined && entry.state !== 'ended') {
-            this.change({ id, name: entry.name, parentSession: entry.parentId === null ? undefined : { id: entry.parentId } },
-                { state: 'ended', endReason: reason });
-            for (const key of this.pendingResumes.keys()) {
-                if (key.startsWith(`${id}#`)) {
-                    this.pendingResumes.delete(key);
-                }
-            }
+        if (entry === undefined || entry.state === 'ended' || !this.isCurrent(id, incarnation)) {
+            return;
         }
+        this.change({ id, name: entry.name, parentSession: entry.parentId === null ? undefined : { id: entry.parentId } },
+            { state: 'ended', endReason: reason });
+        this.records.get(id)?.pending.clear();
     }
 
     /**
-     * A message from VS Code to the debugger. A request that resumes the program is remembered,
-     * and published when the debugger accepts it.
+     * A message from VS Code to the debugger. A request that will change what the program does is
+     * remembered, and published when the debugger accepts it.
      * @param {Session} session
      * @param {ProtocolMessage} message
+     * @param {number} [incarnation]   from sessionStarted
      */
-    onClientMessage(session, message) {
-        if (this.hasEnded(session.id) || message?.type !== 'request') {
+    onClientMessage(session, message, incarnation = undefined) {
+        const record = this.records.get(session.id);
+        if (record === undefined || this.hasEnded(session.id) || !this.isCurrent(session.id, incarnation)
+            || message?.type !== 'request') {
             return;
         }
         const request = /** @type {Request} */ (message);
-        if (RESUMING_REQUESTS.has(request.command)) {
-            this.pendingResumes.set(`${session.id}#${request.seq}`, {
-                generation: this.generations.get(session.id),
+        if (RESUMING_REQUESTS.has(request.command) || MOVING_REQUESTS.has(request.command)
+            || STARTING_REQUESTS.has(request.command)) {
+            record.pending.set(request.seq, {
+                command: request.command,
+                generation: record.generation,
                 threadId: typeof request.arguments?.threadId === 'number' ? request.arguments.threadId : null,
                 singleThread: request.arguments?.singleThread === true,
             });
@@ -388,17 +440,19 @@ class DebugStatePublisher {
 
     /**
      * A message from the debugger to VS Code: a stop is described and published; an accepted
-     * resuming request or a "continued" event marks the program running; "exited" and
-     * "terminated" mark it exited. Resolves once any write it causes is done.
+     * request, or a "continued" event, says the program runs or moves; "exited" and "terminated"
+     * say the program or the debugging ended. Resolves once any write it causes is done.
      * @param {Session} session
      * @param {ProtocolMessage} message
+     * @param {number} [incarnation]   from sessionStarted
      */
-    async onAdapterMessage(session, message) {
-        if (this.hasEnded(session.id)) {
+    async onAdapterMessage(session, message, incarnation = undefined) {
+        const record = this.records.get(session.id);
+        if (record === undefined || this.hasEnded(session.id) || !this.isCurrent(session.id, incarnation)) {
             return;
         }
         if (message?.type === 'response') {
-            this.onResponse(session, /** @type {Response} */ (message));
+            this.onResponse(session, record, /** @type {Response} */ (message));
             return;
         }
         if (message?.type !== 'event') {
@@ -408,59 +462,91 @@ class DebugStatePublisher {
         if (event.event === 'continued') {
             const body = /** @type {ContinuedEvent} */ (event).body;
             if (body?.allThreadsContinued === false && this.isAnotherThread(session.id, body.threadId)) {
-                return; // another thread resumed; the one whose stop is published is still stopped
+                return;  // another thread resumed; the one whose stop is shown is still stopped
             }
             this.change(session, { state: 'running' });
         } else if (event.event === 'stopped') {
+            const body = /** @type {StoppedEvent} */ (event).body;
             const generation = this.change(session, null);
-            const isStale = () => this.generations.get(session.id) !== generation;
-            const details = await describeStop(session, /** @type {StoppedEvent} */ (event).body, isStale);
-            if (this.generations.get(session.id) !== generation) {
-                return; // the program resumed while the details were being read: this stop is stale
+            const describing = { generation, threadId: typeof body?.threadId === 'number' ? body.threadId : null };
+            record.describing = describing;
+            const isStale = () => record.generation !== generation;
+            const details = await describeStop(session, body, isStale, (threadId) => { describing.threadId = threadId; });
+            if (record.describing === describing) {
+                record.describing = null;
+            }
+            if (isStale()) {
+                return;  // the program moved on while the details were being read: this stop is stale
             }
             this.publish(session, { state: 'stopped', ...details });
         } else if (event.event === 'exited') {
             const exitCode = /** @type {ExitedEvent} */ (event).body?.exitCode;
             this.change(session, { state: 'exited', exitCode: typeof exitCode === 'number' ? exitCode : null });
         } else if (event.event === 'terminated') {
+            // Debugging has ended, which the protocol says doesn't mean the program has exited
+            // (a detached attach session, say). After "exited", that is already known.
             if (this.sessions.get(session.id)?.state !== 'exited') {
-                this.change(session, { state: 'exited', exitCode: null }); // ended without saying how
+                this.change(session, { state: 'terminated' });
             }
         }
     }
 
     /**
      * @param {Session} session
+     * @param {SessionRecord} record
      * @param {Response} response
      */
-    onResponse(session, response) {
-        const key = `${session.id}#${response.request_seq}`;
-        const pending = this.pendingResumes.get(key);
+    onResponse(session, record, response) {
+        const pending = record.pending.get(response.request_seq);
         if (pending === undefined) {
-            return; // a response to some other request
+            return;  // a response to some other request
         }
-        this.pendingResumes.delete(key);
+        record.pending.delete(response.request_seq);
         if (!response.success) {
-            return; // refused: the program hasn't moved, so its stop stays published
+            return;  // refused: the program hasn't moved, so what is published stays true
         }
-        if (this.generations.get(session.id) !== pending.generation) {
-            return; // something newer (a stop, say) has already been published
+        if (record.generation !== pending.generation) {
+            return;  // something newer (a stop, say) has already been seen
+        }
+        if (STARTING_REQUESTS.has(pending.command)) {
+            if (this.sessions.get(session.id)?.state === 'starting') {
+                this.change(session, { state: 'running' });
+            }
+            return;
+        }
+        if (MOVING_REQUESTS.has(pending.command)) {
+            this.change(session, { state: 'moving' });
+            return;
         }
         if (pending.singleThread && this.isAnotherThread(session.id, pending.threadId)) {
+            return;
+        }
+        // The protocol's continue response says when not every thread resumed.
+        const allContinued = /** @type {ContinueResponse} */ (response).body?.allThreadsContinued;
+        if (pending.command === 'continue' && allContinued === false && this.isAnotherThread(session.id, pending.threadId)) {
             return;
         }
         this.change(session, { state: 'running' });
     }
 
     /**
-     * Whether `threadId` names a thread other than the one whose stop is published.
+     * Whether `threadId` names a thread other than the stopped one: the thread whose stop is being
+     * read, or else the one whose stack is published.
      * @param {string} id
      * @param {number | null | undefined} threadId
      */
     isAnotherThread(id, threadId) {
-        const entry = this.sessions.get(id);
-        return entry?.state === 'stopped' && entry.stop.threadId !== null && typeof threadId === 'number'
-            && threadId !== entry.stop.threadId;
+        const record = this.records.get(id);
+        let stopped = null;
+        if (record?.describing && record.describing.generation === record.generation) {
+            stopped = record.describing.threadId;
+        } else {
+            const entry = this.sessions.get(id);
+            if (entry?.state === 'stopped') {
+                stopped = entry.framesThreadId ?? entry.stop.threadId;
+            }
+        }
+        return stopped !== null && typeof threadId === 'number' && threadId !== stopped;
     }
 
     /** @param {string} id */
@@ -469,22 +555,35 @@ class DebugStatePublisher {
     }
 
     /**
-     * Records that the session changed (a new generation) and, given fields, publishes them.
-     * Returns the new generation.
-     * @param {{ id: string, name: string, parentSession?: { id: string } }} session
-     * @param {StateFields | null} fields
+     * Whether a call carrying `incarnation` is about the session's current incarnation. A call
+     * without one (the tests', mostly) is taken as current.
+     * @param {string} id
+     * @param {number | undefined} incarnation
      */
-    change(session, fields) {
-        this.generation += 1;
-        this.generations.set(session.id, this.generation);
-        if (fields !== null) {
-            this.publish(session, fields);
-        }
-        return this.generation;
+    isCurrent(id, incarnation) {
+        return incarnation === undefined || this.records.get(id)?.incarnation === incarnation;
     }
 
     /**
-     * @param {{ id: string, name: string, parentSession?: { id: string } }} session
+     * Records that the session changed (a new generation) and, given fields, publishes them.
+     * Returns the new generation.
+     * @param {SessionIdentity} session
+     * @param {StateFields | null} fields
+     */
+    change(session, fields) {
+        const generation = ++this.counter;
+        const record = this.records.get(session.id);
+        if (record !== undefined) {
+            record.generation = generation;
+        }
+        if (fields !== null) {
+            this.publish(session, fields);
+        }
+        return generation;
+    }
+
+    /**
+     * @param {SessionIdentity} session
      * @param {StateFields} fields
      */
     publish(session, fields) {
@@ -506,29 +605,41 @@ class DebugStatePublisher {
 }
 
 /**
- * Replaces `file` with `state` atomically: a reader sees the old file or the new one, never part.
- * On failure the temporary file is removed and the error is thrown.
+ * The file-system calls writeAtomically makes, so a test can see them.
+ * @typedef {{ mkdirSync: typeof fs.mkdirSync, writeFileSync: typeof fs.writeFileSync,
+ *             renameSync: typeof fs.renameSync, rmSync: typeof fs.rmSync }} FileSystem
+ */
+
+/**
+ * Replaces `file` with `state` atomically: written to a temporary file in the same directory, then
+ * renamed over the old one, so a reader sees the old file or the new one, never part. On failure
+ * the temporary file is removed and the error is thrown.
  * @param {string} file
  * @param {DebugStateFile} state
+ * @param {FileSystem} [io]
  */
-function writeAtomically(file, state) {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+function writeAtomically(file, state, io = fs) {
+    io.mkdirSync(path.dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.tmp`;
     try {
-        fs.writeFileSync(temporary, JSON.stringify(state, null, 1) + '\n');
-        fs.renameSync(temporary, file);
+        io.writeFileSync(temporary, JSON.stringify(state, null, 1) + '\n');
+        io.renameSync(temporary, file);
     } catch (error) {
-        fs.rmSync(temporary, { force: true });
+        io.rmSync(temporary, { force: true });
         throw error;
     }
 }
 
 /**
- * One line for the output channel about the entry that changed last, e.g.
+ * One line for the output channel about the latest write, e.g.
  * "#7 frame source: stopped at anchor.cpp:125 in fillscope_frame_anchor (3 frames, 2 locals)".
  * @param {DebugStateFile} state
  */
 function summarize(state) {
+    if (!state.writer.running) {
+        const ended = Object.values(state.sessions).filter((s) => s.seq === state.seq).length;
+        return `#${state.seq} the extension stopped${ended > 0 ? `; ${ended} session${ended === 1 ? '' : 's'} ended` : ''}`;
+    }
     const latest = Object.values(state.sessions).find((s) => s.seq === state.seq);
     if (latest === undefined) {
         return `#${state.seq}`;
@@ -550,6 +661,6 @@ function summarize(state) {
 }
 
 module.exports = {
-    DebugStatePublisher, describeStop, writeAtomically, summarize,
-    FRAME_LIMIT, VARIABLE_LIMIT, CHILD_LIMIT, EXPANDED_LIMIT, RESUMING_REQUESTS,
+    DebugStatePublisher, describeStop, writeAtomically, summarize, messageOf,
+    FRAME_LIMIT, VARIABLE_LIMIT, CHILD_LIMIT, EXPANDED_LIMIT, RESUMING_REQUESTS, MOVING_REQUESTS,
 };
