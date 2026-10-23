@@ -4,8 +4,9 @@
 
 > **Status:** just started (October 2026). The plumbing is built: a stand-in source of frames, a
 > viewer, the socket between them, stepping both in a debugger in lockstep, and publishing what you
-> point at for an assistant. The order book is not built yet; the rest of this README describes the
-> plan.
+> point at for an assistant. The back end will be a fork of the trading system built in Sourav
+> Ghosh's *Building Low Latency Applications with C++* ([docs/PLAN.md](docs/PLAN.md)); the rest of
+> this README describes the plan.
 
 A backtest replays history and simulates how a strategy's orders would have been filled. Its results
 rest on assumptions that are usually invisible: where an order sat in the queue at its price, how
@@ -37,14 +38,19 @@ inspectable.
   planned to record the demo videos too.
 
 ## Roadmap
-1. A book with resting limit orders on both sides; top of book and depth.
-2. Matching: price-time priority, partial fills, trades.
-3. Cancel and modify by order id; IOC and fill-or-kill.
-4. Replay of Nasdaq TotalView-ITCH 5.0 data into a book builder.
-5. Backtesting on simulated time, with deterministic replay and recovery from a snapshot.
-6. Fill simulation: queue position, latency, fees.
-7. Validation: how far the results can be trusted, and a written report.
-8. Throughput: measured messages per second.
+The back end, an exchange with its matching engine and trading clients, is a fork of the system
+in Ghosh's book ([PacktPublishing/Building-Low-Latency-Applications-with-CPP](https://github.com/PacktPublishing/Building-Low-Latency-Applications-with-CPP),
+MIT). Fillscope is its front end, and the fork is changed where Fillscope needs it.
+1. The fork, built by Fillscope at a pinned commit, and tested where Fillscope relies on it.
+2. A live view of the exchange's book, rebuilt from its market data.
+3. Deterministic replay: the exchange's sequenced input recorded and replayed, giving the same
+   output.
+4. The matching engine stepped in a debugger while the book view follows.
+5. Replay of Nasdaq TotalView-ITCH 5.0 data into the exchange.
+6. Backtesting on simulated time, with recovery from a snapshot.
+7. Fill simulation: queue position, latency, fees.
+8. Validation: how far the results can be trusted, and a written report.
+9. Throughput: measured messages per second.
 
 ## Data
 Market data is never committed. Tests use small hand-made message files; real days come from

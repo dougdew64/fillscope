@@ -5,9 +5,11 @@
 [DECISIONS.md](DECISIONS.md). **Read when:** any design or scope question.
 
 ## 1. Purpose
-Fillscope is a **learning instrument first**: an order-book simulator and backtester built so that
-how order books, matching, fills and backtest validation work can be understood from the inside,
-and so that every result it shows can be explained from its exact state.
+Fillscope is a **learning instrument first**: an observatory for a trading system, so that how
+order books, matching, fills and backtest validation work can be understood from the inside, and
+so that every result it shows can be explained from its exact state. The trading system is a fork
+of the one built in Sourav Ghosh's *Building Low Latency Applications with C++* (decision 1), so
+the domain is learned from the book, its code, and changes to that code.
 
 It is also a way to **learn modern C++ from the inside**: its code, the AI-written parts included,
 is written to be learned from, and an assistant reading the debugger's exact state explains what
@@ -20,8 +22,8 @@ isn't, and how its output is checked (decision 7).
 1. **Correctness and explainability.** A claim, an explanation or a display that isn't exactly true
    is a defect, however good it looks. Every explanation is grounded in the simulator's exact state.
 2. **Hand-written C++ where it shows modern C++ design.** The owner writes the code that
-   demonstrates modern C++ design, readable and tested; which code that is gets decided stage by
-   stage (§4). Claude writes the rest, including the UI and tooling.
+   demonstrates modern C++ design, readable and tested, in Fillscope or in the fork; which code
+   that is gets decided stage by stage (§4). Claude writes the rest, including the UI and tooling.
 3. **Every feature demonstrable.** Each feature is shown by a scripted demo, which is part of the
    test suite.
 4. **Polish: as much as compelling demo videos need, and no more.**
@@ -29,7 +31,11 @@ isn't, and how its output is checked (decision 7).
 Where two priorities conflict, the higher wins.
 
 ## 3. Decisions
-1. **What it is:** an observatory for its own order-book simulator and backtester.
+1. **What it is:** the front end, an observatory, for a fork of the trading system in Ghosh's book
+   ([PacktPublishing/Building-Low-Latency-Applications-with-CPP](https://github.com/PacktPublishing/Building-Low-Latency-Applications-with-CPP),
+   MIT): its exchange and trading clients are the back end. The fork is a public repository of its
+   own, changed on a branch; Fillscope pins one commit of it. Its first substantial change is
+   deterministic replay. How the change is carried out is in [PLAN.md](PLAN.md).
 2. **The features that distinguish it:** fill explanations grounded in exact state; per-order
    counterfactuals made exact by deterministic replay; how much of a result depends on the queue and
    latency assumptions; an animated replay; debugger lockstep with the matching engine.
@@ -41,7 +47,9 @@ Where two priorities conflict, the higher wins.
 5. **Tests below the UI first:** core unit tests, replay fidelity checks, the command-line tool. UI
    tests and demo recordings with the Dear ImGui Test Engine. **Claude tests all the code
    aggressively, the owner's included,** so that nothing is built on undetected defects; the owner
-   writes some tests too.
+   writes some tests too. In the fork, what Fillscope relies on and every change made to it are
+   tested; the upstream code as a whole is not retrofitted with tests. A bug found in it is fixed
+   in the fork, with a test, and recorded.
 6. **Market data is never committed.** Hand-made message files for unit tests, a small synthetic
    generator for demos, real days downloaded locally.
 7. **AI output is trusted only through a check that doesn't depend on the AI.** Each use of AI

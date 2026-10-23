@@ -13,8 +13,9 @@ Facts owned elsewhere are linked, not repeated: the debugger's rules in
 things were decided in [DECISIONS.md](DECISIONS.md).
 
 Today Fillscope is plumbing on stand-ins: a frame source that makes up frames, and a viewer that
-shows them and lets you point at and follow them. The order book, matching and backtesting will
-plug into this plumbing; none of them exist yet.
+shows them and lets you point at and follow them. The back end that will replace the frame source
+is a fork of the trading system in Ghosh's book: its exchange, matching engine and clients
+([PLAN.md](PLAN.md)). None of it is connected yet.
 
 ## 1. The big picture
 Three programs run, and an assistant reads what two of them write:
