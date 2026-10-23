@@ -47,7 +47,12 @@ the complete system; the other chapters stay as upstream has them. The branch's 
 the fork is for and links to Fillscope.
 **Done when:** the branch builds with Fillscope's toolchain (GCC 16, `-Werror`), any fixes that
 needs are committed and listed, and the exchange and a client run together from its scripts.
-**Status:** not started.
+**Status:** done, 2026-10-23: [dougdew64/Building-Low-Latency-Applications-with-CPP](https://github.com/dougdew64/Building-Low-Latency-Applications-with-CPP/tree/fillscope),
+branch `fillscope`, commit `0bb0073`. The one fix: CMake 4 refuses Chapter 12's minimum of 3.0,
+now 3.5; the code then builds unchanged with GCC 16.2.1 under its own `-Werror`, at debug and
+release. The exchange ran with the market maker and the random client. Found: the published
+`run_exchange_and_clients.sh` never finishes by itself (it waits for the clients, which wait for a
+silent market); the fork's README says how to run and stop it instead.
 
 ### 2. Fillscope builds the pinned back end
 The fork joins Fillscope as a git submodule at `backend/`, so it can be read, edited and debugged
