@@ -133,12 +133,19 @@ end; ARCHITECTURE.md, RUNNING.md and DEBUGGER-LOCKSTEP.md describe the new syste
 code.
 **Status:** not started.
 
+### 9. A comprehensive tech-debt sweep
+Once steps 1 to 8 have landed (the owner, 2026-10-23): a sweep of Fillscope and the fork, finding
+defects and test gaps, and fixing them, as the earlier sweeps did ([TECH-DEBT.md](TECH-DEBT.md)
+keeps what remains).
+**Done when:** every item found is fixed or recorded in TECH-DEBT.md with why it waits.
+**Status:** not started.
+
 ## Waiting on the owner
 - **The viewer shell's test:** pointing and following in the viewer and asking the assistant about
   it ([RUNNING.md](RUNNING.md), "Pointing and following"). Still useful before step 4 rebuilds the
   viewer's content.
 
 ## Later
-The rest of the roadmap becomes changes to the fork, ordered when steps 1 to 8 have landed: ITCH
+The rest of the roadmap becomes changes to the fork, ordered when steps 1 to 9 have landed: ITCH
 5.0 replay into the exchange, backtesting on simulated time, fill simulation (queue position,
 latency, fees), validation, and measured throughput.
