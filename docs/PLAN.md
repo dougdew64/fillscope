@@ -61,7 +61,11 @@ pinned commit, locally and in CI. The attribution report skips the submodule (it
 report's job).
 **Done when:** a Fillscope test starts the exchange and a client from the pinned commit and sees
 orders reach the exchange and market data leave it; CI runs it.
-**Status:** not started.
+**Status:** done, 2026-10-23: Fillscope `a7ca207`, pinning the fork at `941ef50` (which raised
+CMake's minimum to 3.10, to silence CMake 4.3's deprecation warning). `backend_system_tests`, in a
+new `system` tier, passes in both builds locally and in CI (about 31 s each), with the back end
+under the sanitizers in the sanitizer build; multicast on loopback works in CI's container. The
+test machinery covers the back end (the sanitizer check, scratch copies, test selection).
 
 ### 3. Tests of what Fillscope relies on
 Tests in the fork, run by its own CI and by Fillscope's: the market data messages' layout and
