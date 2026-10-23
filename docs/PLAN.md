@@ -103,7 +103,7 @@ remove one. The frame source, its socket and the anchor stay, for the debugger t
 The VS Code configurations now run the viewer, the exchange and a client; lockstep returns in step
 6. The exchange gained an option, `--snapshot-interval-seconds`, so tests needn't wait a minute for a
 snapshot.
-**Status:** built and tested, CI pending. Fillscope's books (`src/feed/`) follow the trading
+**Status:** built and tested, 2026-10-23: Fillscope `2cc015d`, fork `2b9a550`; both CIs pass. Fillscope's books (`src/feed/`) follow the trading
 client's protocol; `feed_system_tests` checks them against the exchange's snapshots, and a late
 reader's recovery. Found and fixed on the way: the viewer stopped painting, and so stopped reading
 market data and answering SIGTERM, while its window couldn't be seen (vsync); it now paces itself.
