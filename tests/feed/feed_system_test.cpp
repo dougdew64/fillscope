@@ -5,11 +5,14 @@
 //   - the books built from incremental updates 1 to S equal the exchange's snapshot as of update S
 //     (the books its snapshot synthesizer keeps), for every snapshot taken after trading began;
 //   - a reader that joins the feed late recovers from a snapshot, and its books then equal those of
-//     the reader that had every update.
+//     the reader that had every update;
+//   - the exchange's recording of its requests, replayed (exchange_replay), gives byte for byte the
+//     incremental updates that arrived: deterministic replay.
 //
-//   feed_system_tests EXCHANGE_MAIN TRADING_MAIN
+//   feed_system_tests EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY
 #include "feed/book_builder.h"
 #include "feed/feed_socket.h"
+#include "feed/market_data_file.h"
 #include "feed/market_update.h"
 
 #include <gtest/gtest.h>
@@ -34,7 +37,7 @@ extern char** environ;
 namespace fillscope {
 namespace {
 
-std::string g_exchange, g_trading;
+std::string g_exchange, g_trading, g_replay;
 
 // A back-end program, started in `directory` (it writes its logs there) and killed at the end: how
 // it shuts down isn't the subject here, and takes a minute.
@@ -71,6 +74,24 @@ private:
     bool started_ = false;
 };
 
+// Runs a program in `directory` to its end; its exit status, or -1.
+int run_to_exit(const std::vector<std::string>& argv, const std::filesystem::path& directory) {
+    std::vector<char*> args;
+    for (const auto& arg : argv) {
+        args.push_back(const_cast<char*>(arg.c_str()));
+    }
+    args.push_back(nullptr);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addchdir_np(&actions, directory.c_str());
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+    pid_t pid = -1;
+    const bool started = posix_spawn(&pid, args[0], &actions, nullptr, args.data(), environ) == 0;
+    posix_spawn_file_actions_destroy(&actions);
+    int status = 0;
+    return started && ::waitpid(pid, &status, 0) == pid && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
 // What arrived, in the order it arrived.
 struct Arrival {
     bool snapshot = false;
@@ -102,7 +123,7 @@ std::vector<std::vector<MarketUpdate>> whole_snapshots(const std::vector<Arrival
     return snapshots;
 }
 
-TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsAndALateReaderRecovers) {
+TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsALateReaderRecoversAndTheRecordingReplays) {
     const auto directory = std::filesystem::temp_directory_path() / std::format("fillscope-feed-{}", ::getpid());
     std::filesystem::create_directories(directory);
 
@@ -113,7 +134,7 @@ TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsAndALateReaderRecove
 
     std::vector<Arrival> arrivals;
     {
-        Program exchange({g_exchange, "--snapshot-interval-seconds", "1"}, directory);
+        Program exchange({g_exchange, "--snapshot-interval-seconds", "1", "--record", "requests.rec"}, directory);
         ASSERT_TRUE(exchange.started());
         std::this_thread::sleep_for(std::chrono::seconds{10});  // its parts start a couple of seconds apart
         ASSERT_TRUE(exchange.running()) << "the exchange exited: is another one running?";
@@ -148,7 +169,14 @@ TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsAndALateReaderRecove
             }
         }
     }  // both killed
+
+    // The recording, replayed. The exchange was killed while running, so the recording may hold
+    // requests whose updates were published after the test stopped listening: the replay may be
+    // longer, and must match everything that arrived.
+    ASSERT_EQ(run_to_exit({g_replay, "requests.rec", "market.dat"}, directory), 0);
+    const auto replayed = read_market_data_file(directory / "market.dat");
     std::filesystem::remove_all(directory);
+    ASSERT_TRUE(replayed) << replayed.error();
 
     // Every incremental update arrived, numbered from 1 without a gap: nothing was lost.
     std::vector<MarketUpdate> stream;
@@ -161,6 +189,13 @@ TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsAndALateReaderRecove
     for (std::size_t i = 0; i < stream.size(); ++i) {
         ASSERT_EQ(stream[i].seq, i + 1) << "an update was lost";
     }
+
+    // Deterministic replay: the replay's updates are those that arrived, byte for byte.
+    ASSERT_GE(replayed->updates.size(), stream.size());
+    for (std::size_t i = 0; i < stream.size(); ++i) {
+        ASSERT_EQ(encode_update(replayed->updates[i]), encode_update(stream[i])) << "update " << i + 1 << " differs";
+    }
+    EXPECT_EQ(replayed->recording, "requests.rec");
 
     // The books from updates 1 to S equal each snapshot as of S.
     std::size_t compared = 0;
@@ -217,11 +252,12 @@ TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsAndALateReaderRecove
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    if (argc != 3) {
-        std::fprintf(stderr, "usage: feed_system_tests EXCHANGE_MAIN TRADING_MAIN\n");
+    if (argc != 4) {
+        std::fprintf(stderr, "usage: feed_system_tests EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY\n");
         return 2;
     }
     fillscope::g_exchange = argv[1];
     fillscope::g_trading = argv[2];
+    fillscope::g_replay = argv[3];
     return RUN_ALL_TESTS();
 }

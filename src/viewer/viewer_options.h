@@ -5,6 +5,7 @@
 
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -18,6 +19,8 @@ struct ViewerOptions {
     // The exchange's market data streams, by default where the exchange sends them.
     Stream incremental = kExchangeIncremental;
     Stream snapshot = kExchangeSnapshot;
+    // A replay's market data file to show instead of the live exchange (exchange_replay's output).
+    std::optional<std::filesystem::path> replay;
     // Relative paths are relative to the working directory: the repository, when started from VS Code.
     std::filesystem::path context_file{kDefaultContextFile};
 };
@@ -26,6 +29,7 @@ struct ViewerOptions {
 [[nodiscard]] std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char* const> args);
 
 inline constexpr std::string_view kViewerUsage =
-    "usage: viewer [--exit-after SECONDS] [--incremental GROUP:PORT] [--snapshot GROUP:PORT] [--context-file PATH]";
+    "usage: viewer [--exit-after SECONDS] [--incremental GROUP:PORT] [--snapshot GROUP:PORT] [--replay FILE] "
+    "[--context-file PATH]";
 
 }  // namespace fillscope

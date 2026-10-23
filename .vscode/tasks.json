@@ -16,6 +16,14 @@
       "problemMatcher": []
     },
     {
+      // The exchange's last recording (the "exchange" configuration makes it) through exchange_replay.
+      "label": "replay the last recording",
+      "type": "shell",
+      "command": "cd build/debug/backend/Chapter12 && ./exchange_replay requests.rec market.dat",
+      "dependsOn": "build",
+      "problemMatcher": []
+    },
+    {
       "label": "test: affected (between edits)",
       "type": "shell",
       "command": "python3 -I tests/scripts/iterate.py",

@@ -1,5 +1,6 @@
 #include "viewer/viewer_app.h"
 
+#include <algorithm>
 #include <format>
 
 namespace fillscope {
@@ -28,6 +29,29 @@ void ViewerApp::apply_incremental(const MarketUpdate& update, Clock::time_point 
 
 void ViewerApp::apply_snapshot(const MarketUpdate& update) { state_.books.on_snapshot(update); }
 
+void ViewerApp::open_replay(const std::filesystem::path& file, MarketDataFile market_data) {
+    state_.books = BookBuilder{};
+    state_.replay = Replay{.file = std::filesystem::absolute(file),
+                           .recording = std::move(market_data.recording),
+                           .updates = std::move(market_data.updates)};
+}
+
+void ViewerApp::replay_to(std::uint64_t seq) {
+    if (!state_.replay) {
+        return;
+    }
+    const std::vector<MarketUpdate>& updates = state_.replay->updates;
+    seq = std::min<std::uint64_t>(seq, updates.size());
+    if (seq < state_.books.last_seq()) {
+        state_.books = BookBuilder{};
+    }
+    // The replay's updates are numbered 1, 2, 3, ... (read_market_data_file checks), so update n is
+    // updates[n - 1].
+    for (std::uint64_t next = state_.books.last_seq() + 1; next <= seq; ++next) {
+        state_.books.on_incremental(updates[next - 1]);
+    }
+}
+
 ViewerActions ViewerApp::paint(Clock::time_point now) {
     ViewerTiming timing{.seconds_since_update = std::nullopt, .paints = paints_};
     if (last_update_at_) {
@@ -38,6 +62,9 @@ ViewerActions ViewerApp::paint(Clock::time_point now) {
                                                          .published = publisher_.published(),
                                                          .published_bar = publisher_.published_bar(),
                                                          .publish_error = publisher_.error()});
+    if (actions.replay_to) {
+        replay_to(*actions.replay_to);
+    }
     fillscope::apply(actions, selection_, state_);
     publisher_.update(make_context(state_, selection_),
                       actions.any() ? PublishTrigger::user_action : PublishTrigger::background, now);

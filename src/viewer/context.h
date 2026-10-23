@@ -74,10 +74,20 @@ inline constexpr std::size_t kMaxFollowedEvents = 1000;
 // At most this many of the latest recoveries are listed in the background; the count is exact.
 inline constexpr std::size_t kMaxListedRecoveries = 10;
 
-// Why nothing published has a replay address yet: the exchange's runs aren't recorded.
+// Why a live viewer's context has no replay address: only a recorded run can be rebuilt exactly.
 inline constexpr std::string_view kNoReplayAddress =
-    "the exchange's runs aren't recorded, so no state can be rebuilt exactly yet (deterministic replay is "
-    "step 5 of docs/PLAN.md)";
+    "live: the viewer follows the exchange as it runs, which can't be rebuilt exactly. A recorded run can: "
+    "exchange_main --record FILE, then exchange_replay FILE MARKET_DATA, then viewer --replay MARKET_DATA";
+
+// One exact state of a recorded run: the books after update `seq` of a replay's market data, which
+// exchange_replay made from the recording. Rebuilt by applying the file's updates 1 to `seq`.
+struct ReplayAddress {
+    std::string market_data_file;
+    std::string recording;
+    std::uint64_t seq = 0;
+
+    friend bool operator==(const ReplayAddress&, const ReplayAddress&) = default;
+};
 
 // An order as the books have it now: resting, with its place in its price's queue; or not resting,
 // with the last update applied to it (how it left), or never seen.
@@ -116,12 +126,15 @@ struct Context {
         std::vector<Recovery> latest_recoveries;  // up to kMaxListedRecoveries, oldest first
         std::optional<std::string> error;        // the last datagram that couldn't be received or decoded
         std::uint32_t shown_ticker = 0;
+        // A replay's market data file and recording, and how many updates it has; empty when live.
+        std::optional<ReplayAddress> replay;  // seq: the replay's last update
 
         friend bool operator==(const Feed&, const Feed&) = default;
     };
     struct Point {
         std::uint64_t seq = 0;
         std::variant<OrderState, LevelState> target;
+        std::optional<ReplayAddress> replay;  // the state it describes, when it is a replay's
 
         friend bool operator==(const Point&, const Point&) = default;
     };
@@ -133,6 +146,7 @@ struct Context {
         // Recoveries since the order was first seen: their updates were never applied one by one, so
         // the order's events from them are missing.
         std::vector<Recovery> gaps;
+        std::optional<ReplayAddress> replay;  // the state it describes, when it is a replay's
 
         [[nodiscard]] bool truncated() const noexcept { return event_count > events.size(); }
         friend bool operator==(const Follow&, const Follow&) = default;

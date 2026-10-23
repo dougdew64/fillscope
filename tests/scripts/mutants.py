@@ -46,6 +46,9 @@ BOOK_FEED_HEADER = "src/feed/book.h"
 BUILDER = "src/feed/book_builder.cpp"
 FEED_SOCKET = "src/feed/feed_socket.cpp"
 VIEWER_OPTIONS = "src/viewer/viewer_options.cpp"
+REPLAY = "backend/Chapter12/exchange/matcher/replay.cpp"
+RECORDING = "backend/Chapter12/exchange/matcher/request_recording.cpp"
+MATCHING_ENGINE = "backend/Chapter12/exchange/matcher/matching_engine.h"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -360,6 +363,28 @@ MUTANTS = [
     ("a stream that isn't multicast is accepted", VIEWER_OPTIONS,
      [("(ntohl(address.s_addr) >> 28) != 0xE", "false")],
      "ParseViewerArgs.RefusesWhatIsntAnOptionAStream"),
+    # Deterministic replay: the back end's recording and replay, and the viewer's replay mode.
+    ("the matcher records nothing", MATCHING_ENGINE,
+     [("            recorder_->record(*me_client_request);\n", "")],
+     "feed_system_tests"),
+    ("a replay numbers its updates from 0", REPLAY,
+     [("    size_t next_seq = 1;  // as MarketDataPublisher::next_inc_seq_num_ starts", "    size_t next_seq = 0;")],
+     "lowlatency_tests|feed_system_tests"),
+    ("a recording's partial last request is read", RECORDING,
+     [("    if (body % sizeof(MEClientRequest) != 0) {", "    if (false) {")],
+     "lowlatency_tests"),
+    ("a market data file's numbering isn't checked", "src/feed/market_data_file.cpp",
+     [("        if ((*updates)[i].seq != i + 1) {", "        if (false) {")],
+     "MarketDataFileTest.SaysWhyAFileCantBeRead"),
+    ("going back in a replay leaves the books where they were", "src/viewer/viewer_app.cpp",
+     [("    if (seq < state_.books.last_seq()) {\n        state_.books = BookBuilder{};\n    }\n", "")],
+     "ui:a_replay_goes_to_any_update"),
+    ("a replay address names the replay's end, not the books' update", CONTEXT,
+     [("                             .seq = books.last_seq()};", "                             .seq = state.replay->updates.size()};")],
+     "MakeContext.InAReplayPointAndFollow|ContextJson.AReplaySaysWhich + ui:a_replay_goes_to_any_update"),
+    ("live, the context claims a replay address", CONTEXT,
+     [("    if (state.replay) {\n        feed.replay = ReplayAddress{", "    if (true) {\n        feed.replay = ReplayAddress{")],
+     "MakeContext.LiveThereIsNoReplayAddress|ContextJson.AReplaySaysWhich"),
     ("a drain takes everything waiting", CHANNEL,
      [("while (sender_ && result.received < max_per_drain_) {", "while (sender_) {")],
      "Channel.ADrainTakesAtMostItsBound"),

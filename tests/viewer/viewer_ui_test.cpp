@@ -497,6 +497,49 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         vars.snapshot.reset();
     });
 
+    viewer_test(engine, "a_replay_goes_to_any_update", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        // add_book's six updates, then order 11 partly filled and order 12 cancelled.
+        fillscope::MarketDataFile replay{
+            .recording = "runs/a.rec",
+            .updates = {add(1, 10, Side::sell, 102, 3, 1), add(2, 11, Side::sell, 101, 2, 1), add(3, 12, Side::sell, 101, 4, 2),
+                        add(4, 1, Side::buy, 100, 5, 1), add(5, 2, Side::buy, 100, 7, 2), add(6, 3, Side::buy, 99, 4, 1),
+                        {.seq = 7, .type = UpdateType::modify, .order_id = 11, .ticker = 0, .side = Side::sell, .price = 101, .qty = 1},
+                        {.seq = 8, .type = UpdateType::cancel, .order_id = 12, .ticker = 0, .side = Side::sell, .price = 101}}};
+        vars.app->open_replay("runs/a.dat", std::move(replay));
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "(recorded in runs/a.rec): after update 0 of 8"));
+        IM_CHECK(contains(vars.text, "ticker 0: no orders"));
+
+        ctx->ItemClick(std::format("**/{}", fillscope::kReplayEnd).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 8 of 8"));
+        IM_CHECK(!ctx->ItemExists("**/sell##order12"));  // cancelled by update 8
+        ctx->ItemClick(std::format("**/{}", fillscope::kReplayBack).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 7 of 8"));
+        IM_CHECK(ctx->ItemExists("**/sell##order12"));  // back: before its cancel
+        ctx->ItemClick(std::format("**/{}", fillscope::kReplayStart).c_str());
+        ctx->ItemClick(std::format("**/{}", fillscope::kReplayForward).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 1 of 8"));
+        IM_CHECK(ctx->ItemExists("**/sell##order10"));
+        IM_CHECK(!ctx->ItemExists("**/sell##order11"));
+
+        // The context's replay address follows the books: pointed at after update 1, then at the end.
+        ctx->ItemClick("**/sell##order10");
+        ctx->Yield(2);
+        IM_CHECK_EQ(read_context(vars)["point"]["replayAddress"]["seq"].get<int>(), 1);
+        IM_CHECK(read_context(vars)["point"]["replayAddress"]["marketDataFile"].get<std::string>().ends_with("/runs/a.dat"));
+        IM_CHECK(contains(vars.text, "Context replay of "));
+        ctx->ItemInputValue(std::format("**/{}", fillscope::kReplaySlider).c_str(), 7);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 7 of 8"));
+        IM_CHECK_EQ(read_context(vars)["point"]["replayAddress"]["seq"].get<int>(), 7);
+        IM_CHECK_EQ(read_context(vars)["background"]["replay"]["updates"].get<int>(), 8);
+    });
+
     viewer_test(engine, "finish_publishes_that_the_viewer_has_stopped", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         add_book(vars);

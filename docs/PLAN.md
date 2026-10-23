@@ -118,15 +118,29 @@ any point in it.
 **Done when:** a recorded live run, replayed, gives a byte-identical market data stream (checked by
 a test); the viewer publishes replay addresses that rebuild the exact state; mutants of the
 recording and of the replay are caught.
-**Status:** not started.
+**Decided while building it (2026-10-23):** the requests are recorded where the matcher processes
+them (its single-threaded loop: the order is final there); replay is a program of its own,
+`exchange_replay`, which writes the market data a recording gives to a file, rather than a mode of
+`exchange_main`; and the viewer opens that file (`--replay`), not the recording, so Fillscope never
+runs the back end's code. A replay address is (market data file, its recording, update N).
+**Status:** built and tested, CI pending. The live run that `feed_system_tests` checks is
+recorded, replayed, and matches, byte for byte, every update that arrived. The viewer's replay mode
+moves to any update; a point or follow carries the address of the state it describes. Seven mutants,
+from the matcher's recording hook to the viewer's backward step, are caught. VS Code: the exchange
+records every run; **viewer (replay)** replays the last one and opens it.
 
 ### 6. Debugger lockstep with the matcher
 The anchor goes into the fork's matcher, called once per request matched, and launch
 configurations debug the exchange beside the viewer. The debug-state extension is unchanged.
-**Open:** the market data publisher is a thread in the exchange's process, so a stop freezes it
-too; the update for request N must reach the viewer before the stop. Either the anchor is reached
-only once the publisher has sent it, or lockstep runs on a replay (step 5), where the matcher can
-wait for the publisher.
+**The question:** the viewer learns the books only from the market data, which the exchange
+publishes from a thread of its own in the same process as the matcher; a debugger stop freezes
+every thread, so when the matcher stops after request N, the publisher may not yet have sent N's
+updates, and the viewer would show the books before N: not lockstep.
+**Decided (the owner, 2026-10-23): lockstep on a replay.** `exchange_replay` is single-threaded, so
+it processes request N, sends N's updates to the viewer, then calls the anchor, as the frame source
+sends each frame and then calls the anchor; and a run is the same every time it is stepped.
+Rejected: lockstep live, the matcher waiting before each stop until the publisher has sent
+everything, which changes how the live system runs, and can't be repeated.
 **Done when:** stepping the matcher in VS Code, each Continue moves the viewer's book by exactly one
 request; the debugger tests check it under GDB and LLDB, as they do the frame source today.
 **Status:** not started.
@@ -153,12 +167,27 @@ keeps what remains).
 **Done when:** every item found is fixed or recorded in TECH-DEBT.md with why it waits.
 **Status:** not started.
 
+### 10. Faster tests between changes
+After steps 1 to 9 (the owner, 2026-10-23), before rapid work on the UI begins. Today `iterate.py`
+runs only the affected fast tests, in seconds, but a commit's gate, `run-tests.sh`, takes about 5
+minutes (both builds, and the back end's system tests), and the checks of the tests about 20 (the
+mutation check about 15). Candidates: a mutation run of only the mutants that name the tests or
+code changed (each mutant names the tests that must catch it), itself checked to choose every
+mutant a change needs; those checks only in CI, or only when tests change; the sanitizer build only
+before a push; the system tests only when the back end or the feed changes.
+**Done when:** the time from a change to its tests' result is measured before and after, and each
+shortcut is shown not to skip a test the change affects.
+**Status:** not started.
+
 ## Waiting on the owner
+- **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,
+  asking questions, whose answers go into [ARCHITECTURE.md](ARCHITECTURE.md), before the roadmap
+  continues.
 - **Seeing the book live (step 4's last part):** run **viewer + exchange + client** in VS Code,
   point at and follow orders, and ask the assistant about them ([RUNNING.md](RUNNING.md), "Run" and
   "Pointing and following"). This replaces the viewer shell's test, whose frames are gone.
 
 ## Later
-The rest of the roadmap becomes changes to the fork, ordered when steps 1 to 9 have landed: ITCH
+The rest of the roadmap becomes changes to the fork, ordered when steps 1 to 10 have landed: ITCH
 5.0 replay into the exchange, backtesting on simulated time, fill simulation (queue position,
 latency, fees), validation, and measured throughput.

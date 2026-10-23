@@ -116,6 +116,40 @@ void draw_status(const ViewerView& view) {
     text(std::format("viewer paints: {} (keeps rising while the exchange is stopped)", view.timing.paints));
 }
 
+// A replay's position and controls. Each control asks for the books after one update; the loop
+// rebuilds them (ViewerApp::replay_to).
+void draw_replay(const ViewerView& view, ViewerActions& actions) {
+    const Replay& replay = *view.state.replay;
+    const std::uint64_t at = view.state.books.last_seq();
+    const std::uint64_t last = replay.updates.size();
+    text(std::format("replay of {} (recorded in {}): after update {} of {}", replay.file.string(), replay.recording, at, last));
+    if (ImGui::SmallButton(kReplayStart)) {
+        actions.replay_to = 0;
+    }
+    tooltip([] { return std::string{"To the start: the books before the first update"}; });
+    ImGui::SameLine();
+    if (ImGui::SmallButton(kReplayBack) && at > 0) {
+        actions.replay_to = at - 1;
+    }
+    tooltip([] { return std::string{"Back one update"}; });
+    ImGui::SameLine();
+    if (ImGui::SmallButton(kReplayForward) && at < last) {
+        actions.replay_to = at + 1;
+    }
+    tooltip([] { return std::string{"Forward one update"}; });
+    ImGui::SameLine();
+    if (ImGui::SmallButton(kReplayEnd)) {
+        actions.replay_to = last;
+    }
+    tooltip([] { return std::string{"To the end: the books after the last update"}; });
+    ImGui::SameLine();
+    std::uint64_t position = at;
+    const std::uint64_t first = 0;
+    if (ImGui::SliderScalar(kReplaySlider, ImGuiDataType_U64, &position, &first, &last) && position != at) {
+        actions.replay_to = position;
+    }
+}
+
 // One button per ticker, with its order count; the shown one is marked.
 void draw_tickers(const ViewerView& view, ViewerActions& actions) {
     text("ticker");
@@ -336,6 +370,9 @@ ViewerActions draw_viewer(const ViewerView& view) {
     draw_context_bar(view, actions);
     ImGui::Separator();
     draw_status(view);
+    if (view.state.replay) {
+        draw_replay(view, actions);
+    }
     ImGui::Separator();
     draw_tickers(view, actions);
     draw_book(view, actions);

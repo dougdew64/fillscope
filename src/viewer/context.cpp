@@ -87,9 +87,18 @@ Context make_context(const ViewerState& state, const Selection& selection) {
     feed.latest_recoveries.assign(latest.begin(), latest.end());
     feed.error = state.feed_error;
     feed.shown_ticker = state.shown_ticker;
+    // In a replay, the books are exactly the recorded run's after update last_seq: an address for it.
+    std::optional<ReplayAddress> here;
+    if (state.replay) {
+        feed.replay = ReplayAddress{.market_data_file = state.replay->file.string(),
+                                    .recording = state.replay->recording,
+                                    .seq = state.replay->updates.size()};
+        here = ReplayAddress{.market_data_file = feed.replay->market_data_file, .recording = feed.replay->recording,
+                             .seq = books.last_seq()};
+    }
 
     if (const auto& pointed = selection.pointed()) {
-        context.point = Context::Point{.seq = selection.point_seq(), .target = OrderState{}};
+        context.point = Context::Point{.seq = selection.point_seq(), .target = OrderState{}, .replay = here};
         if (const auto* order = std::get_if<OrderRef>(&*pointed)) {
             context.point->target = order_state(books, *order);
         } else {
@@ -101,6 +110,7 @@ Context make_context(const ViewerState& state, const Selection& selection) {
         Context::Follow follow;
         follow.seq = selection.follow_seq();
         follow.order = order_state(books, *followed);
+        follow.replay = here;
         if (followed->ticker < BookBuilder::kTickers) {
             const auto history = books.history(followed->ticker, followed->order_id);
             follow.event_count = history.size();
@@ -139,6 +149,13 @@ std::string_view status_name(BookBuilder::Status status) {
 nlohmann::ordered_json event_json(const OrderEvent& event) {
     return {{"seq", event.seq},           {"type", to_string(event.type)}, {"side", to_string(event.side)},
             {"price", event.price},       {"qty", event.qty},              {"fromSnapshot", event.from_snapshot}};
+}
+
+nlohmann::ordered_json replay_json(const std::optional<ReplayAddress>& address) {
+    if (!address) {
+        return nullptr;
+    }
+    return {{"marketDataFile", address->market_data_file}, {"recording", address->recording}, {"seq", address->seq}};
 }
 
 nlohmann::ordered_json recovery_json(const Recovery& recovery) {
@@ -190,7 +207,9 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
         "its price. Each section's seq is taken when the user changes that section, so the higher one is what "
         "the user did last. While background.feed.status is 'recovering', updates were missed and the books are "
         "as of lastSeq, older than the exchange; follow.gaps lists the recoveries whose updates an order's "
-        "events may be missing. 'writer' says which viewer wrote this file and whether it is still running.";
+        "events may be missing. In a replay (background.replay), the books are exactly a recorded run's after "
+        "update lastSeq, and point and follow carry a replayAddress that rebuilds that state: apply the market data "
+        "file's updates 1 to seq. 'writer' says which viewer wrote this file and whether it is still running.";
 
     const Context::Feed& feed = context.feed;
     nlohmann::ordered_json latest = nlohmann::ordered_json::array();
@@ -207,12 +226,16 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
           {"latestRecoveries", latest},
           {"error", or_null(feed.error)}}},
         {"shownTicker", feed.shown_ticker},
-        {"noReplayAddress", kNoReplayAddress},
+        {"replay", feed.replay ? nlohmann::ordered_json{{"marketDataFile", feed.replay->market_data_file},
+                                                        {"recording", feed.replay->recording},
+                                                        {"updates", feed.replay->seq}}
+                               : nlohmann::ordered_json(nullptr)},
+        {"noReplayAddress", feed.replay ? nlohmann::ordered_json(nullptr) : nlohmann::ordered_json(kNoReplayAddress)},
     };
 
     if (context.point) {
         const Context::Point& point = *context.point;
-        json["point"] = {{"seq", point.seq}, {"asOfSeq", feed.last_seq}};
+        json["point"] = {{"seq", point.seq}, {"asOfSeq", feed.last_seq}, {"replayAddress", replay_json(point.replay)}};
         if (const auto* order = std::get_if<OrderState>(&point.target)) {
             json["point"]["order"] = order_json(*order);
         } else {
@@ -238,7 +261,8 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
                           {"eventCount", follow.event_count},
                           {"events", events},
                           {"eventsTruncated", follow.truncated()},
-                          {"gaps", gaps}};
+                          {"gaps", gaps},
+                          {"replayAddress", replay_json(follow.replay)}};
     } else {
         json["follow"] = nullptr;
     }
@@ -269,17 +293,22 @@ std::string order_summary(const OrderState& order) {
 ContextBarText bar_text(const Context& context) {
     ContextBarText text;
     const Context::Feed& feed = context.feed;
-    switch (feed.status) {
-    case BookBuilder::Status::waiting:
-        text.background = "waiting for the exchange's market data";
-        break;
-    case BookBuilder::Status::live:
-        text.background = std::format("exchange live at update {}", feed.last_seq);
-        break;
-    case BookBuilder::Status::recovering:
-        text.background = std::format("exchange: recovering, the books are as of update {} ({})", feed.last_seq,
-                                      feed.recovering_because.value_or("updates were missed"));
-        break;
+    if (feed.replay) {
+        text.background = std::format("replay of {} at update {} of {}", feed.replay->market_data_file, feed.last_seq,
+                                      feed.replay->seq);
+    } else {
+        switch (feed.status) {
+        case BookBuilder::Status::waiting:
+            text.background = "waiting for the exchange's market data";
+            break;
+        case BookBuilder::Status::live:
+            text.background = std::format("exchange live at update {}", feed.last_seq);
+            break;
+        case BookBuilder::Status::recovering:
+            text.background = std::format("exchange: recovering, the books are as of update {} ({})", feed.last_seq,
+                                          feed.recovering_because.value_or("updates were missed"));
+            break;
+        }
     }
     text.background += std::format(" · showing ticker {}", feed.shown_ticker);
     if (feed.recovery_count > 0) {

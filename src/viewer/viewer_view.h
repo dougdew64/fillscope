@@ -25,11 +25,12 @@ struct ViewerActions {
     std::optional<PointTarget> point_at;      // point at this order or level
     std::optional<OrderRef> follow;           // follow this order
     std::optional<std::uint32_t> show_ticker; // show this ticker's book
+    std::optional<std::uint64_t> replay_to;   // in a replay: the books after this update
     bool clear_point = false;
     bool clear_follow = false;
 
     [[nodiscard]] bool any() const noexcept {
-        return point_at || follow || show_ticker || clear_point || clear_follow;
+        return point_at || follow || show_ticker || replay_to || clear_point || clear_follow;
     }
 };
 
@@ -61,6 +62,12 @@ inline constexpr const char* kBookTable = "book";
 inline constexpr const char* kHistoryTable = "history";
 inline constexpr const char* kClearPointButton = "x##clear_point";
 inline constexpr const char* kClearFollowButton = "x##clear_follow";
+// A replay's controls: to its start, back one update, forward one, to its end, and a slider.
+inline constexpr const char* kReplayStart = "|<##replay_start";
+inline constexpr const char* kReplayBack = "<##replay_back";
+inline constexpr const char* kReplayForward = ">##replay_forward";
+inline constexpr const char* kReplayEnd = ">|##replay_end";
+inline constexpr const char* kReplaySlider = "##replay_position";
 
 // A short label, formatted into a fixed buffer: built without allocating, which matters for labels
 // built for every visible row on every paint. Text that doesn't fit is cut; the labels here are far

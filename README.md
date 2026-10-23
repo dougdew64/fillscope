@@ -7,10 +7,10 @@
 
 > **Status:** just started (October 2026). The back end is a fork of the trading system built in
 > Sourav Ghosh's *Building Low Latency Applications with C++*, built and tested by Fillscope. The
-> viewer shows its exchange's order books live, rebuilt from the exchange's market data, and
-> publishes what you point at and follow for an assistant; the debugger's state is published too.
-> Stepping the matching engine while the viewer follows comes next but one
-> ([docs/PLAN.md](docs/PLAN.md)); the rest of this README describes the plan.
+> viewer shows its exchange's order books, rebuilt from the exchange's market data, live or from a
+> recorded run replayed exactly to any point, and publishes what you point at and follow for an
+> assistant; the debugger's state is published too. Stepping the matching engine while the viewer
+> follows comes next ([docs/PLAN.md](docs/PLAN.md)); the rest of this README describes the plan.
 
 A backtest replays history and simulates how a strategy's orders would have been filled. Its results
 rest on assumptions that are usually invisible: where an order sat in the queue at its price, how

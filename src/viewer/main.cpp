@@ -10,6 +10,7 @@
 // exits 1 if that last write fails.
 
 #include "feed/feed_socket.h"
+#include "feed/market_data_file.h"
 #include "viewer/viewer_app.h"
 #include "viewer/stop_signals.h"
 #include "viewer/viewer_options.h"
@@ -92,15 +93,29 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    // The exchange's two market data streams. Joining can fail (a port bound by a program that
-    // doesn't share it, say); then there is nothing to show, so the viewer says why and stops.
-    auto incremental = fillscope::FeedSocket::join(options->incremental);
-    auto snapshot = fillscope::FeedSocket::join(options->snapshot);
-    for (const auto& [stream, joined] : {std::pair{&options->incremental, &incremental}, std::pair{&options->snapshot, &snapshot}}) {
-        if (!*joined) {
-            std::println(stderr, "viewer: can't join the market data stream {}:{}: {}", stream->group, stream->port,
-                         joined->error().message());
+    // A replay's market data, or the exchange's two live streams. Joining can fail (a port bound by a
+    // program that doesn't share it, say); then there is nothing to show, so the viewer says why and
+    // stops, as it does for a replay it can't read.
+    std::optional<fillscope::MarketDataFile> replay;
+    std::optional<fillscope::FeedSocket> incremental;
+    std::optional<fillscope::FeedSocket> snapshot;
+    if (options->replay) {
+        auto read = fillscope::read_market_data_file(*options->replay);
+        if (!read) {
+            std::println(stderr, "viewer: {}", read.error());
             return 1;
+        }
+        replay = std::move(*read);
+    } else {
+        for (const auto& [stream, socket] :
+             {std::pair{&options->incremental, &incremental}, std::pair{&options->snapshot, &snapshot}}) {
+            auto joined = fillscope::FeedSocket::join(*stream);
+            if (!joined) {
+                std::println(stderr, "viewer: can't join the market data stream {}:{}: {}", stream->group, stream->port,
+                             joined.error().message());
+                return 1;
+            }
+            socket->emplace(std::move(*joined));
         }
     }
     if (const auto installed = fillscope::install_stop_signals(); !installed) {
@@ -139,6 +154,9 @@ int main(int argc, char** argv) {
     }
 
     fillscope::ViewerApp app{options->context_file};
+    if (replay) {
+        app.open_replay(*options->replay, std::move(*replay));
+    }
     const auto start = std::chrono::steady_clock::now();
     int last_report_second = 0;
 
@@ -150,7 +168,9 @@ int main(int argc, char** argv) {
         next_paint = std::max(next_paint + kPaintInterval, std::chrono::steady_clock::now());
         glfwPollEvents();
         const auto now = std::chrono::steady_clock::now();
-        app.receive(*incremental, *snapshot, now);
+        if (incremental) {
+            app.receive(*incremental, *snapshot, now);
+        }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -185,7 +205,9 @@ int main(int argc, char** argv) {
         std::println(stderr, "viewer: stopping, as a signal asked");
     }
     // Takes in whatever arrived since the last paint, so the last file counts every update received.
-    app.receive(*incremental, *snapshot, std::chrono::steady_clock::now());
+    if (incremental) {
+        app.receive(*incremental, *snapshot, std::chrono::steady_clock::now());
+    }
     if (!app.finish()) {  // the last file says this viewer is no longer running
         std::println(stderr, "viewer: can't publish the final context to {}: {}", app.publisher().file().string(),
                      *app.publisher().error());

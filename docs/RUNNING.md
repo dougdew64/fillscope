@@ -83,7 +83,7 @@ the slower program adds the tier to its name.
 - **`lowlatency_tests` (GoogleTest, `system`, the whole program as one test):** the back end's own
   tests, in the fork (`backend/Chapter12/tests/`): the market data's layout on the wire, the
   matching (price-time priority, partial fills, sweeps, cancels), the incremental feed's sequence
-  numbers and a snapshot's content. One process for them all, about 8 s and 3 GB (nearly 30 s in
+  numbers, a snapshot's content and its interval, and recording and replaying requests. One process for them all, about 12 s and 4.3 GB (about 40 s in
   the sanitizer build alongside the other tests): the exchange's objects take seconds and
   gigabytes to make. The fork's own CI runs them too.
 - **`backend_system_tests` (Python, `system`):** the back end as Fillscope builds it: the exchange
@@ -97,12 +97,13 @@ the slower program adds the tier to its name.
   receiver) after that frame was sent.
 - **`feed_tests` (GoogleTest, `unit`):** Fillscope's reading of the market data: decoding (the
   back end's own test bytes among others), a book, keeping the books in step and every way recovery
-  starts and ends, each order's history, and receiving real multicast datagrams (test-only groups
-  and ports).
+  starts and ends, each order's history, a replay's market data file, and receiving real multicast
+  datagrams (test-only groups and ports).
 - **`feed_system_tests` (GoogleTest, `system`, the whole program as one test):** the real exchange
   (a snapshot every second) and a client trading at random: every incremental update arrives, the
-  books built from updates 1 to S equal each of the exchange's snapshots as of S, and a reader that
-  joins late recovers and ends with the same books. About half a minute.
+  books built from updates 1 to S equal each of the exchange's snapshots as of S, a reader that
+  joins late recovers and ends with the same books, and the exchange's recording of the run,
+  replayed by `exchange_replay`, gives every update that arrived, byte for byte. About half a minute.
 - **`viewer_tests` (GoogleTest, `unit`):** the viewer's core without Dear ImGui: the selection, the
   context built from the books and the selection (an order's place in its queue, a level's orders,
   a followed order's events and gaps), its JSON and bar text, publishing (including failure and
@@ -111,8 +112,9 @@ the slower program adds the tier to its name.
   `ViewerApp` runs it for the program, with real clicks: the book's order on screen, choosing a
   ticker, pointing at orders and levels, following an order as it fills, clearing, the bar and the
   book's marks (as drawn: each item reports them to the Test Engine) saying exactly what the file
-  holds, a failed write shown in the bar and the tooltips, and real multicast streams: a feed
-  joined while running, recovered from a snapshot, and a datagram that can't be decoded. (The
+  holds, a failed write shown in the bar and the tooltips, real multicast streams (a feed joined
+  while running, recovered from a snapshot, and a datagram that can't be decoded), and a replay's
+  controls, with the replay address following the books. (The
   followed row's colour itself isn't observable; its id button reports the mark.) Text is checked
   through Dear ImGui's logging, since plain text items have no ID for the Test Engine to find; rows
   and buttons are found by their IDs.
@@ -160,6 +162,12 @@ From a terminal, start the viewer, then the back end as its README says (from
 start before the exchange or after: started after, it waits for the next snapshot to rebuild the
 books (it says "recovering" until then).
 
+**A replay.** The exchange started from VS Code records its requests
+(`build/debug/backend/Chapter12/requests.rec`, each run replacing the last). **viewer (replay)**
+replays the last recording (`exchange_replay requests.rec market.dat`) and opens it: the controls
+move the books to any update of the run. From a terminal: `exchange_main --record FILE`, then
+`exchange_replay FILE MARKET_DATA`, then `viewer --replay MARKET_DATA`.
+
 `--exit-after SECONDS` closes the viewer after that long; Ctrl-C and SIGTERM close it the same way,
 so its last context file says it has stopped. `--incremental GROUP:PORT` and `--snapshot GROUP:PORT`
 choose the market data streams (by default the exchange's). The viewer prints on stderr when
@@ -176,8 +184,9 @@ when started from VS Code; `--context-file` chooses another path).
 The file says what the books hold as of the last update applied (`asOfSeq`): for an order pointed at,
 its place in its queue (the orders and quantity ahead of it), or how it left; for a level, its
 orders in the order they will fill; for an order followed, its events, and any recoveries whose
-updates they may be missing. It has no replay address yet (deterministic replay is step 5 of
-[PLAN.md](PLAN.md)). It names its writer (the viewer's process id, when it started, and whether it is
+updates they may be missing. In a replay, what is pointed at and followed carries a replay address
+(the market data file, its recording, and the update the books are after), which rebuilds that
+exact state; live, the file says there is none. It names its writer (the viewer's process id, when it started, and whether it is
 still running), so a file left by a viewer that has exited says so. If a write fails, the bar says
 so in red, keeps showing what the file actually holds, and the viewer keeps retrying.
 

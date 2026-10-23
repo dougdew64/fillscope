@@ -121,6 +121,25 @@ about 40 bytes an event, so a long run takes memory in proportion to its length.
 as the trading clients do, bound to the group's address so only that group's datagrams arrive; it
 never blocks, and decodes what is waiting.
 
+**What a replay is.** A live run of the exchange can never be repeated: the clients choose their
+orders at random, the network delivers them at slightly different times, and the exchange's
+threads interleave differently each time. But the matcher at its heart is deterministic: it takes
+one request at a time from one queue and never reads a clock, so the same requests in the same
+order always give the same decisions. A *recording* is the list of requests in the order the
+matcher processed them; a *replay* feeds that list to a fresh matcher with nothing else running,
+and everything the live run did happens again, identically, as a chess game's move list
+reproduces every position. So any moment of a recorded run can be rebuilt exactly, as often as
+wanted.
+
+**Replaying** (`market_data_file.h`): a run of the exchange can be rebuilt exactly. The exchange
+records the requests its matcher processes, in the order it processes them (`exchange_main
+--record FILE`); the back end's `exchange_replay` feeds a recording through a fresh matcher, with
+no clients and no network, and writes the incremental updates it publishes to a file, after a
+header naming the recording. The matcher is single-threaded and reads no clock, so the same
+requests in the same order give the same updates: the file is the live stream, byte for byte
+(`feed_system_tests` checks it against a live run). `read_market_data_file` reads it, checking its
+updates are numbered 1, 2, 3, ...
+
 ## 4. The viewer (`src/viewer/`)
 **The problem:** show the books as the market data describes them, let you point at and follow
 orders, and publish exactly what you've assembled for the assistant, without ever claiming more
@@ -158,7 +177,8 @@ Because drawing only reads what it is given and returns actions, a test can draw
 any state and check what it shows and what a click returns.
 
 ### What it draws
-The context bar; the market data's state (live as of an update, or recovering and why); a button
+The context bar; the market data's state (live as of an update, or recovering and why), or in a
+replay, where in it the books are and its controls; a button
 for each ticker; and the shown ticker's book, one row per resting order, asks above bids with each
 side's best price nearest the middle, and within a price the orders in the order they will fill.
 Clicking a row points at its order, clicking a price points at its level, clicking an order's id
@@ -183,8 +203,13 @@ order** carries its events (up to 1,000 listed, all counted) and the recoveries 
 seen, whose updates its events may be missing. Everything is as of the last incremental update the
 books include, which the context names (`asOfSeq`).
 
-**No replay address yet:** an exact state could be rebuilt only from a recording of the exchange's
-input, which is step 5 of the plan; until then the file says so.
+**A replay, and its addresses.** With `--replay FILE`, the viewer shows a replay's market data
+instead of the live exchange: its books are built from the file's updates 1 to N, and controls move
+N anywhere, forward by applying the next updates, back by rebuilding from the first
+(`ViewerApp::replay_to`). The books are then exactly the recorded run's after update N, so a point
+or follow carries a replay address: the market data file, the recording it came from, and N.
+Applying the file's updates 1 to N rebuilds that state. Live, there is no replay address, and the
+file says why and how to record a run.
 
 ### Publishing, and why the bar can't lie
 `ContextPublisher::update` is called every paint:
@@ -341,11 +366,33 @@ optimization level. That is why it stores to plain variables rather than an `std
 Each area's tests are in the matching `tests/` directory. The feed's unit tests check decoding,
 the books and recovery against hand-made updates (`feed_tests`); its system test runs the real
 exchange and a client and checks Fillscope's books against the exchange's snapshots, and a late
-reader's recovery (`feed_system_tests`). The viewer's core has unit tests that need no window
+reader's recovery (`feed_system_tests`), and that the exchange's recording of that run replays to the very updates
+that arrived. The viewer's core has unit tests that need no window
 (`viewer_tests`); the UI tests run the whole loop above with real clicks through the Dear ImGui Test
-Engine, with no window or GPU, including reading real multicast streams (`viewer_ui_tests`). The back
-end's own tests are in the fork. How tests are selected, tiered and checked is in
+Engine, with no window or GPU, including reading real multicast streams and moving through a replay
+(`viewer_ui_tests`). The back
+end's own tests are in the fork. How tests are selected, tiered and run is in
 [RUNNING.md](RUNNING.md).
+
+**How the tests are checked.** Two checks ask whether the tests themselves can be trusted:
+- **The mutation check** (`tests/scripts/mutants.py`). A test can pass while testing nothing: an
+  assertion left out, a wrong expectation, a test that never reaches the code it is named for. So
+  the check plants deliberate bugs ("mutants"), one at a time, in a scratch copy of the repository:
+  for example, the matcher's `price < ask` made `price <= ask`, so a buy no longer trades at the
+  ask's price. For each, it rebuilds what the edit affects, runs the tests named for that mutant,
+  and requires one of them to fail; a mutant that survives is a blind spot in the tests. Each of
+  the 150 is a rebuild and a test run, so the whole check takes about 15 minutes. A mutant names
+  the tests expected to catch it, so a change to one test needs only the mutants that name it (the
+  script runs a subset by mutant name; choosing them from what changed is a later improvement).
+- **The selection check** (`tests/scripts/selection_check.py`). Between edits, `iterate.py` runs
+  only the test programs an edit affects, judged from what the build produced rather than a
+  hand-kept list. If it judged wrongly, a test that should run wouldn't, and the tests would look
+  green over a break. So the check makes 26 known edits in a scratch copy and requires
+  `iterate.py` to choose exactly the right programs for each, no more and no fewer; each edit is a
+  rebuild, about 4 minutes in all. It matters when the test machinery or the build's structure
+  changes (a new test program, a new dependency).
+
+CI runs both on every push.
 
 ## 10. A reading order for the code
 1. `src/feed/market_update.h`: what the exchange sends.
@@ -353,4 +400,5 @@ end's own tests are in the fork. How tests are selected, tiered and checked is i
 3. `src/viewer/main.cpp`, then `viewer_app.cpp`: the viewer's setup, and its loop.
 4. `src/viewer/viewer_state.h`, `context.h`, `context_publisher.h`: what the loop works on.
 5. `src/viewer/viewer_view.cpp`: drawing and clicks.
-6. `src/feed/market_update.cpp` and `feed_socket.cpp`: the bytes and the socket underneath.
+6. `src/feed/market_update.cpp`, `feed_socket.cpp` and `market_data_file.cpp`: the bytes, the socket and
+   a replay's file underneath.

@@ -37,7 +37,8 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
     ViewerOptions options;
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string_view option{args[i]};
-        if (option != "--exit-after" && option != "--incremental" && option != "--snapshot" && option != "--context-file") {
+        if (option != "--exit-after" && option != "--incremental" && option != "--snapshot" && option != "--replay" &&
+            option != "--context-file") {
             return std::unexpected{std::format("unknown option '{}'", option)};
         }
         if (i + 1 == args.size()) {
@@ -50,6 +51,11 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
                 return std::unexpected{std::move(stream.error())};
             }
             (option == "--incremental" ? options.incremental : options.snapshot) = std::move(*stream);
+        } else if (option == "--replay") {
+            if (value.empty()) {
+                return std::unexpected{"--replay needs a file"};
+            }
+            options.replay = value;
         } else if (option == "--context-file") {
             if (value.empty()) {
                 return std::unexpected{"--context-file needs a path"};

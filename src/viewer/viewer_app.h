@@ -6,6 +6,7 @@
 #pragma once
 
 #include "feed/feed_socket.h"
+#include "feed/market_data_file.h"
 #include "feed/market_update.h"
 #include "viewer/context.h"
 #include "viewer/context_publisher.h"
@@ -39,6 +40,14 @@ public:
     // Applies one update, as receive() does for each; tests call these directly.
     void apply_incremental(const MarketUpdate& update, Clock::time_point now);
     void apply_snapshot(const MarketUpdate& update);
+
+    // Shows a replay instead of the live exchange: the books start empty, before its first update.
+    // `file` is where it was read from.
+    void open_replay(const std::filesystem::path& file, MarketDataFile market_data);
+    // In a replay, makes the books exactly the recorded run's after update `seq` (clamped to the
+    // replay's length): forward by applying the updates after the books' last, back by rebuilding
+    // from the first. What is pointed at and followed stays.
+    void replay_to(std::uint64_t seq);
 
     // One paint: draws the viewer (call between ImGui::NewFrame() and ImGui::Render()), applies what
     // the user did, and publishes the context, at once if the user did anything. Returns what the

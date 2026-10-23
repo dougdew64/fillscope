@@ -1,14 +1,25 @@
 // What the viewer has received: the exchange's books, kept in step with its market data
-// (feed/book_builder.h), and how the market data is arriving.
+// (feed/book_builder.h), and how the market data is arriving, live or from a replay.
 #pragma once
 
 #include "feed/book_builder.h"
+#include "feed/market_update.h"
 
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace fillscope {
+
+// A replay's market data (feed/market_data_file.h): the books are built from its updates 1 to N, so
+// they are exactly the exchange's after update N of the recorded run, and N can be anything.
+struct Replay {
+    std::filesystem::path file;  // the market data file, as an absolute path
+    std::string recording;       // the recording it was replayed from, as exchange_replay was given it
+    std::vector<MarketUpdate> updates;
+};
 
 struct ViewerState {
     BookBuilder books;
@@ -17,6 +28,8 @@ struct ViewerState {
     std::uint32_t shown_ticker = 0;
     // Why the last datagram couldn't be received or decoded, if one couldn't.
     std::optional<std::string> feed_error;
+    // Set when the viewer shows a replay rather than the live exchange.
+    std::optional<Replay> replay;
 };
 
 }  // namespace fillscope

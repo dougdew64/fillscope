@@ -4,6 +4,7 @@
 #include "feed/book.h"
 #include "feed/book_builder.h"
 #include "feed/feed_socket.h"
+#include "feed/market_data_file.h"
 #include "feed/market_update.h"
 #include "support/test_support.h"
 
@@ -12,6 +13,11 @@
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <thread>
@@ -298,6 +304,60 @@ TEST(BookBuilder, ASnapshotRebuildsEveryBookAndForgetsItsTrades) {
     feed_snapshot(builder, snapshot(3, {add(0, 5, Side::sell, 110, 1, 1, 3)}));
     EXPECT_EQ(builder.book(3).orders(), (std::vector<Order>{{2, Side::buy, 99, 5, 1}, {5, Side::sell, 110, 1, 1}}));
     EXPECT_FALSE(builder.last_trade(3));
+}
+
+// ---- A replay's market data file ----
+
+// The file as exchange_replay writes it: magic, the recording's path, then the updates' bytes.
+std::string market_data_bytes(const std::string& recording, const std::vector<MarketUpdate>& updates) {
+    std::string bytes = "LLMDAT01";
+    const auto length = static_cast<std::uint32_t>(recording.size());
+    bytes.append(reinterpret_cast<const char*>(&length), sizeof length);
+    bytes += recording;
+    for (const MarketUpdate& update : updates) {
+        const auto encoded = encode_update(update);
+        bytes.append(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+    }
+    return bytes;
+}
+
+class MarketDataFileTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        dir_ = std::filesystem::temp_directory_path() /
+               std::format("fillscope-md-{}-{}", ::getpid(), ::testing::UnitTest::GetInstance()->current_test_info()->name());
+        std::filesystem::create_directories(dir_);
+    }
+    void TearDown() override { std::filesystem::remove_all(dir_); }
+    std::filesystem::path write(const std::string& bytes) const {
+        const auto path = dir_ / "market.dat";
+        std::ofstream{path, std::ios::binary} << bytes;
+        return path;
+    }
+    std::filesystem::path dir_;
+};
+
+TEST_F(MarketDataFileTest, ReadsTheRecordingAndTheUpdates) {
+    const std::vector<MarketUpdate> updates{add(1, 7, Side::buy, 100, 5, 1), cancel(2, 7, Side::buy, 100)};
+    const auto file = read_market_data_file(write(market_data_bytes("runs/a.rec", updates)));
+    ASSERT_TRUE(file) << file.error();
+    EXPECT_EQ(file->recording, "runs/a.rec");
+    EXPECT_EQ(file->updates, updates);
+}
+
+TEST_F(MarketDataFileTest, SaysWhyAFileCantBeRead) {
+    EXPECT_NE(read_market_data_file(dir_ / "none.dat").error().find("can't open"), std::string::npos);
+    EXPECT_NE(read_market_data_file(write("LLREQ001")).error().find("isn't a replay's market data"), std::string::npos);
+    EXPECT_NE(read_market_data_file(write("LLMDAT01\x05")).error().find("ends inside its header"), std::string::npos);
+    EXPECT_NE(read_market_data_file(write(market_data_bytes("a.rec", {}).substr(0, 14))).error().find("ends inside its header"),
+              std::string::npos);
+    const std::string whole = market_data_bytes("a.rec", {add(1, 7, Side::buy, 100, 5, 1)});
+    EXPECT_NE(read_market_data_file(write(whole.substr(0, whole.size() - 1))).error().find("isn't a whole number"),
+              std::string::npos);
+    EXPECT_NE(read_market_data_file(write(market_data_bytes("a.rec", {add(2, 7, Side::buy, 100, 5, 1)}))).error().find(
+                  "update 1 is numbered 2"),
+              std::string::npos);
+    EXPECT_TRUE(read_market_data_file(write(market_data_bytes("a.rec", {}))));  // a run with no updates is still a run
 }
 
 // ---- Receiving ----

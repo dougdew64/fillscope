@@ -2,8 +2,8 @@
 
 # Its own tests (backend/Chapter12/tests/): the market data's layout, the matching, sequence numbers
 # and snapshots. The whole program is one test, as the fork registers it (its objects take seconds
-# and gigabytes to make, so a process per test would cost each), in the system tier: about 8 s,
-# but nearly 30 s in the sanitizer build alongside the other tests.
+# and gigabytes to make, so a process per test would cost each), in the system tier: about 12 s,
+# but about 40 s in the sanitizer build alongside the other tests.
 fillscope_test_program(lowlatency_tests system COMMAND $<TARGET_FILE:lowlatency_tests>)
 
 # Its exchange and a client, run together. The system tier: it takes half a minute, mostly the

@@ -78,14 +78,17 @@ TEST(ParseViewerArgs, DefaultsAndEveryOption) {
     EXPECT_EQ(defaults->snapshot, kExchangeSnapshot);
     EXPECT_EQ(defaults->context_file, std::filesystem::path{".fillscope/context.json"});
 
+    EXPECT_FALSE(defaults->replay);
+
     const std::array args{"--exit-after", "2.5", "--incremental", "239.1.2.3:3001", "--snapshot", "224.0.0.5:3000",
-                          "--context-file", "/tmp/c.json"};
+                          "--context-file", "/tmp/c.json", "--replay", "runs/a.dat"};
     const auto options = parse_viewer_args(args);
     ASSERT_TRUE(options) << options.error();
     EXPECT_EQ(options->exit_after_seconds, 2.5);
     EXPECT_EQ(options->incremental, (Stream{"239.1.2.3", 3001}));
     EXPECT_EQ(options->snapshot, (Stream{"224.0.0.5", 3000}));
     EXPECT_EQ(options->context_file, std::filesystem::path{"/tmp/c.json"});
+    EXPECT_EQ(options->replay, std::filesystem::path{"runs/a.dat"});
 }
 
 TEST(ParseViewerArgs, RefusesWhatIsntAnOptionAStreamOrANumberOfSeconds) {
@@ -96,7 +99,8 @@ TEST(ParseViewerArgs, RefusesWhatIsntAnOptionAStreamOrANumberOfSeconds) {
              {"--incremental", "10.0.0.1:3000"},      // not a multicast address
              {"--incremental", "240.0.0.1:3000"},     // past the multicast range
              {"--incremental", "not.an.address:3000"},
-             {"--snapshot", "239.1.2.3:0"}, {"--snapshot", "239.1.2.3:65536"}, {"--snapshot", "239.1.2.3:x"}}) {
+             {"--snapshot", "239.1.2.3:0"}, {"--snapshot", "239.1.2.3:65536"}, {"--snapshot", "239.1.2.3:x"},
+             {"--replay"}, {"--replay", ""}}) {
         EXPECT_FALSE(parse_viewer_args(args)) << args.front() << (args.size() > 1 ? std::string{" "} + args[1] : "");
     }
 }
@@ -263,6 +267,69 @@ TEST(MakeContext, OnlyTheLatestRecoveriesAreListedButAllAreCounted) {
     EXPECT_EQ(feed.recovery_count, kMaxListedRecoveries + 3);
     ASSERT_EQ(feed.latest_recoveries.size(), kMaxListedRecoveries);
     EXPECT_EQ(feed.latest_recoveries.back().snapshot_seq, seq - 1) << "the latest, last";
+}
+
+// ---- A replay ----
+
+// three_bids(), as a replay of 4 updates (the fourth cancels order 1), at update `at`.
+ViewerState replay_at(std::uint64_t at) {
+    ViewerState state;
+    state.replay = Replay{.file = "/runs/a.dat", .recording = "a.rec",
+                          .updates = {add(1, 1, Side::buy, 100, 5, 1), add(2, 2, Side::buy, 100, 7, 2),
+                                      add(3, 3, Side::buy, 99, 4, 1), cancel(4, 1, Side::buy, 100)}};
+    for (std::uint64_t seq = 1; seq <= at; ++seq) {
+        state.books.on_incremental(state.replay->updates[seq - 1]);
+    }
+    return state;
+}
+
+TEST(MakeContext, InAReplayPointAndFollowHaveTheAddressOfTheStateTheyDescribe) {
+    Selection selection;
+    selection.point_at(OrderRef{0, 1});
+    selection.follow(OrderRef{0, 2});
+    const Context context = make_context(replay_at(3), selection);
+    const ReplayAddress expected{.market_data_file = "/runs/a.dat", .recording = "a.rec", .seq = 3};
+    EXPECT_EQ(context.point->replay, expected);
+    EXPECT_EQ(context.follow->replay, expected);
+    EXPECT_EQ(context.feed.replay, (ReplayAddress{.market_data_file = "/runs/a.dat", .recording = "a.rec", .seq = 4}))
+        << "the background's seq is the replay's length";
+    EXPECT_TRUE(std::get<OrderState>(context.point->target).resting) << "order 1 rests after update 3";
+    EXPECT_FALSE(std::get<OrderState>(make_context(replay_at(4), selection).point->target).resting) << "and not after 4";
+}
+
+TEST(MakeContext, LiveThereIsNoReplayAddress) {
+    Selection selection;
+    selection.point_at(OrderRef{0, 1});
+    const Context context = make_context(three_bids(), selection);
+    EXPECT_FALSE(context.point->replay);
+    EXPECT_FALSE(context.feed.replay);
+}
+
+TEST(ContextJson, AReplaySaysWhichAndEveryAddressRebuildsItsState) {
+    Selection selection;
+    selection.point_at(OrderRef{0, 2});
+    selection.follow(OrderRef{0, 2});
+    const auto json = nlohmann::json::parse(to_json(make_context(replay_at(2), selection), Writer{}, 1, 0).dump());
+    EXPECT_EQ(json["background"]["replay"]["marketDataFile"], "/runs/a.dat");
+    EXPECT_EQ(json["background"]["replay"]["recording"], "a.rec");
+    EXPECT_EQ(json["background"]["replay"]["updates"], 4);
+    EXPECT_TRUE(json["background"]["noReplayAddress"].is_null());
+    for (const auto* section : {"point", "follow"}) {
+        EXPECT_EQ(json[section]["replayAddress"]["marketDataFile"], "/runs/a.dat") << section;
+        EXPECT_EQ(json[section]["replayAddress"]["recording"], "a.rec") << section;
+        EXPECT_EQ(json[section]["replayAddress"]["seq"], 2) << section;
+    }
+
+    const auto live = nlohmann::json::parse(to_json(make_context(three_bids(), selection), Writer{}, 1, 0).dump());
+    EXPECT_TRUE(live["background"]["replay"].is_null());
+    EXPECT_EQ(live["background"]["noReplayAddress"], kNoReplayAddress);
+    EXPECT_TRUE(live["point"]["replayAddress"].is_null());
+    EXPECT_TRUE(live["follow"]["replayAddress"].is_null());
+}
+
+TEST(ContextBar, SaysWhereInTheReplayTheBooksAre) {
+    EXPECT_EQ(bar_text(make_context(replay_at(3), Selection{})).background,
+              "replay of /runs/a.dat at update 3 of 4 · showing ticker 0");
 }
 
 // ---- to_json ----
