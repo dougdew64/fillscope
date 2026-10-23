@@ -71,11 +71,20 @@ test machinery covers the back end (the sanitizer check, scratch copies, test se
 Tests in the fork, run by its own CI and by Fillscope's: the market data messages' layout and
 encoding, their sequence numbers, snapshot recovery, and the matching behaviour the viewer will
 show (price-time priority, partial fills, cancels).
-**Open:** where the fork's tests live and how its CI is set up; whether they use GoogleTest, as
-Fillscope's do.
+**Settled:** the tests are in the fork, `Chapter12/tests/`, GoogleTest (the release Fillscope
+uses), built only with `-DLOWLATENCY_TESTS=ON`; the fork's CI (`.github/workflows/tests.yml`)
+runs them normally and under the sanitizers, and Fillscope runs them as `lowlatency_tests`.
 **Done when:** the tests pass on the pinned commit, and mutants of the matcher and the encoding
 are caught.
-**Status:** not started.
+**Status:** done, 2026-10-23: fork `73b4ef3`, Fillscope `ef3da5c`; both CIs pass. 17 tests: the
+market data's layout, the matching (price-time priority, partial fills, sweeps, cancels), sequence
+numbers, a snapshot's content. Nine mutants, all caught. Bugs found and fixed in the fork, each by
+a test that failed first: `MEOrderBook`'s table of client orders and its table of price levels
+were never initialized; `createSocket()` leaked `getaddrinfo()`'s list. The build file's
+`CMAKE_CXX_COMPILER` after `project()` also had to go. Known, not fixed (the fork's README):
+prices 256 or more ticks apart corrupt a book (a decision for the owner); threads are never
+joined; shutdown clears 2 GB per book. The tests take about 8 s and 3 GB, since the exchange's
+objects preallocate their pools, so they run in the `system` tier.
 
 ### 4. The viewer shows the live book
 The viewer joins the multicast feed as one more listener, with no change to the back end: it
