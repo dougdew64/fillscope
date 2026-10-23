@@ -6,6 +6,7 @@ procedure. **Read when:** building, running or changing it.
 ## Where things are
 | Path | What it holds |
 |---|---|
+| `backend/` | the trading system Fillscope observes: a git submodule, the `fillscope` branch of the fork of the system in Ghosh's book, pinned to one commit ([PLAN.md](PLAN.md)); its code is in `backend/Chapter12/`, and its programs are `exchange_main` and `trading_main` |
 | `src/channel/` | `frame.h`, the stand-in frame; `message.h`, the messages a source sends (a description of its run, then frames) and their encoding; `net.h`, the socket that carries them |
 | `src/lockstep/` | `anchor.h`, `anchor.cpp`: the debugger anchor and the debugger check ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `src/viewer/` | `viewer_state.h`, what the viewer has received; `context.h`, what the user points at and follows and the context built from it; `context_publisher.h`, the file it is published to; `viewer_view.h`, what the viewer draws; `viewer_app.h`, its loop; `viewer_options.h`, its command line; `main.cpp`, the window |
@@ -18,9 +19,14 @@ procedure. **Read when:** building, running or changing it.
 
 ## Build
 ```sh
+git submodule update --init                 # once, after cloning: fetches backend/
 cmake -S . -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/debug
 ```
+The back end builds with its own build file and flags (C++20, its own `-Werror`), into
+`build/debug/backend/Chapter12/`, and with the sanitizers in the sanitizer build like everything
+else. Changing it: commit and push on the `fillscope` branch in `backend/` first, then commit the
+new pin in Fillscope (`git add backend`).
 Needs GCC, CMake, Ninja, `glfw-devel` and `mesa-libGL-devel`; for the tests, also Python 3, GDB,
 LLDB with `python3-lldb`, `flock` (util-linux), and Node.js with npm. Dear ImGui, GoogleTest and
 the Dear ImGui Test Engine are fetched as release archives checked against their SHA-256; the
@@ -66,6 +72,7 @@ frame source's path and makes the frame source one of its run-time files:
 | `ui` | 10 s (the whole program) | `iterate.py`, `run-tests.sh` |
 | `check` | 30 s (a whole run of a checker or a test runner: the type check, the extension's Node tests) | `iterate.py`, `run-tests.sh` |
 | `debugger` | 30 s | `run-tests.sh` |
+| `system` | 120 s (whole programs of the back end, running together) | `run-tests.sh` |
 
 Every passing run prints its five slowest tests. To run one program's tests by hand, select it by
 its label: `ctest --test-dir build/debug -L exe:viewer_tests`. (`-R` matches test names, which in a
@@ -75,6 +82,10 @@ GoogleTest program are its tests' own names, such as `Publisher.AUserActionIsWri
 the slower program adds the tier to its name.
 - **`channel_tests`, `lockstep_tests`, `frame_source_tests` (GoogleTest, `unit`):** the socket;
   the anchor and the debugger check; the frame source (generation, the command line, a whole run).
+- **`backend_system_tests` (Python, `system`):** the back end as Fillscope builds it: the exchange
+  and a random-trading client run together for about half a minute, and the test, joined to the
+  exchange's incremental market data feed, sees orders added and every update arrive in sequence.
+  The exchange's ports are fixed in its code, so it fails at once if another exchange is running.
 - **`lockstep_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** the anchor under GDB and LLDB, driven through the frame source, by breakpoint and
   by self-stop, at `-O0` and `-O2`; every stop is in the anchor, in `anchor.cpp`, at the right

@@ -215,6 +215,13 @@ MUTANTS = [
     ("the check doesn't compare the numbers", ATTRIBUTION,
      [("    if report(root, commit) != text:", "    if False:")],
      "attribution_tests"),
+    ("a submodule's entry is counted as a file", ATTRIBUTION,
+     [('            if mode in ("100644", "100755"):', '            if True:')],
+     "attribution_tests"),
+    # The system tier's timeout must reach its test: at one second, the test (half a minute) fails.
+    ("the system tier's timeout is one second", "tests/CMakeLists.txt",
+     [("set(FILLSCOPE_TIMEOUT_system 120)", "set(FILLSCOPE_TIMEOUT_system 1)")],
+     "backend_system_tests"),
     ("a drain takes everything waiting", CHANNEL,
      [("while (sender_ && result.received < max_per_drain_) {", "while (sender_) {")],
      "Channel.ADrainTakesAtMostItsBound"),

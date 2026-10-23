@@ -35,6 +35,7 @@ set(FILLSCOPE_TIMEOUT_unit 2)
 set(FILLSCOPE_TIMEOUT_ui 10)
 set(FILLSCOPE_TIMEOUT_debugger 30)
 set(FILLSCOPE_TIMEOUT_check 30)
+set(FILLSCOPE_TIMEOUT_system 120)
 
 # Registers test program `name`: a GoogleTest program (GTEST), a program built here (neither
 # option), or a command that isn't built here (COMMAND, e.g. Node running the extension's tests;
@@ -113,6 +114,7 @@ target_compile_definitions(imgui_te PUBLIC IMGUI_USER_CONFIG="imconfig_test_engi
 target_link_libraries(imgui_te PUBLIC Threads::Threads)
 
 add_subdirectory(attribution)
+add_subdirectory(backend)
 add_subdirectory(channel)
 add_subdirectory(docs)
 add_subdirectory(lockstep)

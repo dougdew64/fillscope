@@ -28,7 +28,10 @@ regenerates [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md) (`python3 -I tools/attrib
 so the report describes the commit before.
 
 ## Every session
-1. `git pull`; commit and push every commit at once, without asking.
+1. `git pull --recurse-submodules` (so `backend/` moves to its pinned commit); commit and push
+   every commit at once, without asking. `backend/` is a submodule, the
+   fork of the back end: work there on its `fillscope` branch under its own `CLAUDE.md`, push it
+   first, then commit the new pin here.
 2. Use `date` for today's date.
 
 ## Documents

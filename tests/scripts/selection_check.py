@@ -23,7 +23,7 @@ sys.dont_write_bytecode = True
 EXTENSION = {"vscode_debug_state_tests", "vscode_debug_state_typecheck"}
 ATTRIBUTION = {"attribution_tests", "attribution_report_check"}
 ALL = {"channel_tests", "docs_tests", "lockstep_tests", "frame_source_tests", "lockstep_debugger_tests",
-       "viewer_tests", "viewer_ui_tests", "scripts_tests"} | EXTENSION | ATTRIBUTION
+       "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests"} | EXTENSION | ATTRIBUTION
 # The programs iterate.py runs every time, affected or not.
 ALWAYS = {"docs_tests", "attribution_report_check"}
 
@@ -45,7 +45,7 @@ CASES = [
     ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"}),
     ("src/lockstep/anchor.cpp", CPP_PROBE, {"lockstep_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
     ("tools/frame_source/frame_source.cpp", CPP_PROBE, {"frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
-    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests", "docs_tests", "viewer_tests", "scripts_tests"} - EXTENSION - ATTRIBUTION),
+    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests", "docs_tests", "viewer_tests", "scripts_tests", "backend_system_tests"} - EXTENSION - ATTRIBUTION),
     ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
     ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
     ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
@@ -58,6 +58,8 @@ CASES = [
      {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_tests", "viewer_ui_tests"}),
     ("tools/vscode-debug-state/tsconfig.json", JS_PROBE, EXTENSION),
     ("tools/attribution/attribution.py", TEXT_PROBE, ATTRIBUTION),
+    # The back end reaches its test only as run-time files: the exchange and the client.
+    ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE, {"backend_system_tests"}),
     ("CMakeLists.txt", TEXT_PROBE, ALL),
     # Any build file can change how a test runs (a timeout, a label), so each one counts for all.
     ("tests/viewer/CMakeLists.txt", TEXT_PROBE, ALL),

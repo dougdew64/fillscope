@@ -4,8 +4,8 @@
 # nothing behind that matters: the copy is in a temporary directory and is deleted afterwards.
 #
 # The copy holds the working tree as it is, uncommitted changes included: every file git tracks or
-# would track (untracked files that aren't ignored), plus the extension's installed development
-# tools. It is made a git repository of its own, since iterate.py asks git which build files exist,
+# would track (untracked files that aren't ignored), the back end's (a submodule's) files likewise,
+# plus the extension's installed development tools. It is made a git repository of its own, since iterate.py asks git which build files exist,
 # with the real repository's history (below).
 # Its build reuses the dependencies the real debug build has already fetched, when it has, rather
 # than fetching them again.
@@ -32,18 +32,27 @@ def tracked_files(root):
     return [name for name in listed.split("\0") if name and (root / name).exists()]
 
 
+def copy_file(source, target):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if source.is_symlink():
+        target.symlink_to(os.readlink(source))
+    else:
+        shutil.copy2(source, target)
+
+
 def make(root):
     """Copies the working tree at `root` into a new temporary directory, and returns its path.
     Modification times are kept, so the copy's build sees the files as they are."""
     copy = pathlib.Path(tempfile.mkdtemp(prefix="fillscope-check-"))
     for name in tracked_files(root):
         source = root / name
-        target = copy / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if source.is_symlink():
-            target.symlink_to(os.readlink(source))
+        if source.is_dir() and not source.is_symlink():
+            # A submodule (backend/): git lists it as one entry. Its own files are copied, and in
+            # the copy they are plain files of the copy's repository.
+            for inner in tracked_files(source):
+                copy_file(source / inner, copy / name / inner)
         else:
-            shutil.copy2(source, target)
+            copy_file(source, copy / name)
     if (root / NODE_MODULES).is_dir():
         shutil.copytree(root / NODE_MODULES, copy / NODE_MODULES, symlinks=True)
     quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "check": True}

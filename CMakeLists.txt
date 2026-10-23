@@ -94,6 +94,14 @@ add_executable(viewer src/viewer/main.cpp ${VIEWER_UI_SOURCES})
 target_link_libraries(viewer PRIVATE fillscope_viewer_core imgui_app)
 target_compile_options(viewer PRIVATE ${FILLSCOPE_WARNINGS})
 
+# backend: the trading system Fillscope observes, a fork of the one in Ghosh's book, pinned as a git
+# submodule (docs/PLAN.md). Built with its own build file and flags, as its own build would, plus
+# the sanitizers in the sanitizer build. Its programs: exchange_main and trading_main.
+if(NOT EXISTS ${PROJECT_SOURCE_DIR}/backend/Chapter12/CMakeLists.txt)
+  message(FATAL_ERROR "backend/ is empty: run `git submodule update --init`")
+endif()
+add_subdirectory(backend/Chapter12)
+
 if(FILLSCOPE_TESTS)
   enable_testing()
   add_subdirectory(tests)

@@ -107,6 +107,15 @@ class BlameTest(TempRepoTest):
 
 
 class ReportTest(TempRepoTest):
+    def test_a_submodule_is_not_counted(self):
+        # A submodule is a commit of another repository, recorded as one entry (a gitlink); its
+        # lines are that repository's report's to count.
+        other = self.repo.commit("Other", **{"a.cpp": "x\n"})
+        self.repo.git("update-index", "--add", "--cacheinfo", f"160000,{other},backend")
+        self.repo.git("commit", "-q", "-m", "Submodule" + TRAILER)
+        self.assertEqual(attribution.text_files(self.repo.root, "HEAD"), ["a.cpp"])
+        self.assertNotIn("backend", attribution.report(self.repo.root, "HEAD"))
+
     def test_binary_files_symlinks_the_report_and_files_nobody_wrote_are_not_counted(self):
         self.repo.write("image.png", "")
         (self.repo.root / "image.png").write_bytes(b"\x89PNG\0\0binary")
