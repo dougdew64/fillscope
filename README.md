@@ -1,11 +1,15 @@
 # Fillscope
 
+**Purpose:** what Fillscope is, what it will do, how it's built, and where everything else is.
+**Status:** reference; the front page. **Read when:** first, before any other document.
+
 **An explainable order-book backtester: click any order, ask why it filled.**
 
 > **Status:** just started (October 2026). The plumbing is built: a stand-in source of frames, a
 > viewer, the socket between them, stepping both in a debugger in lockstep, and publishing what you
-> point at for an assistant. The back end will be a fork of the trading system built in Sourav
-> Ghosh's *Building Low Latency Applications with C++* ([docs/PLAN.md](docs/PLAN.md)); the rest of
+> point at for an assistant. The back end, a fork of the trading system built in Sourav Ghosh's
+> *Building Low Latency Applications with C++*, is built and tested by Fillscope but not yet
+> connected to the viewer ([docs/PLAN.md](docs/PLAN.md)); the rest of
 > this README describes the plan.
 
 A backtest replays history and simulates how a strategy's orders would have been filled. Its results

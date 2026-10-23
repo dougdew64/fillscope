@@ -39,9 +39,10 @@ Where two priorities conflict, the higher wins.
 2. **The features that distinguish it:** fill explanations grounded in exact state; per-order
    counterfactuals made exact by deterministic replay; how much of a result depends on the queue and
    latency assumptions; an animated replay; debugger lockstep with the matching engine.
-3. **No AI in the app.** The app makes its state observable and logs the context of what is
-   selected; an assistant works beside it in the editor, reading the source and that context, and
-   runs counterfactual replays through a command-line tool.
+3. **No AI in the app.** The app makes its state observable and publishes the context of what is
+   selected, to a file it replaces on every change (`.fillscope/context.json`); an assistant works
+   beside it in the editor, reading the source and that context, and runs counterfactual replays
+   through a command-line tool.
 4. **C++ on Linux throughout,** including the UI: Dear ImGui with ImPlot. Everything builds with
    GCC, with AddressSanitizer and UndefinedBehaviorSanitizer, and ThreadSanitizer for threaded code.
 5. **Tests below the UI first:** core unit tests, replay fidelity checks, the command-line tool. UI

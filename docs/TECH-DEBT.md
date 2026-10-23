@@ -14,28 +14,22 @@ The back end's known issues (the fork of the book's trading system, `backend/`) 
 "Known issues" of its README, `backend/README.md`, which owns them; the fork fixes its bugs as it
 finds them, each with a test, and lists them there.
 
-## For the owner
-1. **The charter's decision 3** says the app "logs the context of what is selected"; it writes a
-   file, `.fillscope/context.json`, replaced on every change (as README.md says).
-2. **README.md** lacks the Purpose, Status and Read when lines that CLAUDE.md requires of every
-   document.
-
 ## Not tested, and why
-3. **The anchor's warning when `/proc/self/status` can't be read** has no test: a test can't make
+1. **The anchor's warning when `/proc/self/status` can't be read** has no test: a test can't make
    that file unreadable to its own process without a container of its own.
-4. **The LLDB driver's guard against a runaway run** ("too many stops", after 1,000) never runs:
+2. **The LLDB driver's guard against a runaway run** ("too many stops", after 1,000) never runs:
    no test program stops that often.
 
 ## Left in place deliberately
-5. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
+3. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
    GDB and LLDB use here, that is the whole truth. In non-stop debugging, another thread can still
    be stopped after the published one resumes. *Fix, if non-stop debugging is ever used:* publish
    stops per thread.
-6. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
+4. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
    file names its writer's process id, and the documents say to use one window.
-7. **A writer that crashes, or is killed with SIGKILL, leaves its file saying "running".** The
+5. **A writer that crashes, or is killed with SIGKILL, leaves its file saying "running".** The
    viewer handles SIGINT and SIGTERM, and the extension marks its last write; for the rest, both
    files name their writer's process id and start time, and a reader that must be sure checks
    that the process is alive.
-8. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
+6. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
    so each run records the toolchain's versions instead.
