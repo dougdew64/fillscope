@@ -10,6 +10,10 @@ first found 59 items, fixed in the "Tech debt, chunk 1" to "chunk 5" commits. Th
 the code, found 64, fixed in the "Second sweep, chunk 1" to "chunk 5" commits; their messages name
 the items each fixed. What remains is below.
 
+The back end's known issues (the fork of the book's trading system, `backend/`) are listed in the
+"Known issues" of its README, `backend/README.md`, which owns them; the fork fixes its bugs as it
+finds them, each with a test, and lists them there.
+
 ## For the owner
 1. **The charter's decision 3** says the app "logs the context of what is selected"; it writes a
    file, `.fillscope/context.json`, replaced on every change (as README.md says).
