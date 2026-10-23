@@ -6,8 +6,8 @@
 
 namespace fillscope {
 
-void Selection::point_at(const Frame& frame) {
-    pointed_ = frame;
+void Selection::point_at(const PointTarget& target) {
+    pointed_ = target;
     point_seq_ = next_seq_++;
 }
 
@@ -16,8 +16,8 @@ void Selection::clear_point() {
     point_seq_ = next_seq_++;
 }
 
-void Selection::follow(std::uint32_t id) {
-    followed_ = id;
+void Selection::follow(const OrderRef& order) {
+    followed_ = order;
     follow_seq_ = next_seq_++;
 }
 
@@ -26,51 +26,95 @@ void Selection::clear_follow() {
     follow_seq_ = next_seq_++;
 }
 
-void Selection::new_run() {
-    pointed_.reset();  // point_seq_ unchanged: the user didn't do this
+OrderState order_state(const BookBuilder& books, const OrderRef& ref) {
+    OrderState state;
+    state.ref = ref;
+    if (ref.ticker >= BookBuilder::kTickers) {
+        return state;
+    }
+    const Book& book = books.book(ref.ticker);
+    if (const Order* order = book.find(ref.order_id)) {
+        state.resting = *order;
+        // Its place in its price's queue: the orders that fill before it.
+        if (const auto level = book.level(order->side, order->price)) {
+            for (const Order& other : level->orders) {
+                if (other.order_id == ref.order_id) {
+                    break;
+                }
+                ++state.orders_ahead;
+                state.qty_ahead += other.qty;
+            }
+        }
+    }
+    const auto history = books.history(ref.ticker, ref.order_id);
+    if (!history.empty()) {
+        state.last_event = history.back();
+    }
+    return state;
 }
 
+namespace {
+
+LevelState level_state(const BookBuilder& books, const LevelRef& ref) {
+    LevelState state;
+    state.ref = ref;
+    if (ref.ticker >= BookBuilder::kTickers) {
+        return state;
+    }
+    if (const auto level = books.book(ref.ticker).level(ref.side, ref.price)) {
+        state.present = true;
+        state.qty = level->qty;
+        state.order_count = level->orders.size();
+        const auto listed = std::min(level->orders.size(), kMaxLevelOrders);
+        state.orders.assign(level->orders.begin(), level->orders.begin() + static_cast<std::ptrdiff_t>(listed));
+    }
+    return state;
+}
+
+}  // namespace
+
 Context make_context(const ViewerState& state, const Selection& selection) {
+    const BookBuilder& books = state.books;
     Context context;
-    context.source.connected = state.source_connected;
-    context.source.error = state.source_error;
+    Context::Feed& feed = context.feed;
+    feed.status = books.status();
+    feed.last_seq = books.last_seq();
+    feed.updates_received = books.updates_received();
+    feed.recovering_because = books.recovering_because();
+    feed.recovery_count = books.recoveries().size();
+    const auto recoveries = books.recoveries();
+    const auto latest = recoveries.last(std::min(recoveries.size(), kMaxListedRecoveries));
+    feed.latest_recoveries.assign(latest.begin(), latest.end());
+    feed.error = state.feed_error;
+    feed.shown_ticker = state.shown_ticker;
 
-    // A run's seed, if it has one: what turns a frame index into a replay address.
-    std::optional<std::uint64_t> seed;
-    if (state.run) {
-        const Run& run = *state.run;
-        context.source.run_number = run.number();
-        context.source.run = run.hello();
-        context.source.no_replay_reason = run.no_replay_reason();
-        context.source.frames_received = run.frames().size();
-        if (!run.frames().empty()) {
-            context.source.latest_frame_index = run.frames().back().index;
-        }
-        if (!context.source.no_replay_reason) {
-            seed = run.hello()->seed;  // no reason means the run has a description, so a seed
-        }
-    }
-
-    if (const auto& frame = selection.pointed()) {
-        context.point = Context::Point{.seq = selection.point_seq(), .frame = *frame, .replay = std::nullopt};
-        if (seed) {
-            context.point->replay = ReplayAddress{.seed = *seed, .frame_index = frame->index};
+    if (const auto& pointed = selection.pointed()) {
+        context.point = Context::Point{.seq = selection.point_seq(), .target = OrderState{}};
+        if (const auto* order = std::get_if<OrderRef>(&*pointed)) {
+            context.point->target = order_state(books, *order);
+        } else {
+            context.point->target = level_state(books, std::get<LevelRef>(*pointed));
         }
     }
 
-    if (const auto id = selection.followed()) {
-        // The run keeps each id's frame indices as frames arrive, so this costs at most
-        // kMaxFollowedIndices copies per paint, not a scan of the run.
-        const std::span<const std::uint64_t> indices =
-            state.run ? state.run->indices_of(*id) : std::span<const std::uint64_t>{};
-        const auto listed = indices.first(std::min(indices.size(), kMaxFollowedIndices));
-        context.follow = Context::Follow{
-            .seq = selection.follow_seq(),
-            .id = *id,
-            .frame_indices = {listed.begin(), listed.end()},
-            .frame_count = indices.size(),
-            .seed = seed,
-        };
+    if (const auto& followed = selection.followed()) {
+        Context::Follow follow;
+        follow.seq = selection.follow_seq();
+        follow.order = order_state(books, *followed);
+        if (followed->ticker < BookBuilder::kTickers) {
+            const auto history = books.history(followed->ticker, followed->order_id);
+            follow.event_count = history.size();
+            const auto listed = history.first(std::min(history.size(), kMaxFollowedEvents));
+            follow.events.assign(listed.begin(), listed.end());
+            if (!history.empty()) {
+                for (const Recovery& recovery : books.recoveries()) {
+                    if (recovery.snapshot_seq >= history.front().seq) {
+                        follow.gaps.push_back(recovery);
+                    }
+                }
+            }
+        }
+        context.follow = std::move(follow);
     }
     return context;
 }
@@ -83,8 +127,49 @@ nlohmann::ordered_json or_null(const std::optional<T>& value) {
     return value ? nlohmann::ordered_json(*value) : nlohmann::ordered_json(nullptr);
 }
 
-nlohmann::ordered_json frame_json(const Frame& frame) {
-    return {{"index", frame.index}, {"id", frame.id}, {"price", frame.price}, {"qty", frame.qty}};
+std::string_view status_name(BookBuilder::Status status) {
+    switch (status) {
+    case BookBuilder::Status::waiting: return "waiting";
+    case BookBuilder::Status::live: return "live";
+    case BookBuilder::Status::recovering: return "recovering";
+    }
+    return "unknown";
+}
+
+nlohmann::ordered_json event_json(const OrderEvent& event) {
+    return {{"seq", event.seq},           {"type", to_string(event.type)}, {"side", to_string(event.side)},
+            {"price", event.price},       {"qty", event.qty},              {"fromSnapshot", event.from_snapshot}};
+}
+
+nlohmann::ordered_json recovery_json(const Recovery& recovery) {
+    return {{"afterSeq", recovery.after_seq}, {"snapshotSeq", recovery.snapshot_seq}, {"reason", recovery.reason}};
+}
+
+nlohmann::ordered_json order_json(const OrderState& order) {
+    nlohmann::ordered_json resting = nullptr;
+    if (order.resting) {
+        resting = {{"side", to_string(order.resting->side)},
+                   {"price", order.resting->price},
+                   {"qty", order.resting->qty},
+                   {"priority", order.resting->priority},
+                   {"ordersAhead", order.orders_ahead},
+                   {"qtyAhead", order.qty_ahead}};
+    }
+    nlohmann::ordered_json last_event = nullptr;
+    if (order.last_event) {
+        last_event = event_json(*order.last_event);
+    }
+    return {{"ticker", order.ref.ticker}, {"orderId", order.ref.order_id}, {"resting", resting}, {"lastEvent", last_event}};
+}
+
+nlohmann::ordered_json level_json(const LevelState& level) {
+    nlohmann::ordered_json orders = nlohmann::ordered_json::array();
+    for (const Order& order : level.orders) {
+        orders.push_back({{"orderId", order.order_id}, {"qty", order.qty}, {"priority", order.priority}});
+    }
+    return {{"ticker", level.ref.ticker},  {"side", to_string(level.ref.side)}, {"price", level.ref.price},
+            {"present", level.present},    {"qty", level.qty},                    {"orderCount", level.order_count},
+            {"orders", orders},            {"ordersTruncated", level.truncated()}};
 }
 
 }  // namespace
@@ -92,43 +177,46 @@ nlohmann::ordered_json frame_json(const Frame& frame) {
 nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std::uint64_t seq,
                                std::int64_t written_at_ms) {
     nlohmann::ordered_json json;
-    json["version"] = 1;
+    json["version"] = 2;
     json["seq"] = seq;
     json["writtenAtMs"] = written_at_ms;
     json["writer"] = {{"program", "viewer"}, {"pid", writer.pid}, {"startedAtMs", writer.started_at_ms},
                       {"running", writer.running}};
     json["about"] =
-        "What the Fillscope viewer's user has pointed at and followed. 'point' is one frame, the subject; "
-        "'follow' is one id across the frames where it appears. Each section's seq is taken when the user "
-        "changes that section, so the higher one is what the user did last (a section the viewer clears "
-        "itself, as a new run clears the point, takes none). A replay address (seed, frame index) "
-        "identifies one exact state, reproducible by running the frame source with that seed; when the run "
-        "has none, background.noReplayAddress says why. 'writer' "
-        "says which viewer wrote this file and whether it is still running.";
+        "What the Fillscope viewer's user has pointed at and followed in the exchange's order books, which the "
+        "viewer rebuilds from the exchange's market data. 'point' is an order or a price level, the subject; "
+        "'follow' is an order through every update the books applied to it. Both are as of the incremental "
+        "update background.feed.lastSeq. A resting order's ordersAhead and qtyAhead are what fills before it at "
+        "its price. Each section's seq is taken when the user changes that section, so the higher one is what "
+        "the user did last. While background.feed.status is 'recovering', updates were missed and the books are "
+        "as of lastSeq, older than the exchange; follow.gaps lists the recoveries whose updates an order's "
+        "events may be missing. 'writer' says which viewer wrote this file and whether it is still running.";
 
-    const Context::Source& source = context.source;
-    nlohmann::ordered_json run = nullptr;
-    if (source.run) {
-        run = {{"seed", source.run->seed}, {"frameCount", source.run->frame_count}};
+    const Context::Feed& feed = context.feed;
+    nlohmann::ordered_json latest = nlohmann::ordered_json::array();
+    for (const Recovery& recovery : feed.latest_recoveries) {
+        latest.push_back(recovery_json(recovery));
     }
     json["background"] = {
-        {"source", {{"connected", source.connected}, {"run", run}, {"error", or_null(source.error)}}},
-        {"runNumber", or_null(source.run_number)},
-        {"framesReceived", source.frames_received},
-        {"moreFramesThanDescribed", source.more_frames_than_described()},
-        {"latestFrameIndex", or_null(source.latest_frame_index)},
-        {"noReplayAddress", or_null(source.no_replay_reason)},
+        {"feed",
+         {{"status", status_name(feed.status)},
+          {"lastSeq", feed.last_seq},
+          {"updatesReceived", feed.updates_received},
+          {"recoveringBecause", or_null(feed.recovering_because)},
+          {"recoveryCount", feed.recovery_count},
+          {"latestRecoveries", latest},
+          {"error", or_null(feed.error)}}},
+        {"shownTicker", feed.shown_ticker},
+        {"noReplayAddress", kNoReplayAddress},
     };
 
     if (context.point) {
         const Context::Point& point = *context.point;
-        nlohmann::ordered_json replay = nullptr;
-        if (point.replay) {
-            replay = {{"seed", point.replay->seed}, {"frameIndex", point.replay->frame_index}};
-        }
-        json["point"] = {{"seq", point.seq}, {"frame", frame_json(point.frame)}, {"replayAddress", replay}};
-        if (!point.replay) {
-            json["point"]["replayAddressMissing"] = source.no_replay_reason.value_or("no run");
+        json["point"] = {{"seq", point.seq}, {"asOfSeq", feed.last_seq}};
+        if (const auto* order = std::get_if<OrderState>(&point.target)) {
+            json["point"]["order"] = order_json(*order);
+        } else {
+            json["point"]["level"] = level_json(std::get<LevelState>(point.target));
         }
     } else {
         json["point"] = nullptr;
@@ -136,50 +224,93 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
 
     if (context.follow) {
         const Context::Follow& follow = *context.follow;
-        json["follow"] = {
-            {"seq", follow.seq},
-            {"id", follow.id},
-            {"frameCount", follow.frame_count},
-            {"frameIndices", follow.frame_indices},
-            {"frameIndicesTruncated", follow.truncated()},
-            {"seed", or_null(follow.seed)},
-        };
+        nlohmann::ordered_json events = nlohmann::ordered_json::array();
+        for (const OrderEvent& event : follow.events) {
+            events.push_back(event_json(event));
+        }
+        nlohmann::ordered_json gaps = nlohmann::ordered_json::array();
+        for (const Recovery& gap : follow.gaps) {
+            gaps.push_back(recovery_json(gap));
+        }
+        json["follow"] = {{"seq", follow.seq},
+                          {"asOfSeq", feed.last_seq},
+                          {"order", order_json(follow.order)},
+                          {"eventCount", follow.event_count},
+                          {"events", events},
+                          {"eventsTruncated", follow.truncated()},
+                          {"gaps", gaps}};
     } else {
         json["follow"] = nullptr;
     }
     return json;
 }
 
+namespace {
+
+std::string plural(std::size_t count, std::string_view one, std::string_view many) {
+    return std::format("{} {}", count, count == 1 ? one : many);
+}
+
+// How an order stands, for the bar: resting, with its place; or how it left; or never seen.
+std::string order_summary(const OrderState& order) {
+    if (order.resting) {
+        return std::format("{} {} @ {}, {} ({}) ahead of it in its queue", to_string(order.resting->side), order.resting->qty,
+                           order.resting->price, plural(order.orders_ahead, "order", "orders"), order.qty_ahead);
+    }
+    if (order.last_event) {
+        return std::format("not in the book (its last update: {} at update {})", to_string(order.last_event->type),
+                           order.last_event->seq);
+    }
+    return "never seen";
+}
+
+}  // namespace
+
 ContextBarText bar_text(const Context& context) {
     ContextBarText text;
-    const Context::Source& source = context.source;
-    const std::string connection = source.connected ? "connected"
-                                   : source.error   ? std::format("not connected (the last source was dropped: {})", *source.error)
-                                                    : "not connected";
-    if (source.more_frames_than_described()) {
-        text.background = std::format("source seed {} · {} frames (the source said {}) · {}", source.run->seed,
-                                      source.frames_received, source.run->frame_count, connection);
-    } else if (source.run) {
-        text.background = std::format("source seed {} · {} of {} frames · {}", source.run->seed,
-                                      source.frames_received, source.run->frame_count, connection);
-    } else if (source.frames_received > 0) {
-        text.background = std::format("a source that didn't describe its run · {} frames · {}",
-                                      source.frames_received, connection);
-    } else {
-        text.background = std::format("no frames yet · {}", connection);
+    const Context::Feed& feed = context.feed;
+    switch (feed.status) {
+    case BookBuilder::Status::waiting:
+        text.background = "waiting for the exchange's market data";
+        break;
+    case BookBuilder::Status::live:
+        text.background = std::format("exchange live at update {}", feed.last_seq);
+        break;
+    case BookBuilder::Status::recovering:
+        text.background = std::format("exchange: recovering, the books are as of update {} ({})", feed.last_seq,
+                                      feed.recovering_because.value_or("updates were missed"));
+        break;
+    }
+    text.background += std::format(" · showing ticker {}", feed.shown_ticker);
+    if (feed.recovery_count > 0) {
+        text.background += std::format(" · {}", plural(feed.recovery_count, "recovery", "recoveries"));
+    }
+    if (feed.error) {
+        text.background += std::format(" · last error: {}", *feed.error);
     }
 
     if (context.point) {
-        const Frame& frame = context.point->frame;
-        text.point = std::format("Pointing at frame #{} (id {}, price {}, qty {}){}", frame.index, frame.id,
-                                 frame.price, frame.qty, context.point->replay ? "" : " · no replay address");
+        if (const auto* order = std::get_if<OrderState>(&context.point->target)) {
+            text.point = std::format("Pointing at order {} of ticker {}: {}", order->ref.order_id, order->ref.ticker,
+                                     order_summary(*order));
+        } else {
+            const LevelState& level = std::get<LevelState>(context.point->target);
+            text.point = level.present
+                             ? std::format("Pointing at {} {} of ticker {}: {} in {}", to_string(level.ref.side), level.ref.price,
+                                           level.ref.ticker, level.qty, plural(level.order_count, "order", "orders"))
+                             : std::format("Pointing at {} {} of ticker {}: no orders at that price now",
+                                           to_string(level.ref.side), level.ref.price, level.ref.ticker);
+        }
     }
     if (context.follow) {
         const Context::Follow& follow = *context.follow;
-        text.follow = std::format("Following id {}: {} frame{}{}", follow.id, follow.frame_count,
-                                  follow.frame_count == 1 ? "" : "s",
-                                  follow.truncated() ? std::format(" (first {} listed)", follow.frame_indices.size())
-                                                     : std::string{});
+        text.follow = std::format("Following order {} of ticker {}: {}{}, {}", follow.order.ref.order_id, follow.order.ref.ticker,
+                                  plural(follow.event_count, "event", "events"),
+                                  follow.truncated() ? std::format(" (first {} listed)", follow.events.size()) : std::string{},
+                                  order_summary(follow.order));
+        if (!follow.gaps.empty()) {
+            *text.follow += std::format(" · {} may hide some of its events", plural(follow.gaps.size(), "recovery", "recoveries"));
+        }
     }
     return text;
 }

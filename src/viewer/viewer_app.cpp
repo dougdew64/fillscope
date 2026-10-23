@@ -1,53 +1,44 @@
 #include "viewer/viewer_app.h"
 
 #include <format>
-#include <variant>
-#include <vector>
 
 namespace fillscope {
 
-void ViewerApp::receive(MessageReceiver& receiver, Clock::time_point now) {
+void ViewerApp::receive(FeedSocket& incremental, FeedSocket& snapshot, Clock::time_point now) {
     received_.clear();  // keeps its storage
-    if (receiver.drain(received_).new_sender) {
-        connection_pending_ = true;
+    if (const auto result = incremental.receive(received_, kMaxDatagramsPerPaint); result.error) {
+        state_.feed_error = result.error;
     }
-    for (const Message& message : received_) {
-        if (connection_pending_) {
-            begin_connection();
-            connection_pending_ = false;
-        }
-        apply(message, now);
+    for (const MarketUpdate& update : received_) {
+        apply_incremental(update, now);
     }
-    state_.source_connected = receiver.connected();
-    state_.source_error = receiver.error();
+    received_.clear();
+    if (const auto result = snapshot.receive(received_, kMaxDatagramsPerPaint); result.error) {
+        state_.feed_error = result.error;
+    }
+    for (const MarketUpdate& update : received_) {
+        apply_snapshot(update);
+    }
 }
 
-void ViewerApp::begin_connection() {
-    state_.begin_connection();
-    selection_.new_run();
-    last_frame_at_.reset();
+void ViewerApp::apply_incremental(const MarketUpdate& update, Clock::time_point now) {
+    state_.books.on_incremental(update);
+    last_update_at_ = now;
 }
 
-void ViewerApp::apply(const Message& message, Clock::time_point now) {
-    if (state_.apply(message)) {
-        selection_.new_run();
-    }
-    if (std::holds_alternative<Frame>(message)) {
-        last_frame_at_ = now;  // a frame, not just any message, resets "seconds since last frame"
-    }
-}
+void ViewerApp::apply_snapshot(const MarketUpdate& update) { state_.books.on_snapshot(update); }
 
 ViewerActions ViewerApp::paint(Clock::time_point now) {
-    ViewerTiming timing{.seconds_since_frame = std::nullopt, .paints = paints_};
-    if (last_frame_at_) {
-        timing.seconds_since_frame = std::chrono::duration<double>(now - *last_frame_at_).count();
+    ViewerTiming timing{.seconds_since_update = std::nullopt, .paints = paints_};
+    if (last_update_at_) {
+        timing.seconds_since_update = std::chrono::duration<double>(now - *last_update_at_).count();
     }
     const ViewerActions actions = draw_viewer(ViewerView{.state = state_,
                                                          .timing = timing,
                                                          .published = publisher_.published(),
                                                          .published_bar = publisher_.published_bar(),
                                                          .publish_error = publisher_.error()});
-    fillscope::apply(actions, selection_);
+    fillscope::apply(actions, selection_, state_);
     publisher_.update(make_context(state_, selection_),
                       actions.any() ? PublishTrigger::user_action : PublishTrigger::background, now);
     ++paints_;

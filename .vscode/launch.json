@@ -1,6 +1,8 @@
 {
-  // Debugger lockstep (docs/DEBUGGER-LOCKSTEP.md), under CodeLLDB. Start one of the compounds: the
-  // viewer and the frame source each get a debug session.
+  // The viewer beside the back end (backend/): the exchange and a client trading at random, each in a
+  // debug session of its own, under CodeLLDB. Start the compound. The back end runs in its build
+  // directory, where it writes its logs. Stepping the matcher with the viewer in lockstep is step 6 of
+  // docs/PLAN.md.
   "version": "0.2.0",
   "configurations": [
     {
@@ -11,32 +13,31 @@
       "cwd": "${workspaceFolder}"
     },
     {
-      "name": "frame source (self-stop)",
+      // A snapshot every 5 seconds, where the book's exchange has a minute, so a viewer started late
+      // catches up quickly.
+      "name": "exchange",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/build/debug/frame_source",
-      "args": ["--self-stop"],
-      "cwd": "${workspaceFolder}"
+      "program": "${workspaceFolder}/build/debug/backend/Chapter12/exchange_main",
+      "args": ["--snapshot-interval-seconds", "5"],
+      "cwd": "${workspaceFolder}/build/debug/backend/Chapter12"
     },
     {
-      "name": "frame source (breakpoint by name)",
+      // Client 5 trades at random. It needs the exchange's order port open, which takes the exchange
+      // about ten seconds.
+      "name": "client (random)",
       "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/build/debug/frame_source",
-      "preRunCommands": ["breakpoint set -n fillscope_frame_anchor"],
-      "cwd": "${workspaceFolder}"
+      "program": "${workspaceFolder}/build/debug/backend/Chapter12/trading_main",
+      "args": ["5", "RANDOM"],
+      "cwd": "${workspaceFolder}/build/debug/backend/Chapter12",
+      "preLaunchTask": "wait for the exchange"
     }
   ],
   "compounds": [
     {
-      "name": "viewer + frame source (self-stop)",
-      "configurations": ["viewer", "frame source (self-stop)"],
-      "preLaunchTask": "build",
-      "stopAll": true
-    },
-    {
-      "name": "viewer + frame source (breakpoint by name)",
-      "configurations": ["viewer", "frame source (breakpoint by name)"],
+      "name": "viewer + exchange + client",
+      "configurations": ["viewer", "exchange", "client (random)"],
       "preLaunchTask": "build",
       "stopAll": true
     }

@@ -9,6 +9,13 @@
       "problemMatcher": ["$gcc"]
     },
     {
+      // For a client: the exchange's order port (12345, fixed in its code) open, or 30 seconds gone.
+      "label": "wait for the exchange",
+      "type": "shell",
+      "command": "for i in $(seq 300); do (exec 3<>/dev/tcp/127.0.0.1/12345) 2>/dev/null && exit 0; sleep 0.1; done; echo 'the exchange did not open port 12345 within 30 seconds'; exit 1",
+      "problemMatcher": []
+    },
+    {
       "label": "test: affected (between edits)",
       "type": "shell",
       "command": "python3 -I tests/scripts/iterate.py",

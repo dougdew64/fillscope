@@ -14,3 +14,5 @@ fillscope_test_program(backend_system_tests system
           $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>
   RUNTIME_DEPS ${CMAKE_CURRENT_SOURCE_DIR}/backend_system_test.py $<TARGET_FILE:exchange_main>
                $<TARGET_FILE:trading_main> ${Python3_EXECUTABLE})
+# It runs an exchange, whose ports are fixed in its code: one test at a time may (feed_system_tests too).
+set_tests_properties(backend_system_tests PROPERTIES RESOURCE_LOCK exchange)

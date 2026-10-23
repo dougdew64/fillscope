@@ -3,28 +3,27 @@
 #include <imgui.h>
 #include <imgui_internal.h>  // IMGUI_TEST_ENGINE_ITEM_INFO, ImGuiItemStatusFlags
 
-#include <algorithm>
-#include <cmath>
-#include <cstdint>
 #include <concepts>
-#include <span>
+#include <cstddef>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace fillscope {
 namespace {
 
-constexpr float kPlotHeight = 120.0f;
 constexpr ImVec4 kErrorColor{1.0f, 0.4f, 0.4f, 1.0f};
 constexpr ImVec4 kFollowedRowColor{0.45f, 0.38f, 0.10f, 0.65f};
+constexpr ImVec4 kBidColor{0.45f, 0.85f, 0.45f, 1.0f};
+constexpr ImVec4 kAskColor{0.95f, 0.50f, 0.45f, 1.0f};
 
 // Draws text that is already formatted. TextUnformatted takes the characters as they are, with no
 // printf-style % processing, so a '%' in the text can't be misread as a format directive.
 void text(std::string_view s) { ImGui::TextUnformatted(s.data(), s.data() + s.size()); }
 
 // A tooltip for the item just drawn, while it is hovered. `describe` builds the text, and is called
-// only while hovered, so no tooltip text is built for the rows nobody is pointing at.
+// only while hovered, so no tooltip text is built for the items nobody is pointing at.
 // std::invocable<F> is a C++20 concept: it accepts anything callable with no arguments.
 template <std::invocable F>
 void tooltip(F&& describe) {
@@ -35,9 +34,10 @@ void tooltip(F&& describe) {
 }
 
 // Tells the Dear ImGui Test Engine, when one is built in, whether the item just drawn is marked
-// (the pointed row, a followed id), as Dear ImGui does for a checkbox's tick. Dear ImGui doesn't
-// report a Selectable's selected state or a row's colour, so without this the UI tests could check
-// only the rule (row_marks), not the table as drawn. In the viewer itself the macro is empty.
+// (pointed at, followed, the ticker shown), as Dear ImGui does for a checkbox's tick. Dear ImGui
+// doesn't report a Selectable's selected state or a row's colour, so without this the UI tests could
+// check only the rule (level_marked and the rest), not the book as drawn. In the viewer itself the
+// macro is empty.
 void report_marked([[maybe_unused]] const Label& label, [[maybe_unused]] bool marked) {
     ImGuiContext& g = *ImGui::GetCurrentContext();  // the macro refers to the context as `g`
     IMGUI_TEST_ENGINE_ITEM_INFO(ImGui::GetItemID(), label.c_str(),
@@ -88,144 +88,203 @@ void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
     }
 }
 
-// The source's state, the latest frame and the viewer's own liveness.
+// The market data's state and the viewer's own liveness.
 void draw_status(const ViewerView& view) {
     const ViewerState& state = view.state;
-    if (state.source_connected) {
-        text("source: connected");
-    } else if (state.source_error) {
-        text(std::format("source: waiting (the last source was dropped: {})", *state.source_error));
-    } else {
-        text("source: waiting");
+    const BookBuilder& books = state.books;
+    switch (books.status()) {
+    case BookBuilder::Status::waiting:
+        text("market data: waiting for the exchange");
+        break;
+    case BookBuilder::Status::live:
+        text(std::format("market data: live, the books are as of update {}", books.last_seq()));
+        break;
+    case BookBuilder::Status::recovering:
+        text(std::format("market data: recovering, the books are as of update {}: {}; waiting for a snapshot",
+                         books.last_seq(), books.recovering_because().value_or("updates were missed")));
+        break;
     }
-    const std::size_t received = state.run ? state.run->frames().size() : 0;
-    text(std::format("frames received: {}", received));
-    if (received > 0) {
-        const Frame& last = state.run->frames().back();
-        text(std::format("last frame: #{}  id {}  price {}  qty {}", last.index, last.id, last.price, last.qty));
+    text(std::format("updates received: {}  recoveries: {}", books.updates_received(), books.recoveries().size()));
+    if (state.feed_error) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
+        text(std::format("last market data error: {}", *state.feed_error));
+        ImGui::PopStyleColor();
     }
-    if (view.timing.seconds_since_frame) {
-        text(std::format("seconds since last frame: {:.1f}", *view.timing.seconds_since_frame));
+    if (view.timing.seconds_since_update) {
+        text(std::format("seconds since last update: {:.1f}", *view.timing.seconds_since_update));
     }
-    text(std::format("viewer paints: {} (keeps rising while the source is stopped)", view.timing.paints));
+    text(std::format("viewer paints: {} (keeps rising while the exchange is stopped)", view.timing.paints));
 }
 
-// The prices, as their min/max envelope: reduced to at most one bucket per pixel of the plot's
-// width, and each bucket drawn as a vertical stroke from its low to its high, joined to its
-// neighbours at their midpoints. Drawn here rather than with ImGui::PlotLines, which samples its
-// points to the plot's pixel width and can skip one, and with it a spike; here every bucket is
-// drawn, so every price's extremes are on screen. The cost is set by the plot's width, not the
-// run's length.
-void draw_price_plot(const PriceEnvelope& prices) {
-    const float width = std::max(std::floor(ImGui::GetContentRegionAvail().x), 1.0f);
-    // An invisible button reserves the plot's space and gives it an ID the UI tests can find.
-    ImGui::InvisibleButton(kPricePlot, ImVec2{width, kPlotHeight});
-    const ImVec2 top_left = ImGui::GetItemRectMin();
-    const ImVec2 bottom_right = ImGui::GetItemRectMax();
-    ImDrawList& draw = *ImGui::GetWindowDrawList();
-    draw.AddRectFilled(top_left, bottom_right, ImGui::GetColorU32(ImGuiCol_FrameBg));
+// One button per ticker, with its order count; the shown one is marked.
+void draw_tickers(const ViewerView& view, ViewerActions& actions) {
+    text("ticker");
+    for (std::uint32_t ticker = 0; ticker < BookBuilder::kTickers; ++ticker) {
+        ImGui::SameLine();
+        const bool shown = ticker == view.state.shown_ticker;
+        const Label label = ticker_label(ticker);
+        if (ImGui::Selectable(label.c_str(), shown, ImGuiSelectableFlags_None, ImVec2{ImGui::GetFontSize() * 1.5f, 0.0f})) {
+            actions.show_ticker = ticker;
+        }
+        report_marked(label, shown);
+        tooltip([&] {
+            return std::format("Show ticker {}'s book ({}): {}", ticker,
+                               view.state.books.book(ticker).order_count() == 1
+                                   ? std::string{"1 order"}
+                                   : std::format("{} orders", view.state.books.book(ticker).order_count()),
+                               sends(view.publish_error));
+        });
+    }
+}
 
-    // Reused from paint to paint, so drawing doesn't allocate once it has grown. A function-local
-    // static is safe here: only the UI thread draws.
-    static std::vector<PriceEnvelope::Bucket> columns;
-    prices.reduce_into(static_cast<std::size_t>(width), columns);
-    if (columns.empty()) {
+// One row of the book: an order, and whether it is the first of its level.
+struct BookRow {
+    const Level* level;
+    std::size_t position;  // in its level's queue, from 0
+};
+
+// The shown ticker's book, one row per resting order, asks above bids, each side's best price
+// nearest the middle; within a price, orders in the order they will fill. Clicking a row points at
+// its order; clicking a price points at its level; clicking an order's id follows it. What is pointed
+// at and followed is highlighted as published, like the bar.
+void draw_book(const ViewerView& view, ViewerActions& actions) {
+    const std::uint32_t ticker = view.state.shown_ticker;
+    const Book& book = view.state.books.book(ticker);
+    if (book.order_count() == 0) {
+        text(std::format("ticker {}: no orders", ticker));
         return;
     }
-    std::int64_t low = columns.front().low;
-    std::int64_t high = columns.front().high;
-    for (const PriceEnvelope::Bucket& column : columns) {
-        low = std::min(low, column.low);
-        high = std::max(high, column.high);
-    }
-    // In double, since a price difference can exceed what a float holds exactly. A flat run is
-    // drawn across the middle.
-    const double range = static_cast<double>(high) - static_cast<double>(low);
-    const auto y_of = [&](double price) {
-        const double fraction = range > 0 ? (price - static_cast<double>(low)) / range : 0.5;
-        return static_cast<float>(bottom_right.y - 1.0 - fraction * (kPlotHeight - 2.0));
-    };
-    const float column_width = width / static_cast<float>(columns.size());
-    const ImU32 colour = ImGui::GetColorU32(ImGuiCol_PlotLines);
-    ImVec2 previous_mid;
-    for (std::size_t i = 0; i < columns.size(); ++i) {
-        const PriceEnvelope::Bucket& column = columns[i];
-        const float x = top_left.x + (static_cast<float>(i) + 0.5f) * column_width;
-        const float y_high = y_of(static_cast<double>(column.high));
-        const float y_low = std::max(y_of(static_cast<double>(column.low)), y_high + 1.0f);  // at least a pixel
-        draw.AddLine(ImVec2{x, y_high}, ImVec2{x, y_low}, colour);
-        const ImVec2 mid{x, (y_high + y_low) / 2.0f};
-        if (i > 0) {
-            draw.AddLine(previous_mid, mid, colour);
+    // Built every paint: a book holds at most a few hundred levels (the exchange's limit), so this
+    // costs little beside drawing them.
+    std::vector<Level> asks = book.levels(Side::sell);
+    std::vector<Level> bids = book.levels(Side::buy);
+    std::vector<BookRow> rows;
+    for (auto level = asks.rbegin(); level != asks.rend(); ++level) {  // worst ask at the top
+        for (std::size_t i = 0; i < level->orders.size(); ++i) {
+            rows.push_back({&*level, i});
         }
-        previous_mid = mid;
     }
-}
+    for (const Level& level : bids) {  // best bid at the top of the bids
+        for (std::size_t i = 0; i < level.orders.size(); ++i) {
+            rows.push_back({&level, i});
+        }
+    }
 
-// The frames, one row each. Clicking a row points at its frame; clicking its id follows the id.
-// The pointed row and the followed id's rows are highlighted as published, like the bar.
-void draw_frame_table(const ViewerView& view, ViewerActions& actions) {
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
                                       ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit;
-    // The table takes the rest of the window's height and scrolls within it.
-    if (!ImGui::BeginTable(kFrameTable, 4, flags, ImVec2{0.0f, ImGui::GetContentRegionAvail().y})) {
+    // Half the remaining height; the followed order's history takes the rest.
+    const float height = view.published && view.published->follow ? ImGui::GetContentRegionAvail().y * 0.6f
+                                                                  : ImGui::GetContentRegionAvail().y;
+    if (!ImGui::BeginTable(kBookTable, 6, flags, ImVec2{0.0f, height})) {
         return;
     }
     ImGui::TableSetupScrollFreeze(0, 1);  // the header row stays visible while scrolling
-    ImGui::TableSetupColumn("frame");
-    ImGui::TableSetupColumn("id");
+    ImGui::TableSetupColumn("side");
     ImGui::TableSetupColumn("price");
+    ImGui::TableSetupColumn("level qty");
+    ImGui::TableSetupColumn("queue");
+    ImGui::TableSetupColumn("order");
     ImGui::TableSetupColumn("qty");
     ImGui::TableHeadersRow();
 
-    const std::span<const Frame> frames = view.state.run->frames();
-    // The clipper asks for only the rows that are visible, so the table costs the same per paint
-    // whatever the run's length.
-    ImGuiListClipper clipper;
-    clipper.Begin(static_cast<int>(frames.size()));
-    while (clipper.Step()) {
-        for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
-            const Frame& frame = frames[static_cast<std::size_t>(row)];
-            const RowMarks marks = row_marks(frame, view.state.run->number(), view.published);
-            ImGui::TableNextRow();
-            if (marks.followed) {
-                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, ImGui::GetColorU32(kFollowedRowColor));
-            }
-
-            ImGui::TableNextColumn();
-            // SpanAllColumns makes the whole row the click target; AllowOverlap lets the id's
-            // button, drawn on top of it, take its own clicks.
-            const Label row_label = point_label(frame);
-            if (ImGui::Selectable(row_label.c_str(), marks.pointed,
-                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
-                actions.point_at = frame;
-            }
-            report_marked(row_label, marks.pointed);
-            tooltip([&] { return std::format("Point at frame #{}: {}", frame.index, sends(view.publish_error)); });
-
-            ImGui::TableNextColumn();
-            const Label id_label = follow_label(frame);
-            if (ImGui::SmallButton(id_label.c_str())) {
-                actions.follow = frame.id;
-            }
-            report_marked(id_label, marks.followed);
-            tooltip([&] {
-                return std::format("Follow id {}: highlights every frame with it, and {}", frame.id,
-                                   sends(view.publish_error));
-            });
-
-            ImGui::TableNextColumn();
-            text(Label{"{}", frame.price}.c_str());
-            ImGui::TableNextColumn();
-            text(Label{"{}", frame.qty}.c_str());
+    for (const BookRow& row : rows) {
+        const Level& level = *row.level;
+        const Order& order = level.orders[row.position];
+        const OrderRef order_ref{ticker, order.order_id};
+        const LevelRef level_ref{ticker, level.side, level.price};
+        ImGui::TableNextRow();
+        const bool followed = order_followed(order_ref, view.published);
+        if (followed) {
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, ImGui::GetColorU32(kFollowedRowColor));
         }
+
+        ImGui::TableNextColumn();
+        // SpanAllColumns makes the whole row the click target; AllowOverlap lets the price's and the
+        // id's buttons, drawn on top of it, take their own clicks.
+        ImGui::PushStyleColor(ImGuiCol_Text, level.side == Side::buy ? kBidColor : kAskColor);
+        const Label row_label = order_label(order);
+        const bool pointed = order_pointed(order_ref, view.published);
+        if (ImGui::Selectable(row_label.c_str(), pointed, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap)) {
+            actions.point_at = order_ref;
+        }
+        ImGui::PopStyleColor();
+        report_marked(row_label, pointed);
+        tooltip([&] { return std::format("Point at order {}: {}", order.order_id, sends(view.publish_error)); });
+
+        ImGui::TableNextColumn();
+        if (row.position == 0) {  // the level's price and total, on its first row
+            const Label price_label = level_label(level_ref);
+            if (ImGui::SmallButton(price_label.c_str())) {
+                actions.point_at = level_ref;
+            }
+            report_marked(price_label, level_marked(level_ref, view.published));
+            tooltip([&] {
+                return std::format("Point at the {} level at {}: {}", to_string(level.side), level.price, sends(view.publish_error));
+            });
+            ImGui::TableNextColumn();
+            text(Label{"{}", level.qty}.c_str());
+        } else {
+            ImGui::TableNextColumn();
+        }
+
+        ImGui::TableNextColumn();
+        text(Label{"#{}", row.position + 1}.c_str());
+        ImGui::TableNextColumn();
+        const Label id_label = follow_label(order);
+        if (ImGui::SmallButton(id_label.c_str())) {
+            actions.follow = order_ref;
+        }
+        report_marked(id_label, followed);
+        tooltip([&] {
+            return std::format("Follow order {}: every update to it, and {}", order.order_id, sends(view.publish_error));
+        });
+        ImGui::TableNextColumn();
+        text(Label{"{}", order.qty}.c_str());
+    }
+    ImGui::EndTable();
+}
+
+// The followed order's history, as published.
+void draw_history(const Context::Follow& follow) {
+    text(std::format("order {} of ticker {}: {} event{}", follow.order.ref.order_id, follow.order.ref.ticker,
+                     follow.event_count, follow.event_count == 1 ? "" : "s"));
+    constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
+                                      ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit;
+    if (!ImGui::BeginTable(kHistoryTable, 6, flags, ImVec2{0.0f, ImGui::GetContentRegionAvail().y})) {
+        return;
+    }
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("update");
+    ImGui::TableSetupColumn("event");
+    ImGui::TableSetupColumn("side");
+    ImGui::TableSetupColumn("price");
+    ImGui::TableSetupColumn("qty");
+    ImGui::TableSetupColumn("seen");
+    ImGui::TableHeadersRow();
+    for (const OrderEvent& event : follow.events) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        text(Label{"{}", event.seq}.c_str());
+        ImGui::TableNextColumn();
+        text(to_string(event.type));
+        ImGui::TableNextColumn();
+        text(to_string(event.side));
+        ImGui::TableNextColumn();
+        text(Label{"{}", event.price}.c_str());
+        ImGui::TableNextColumn();
+        text(Label{"{}", event.qty}.c_str());
+        ImGui::TableNextColumn();
+        text(event.from_snapshot ? "in a snapshot" : "as it happened");
     }
     ImGui::EndTable();
 }
 
 }  // namespace
 
-void apply(const ViewerActions& actions, Selection& selection) {
+void apply(const ViewerActions& actions, Selection& selection, ViewerState& state) {
+    if (actions.show_ticker && *actions.show_ticker < BookBuilder::kTickers) {
+        state.shown_ticker = *actions.show_ticker;
+    }
     if (actions.point_at) {
         selection.point_at(*actions.point_at);
     }
@@ -240,19 +299,33 @@ void apply(const ViewerActions& actions, Selection& selection) {
     }
 }
 
-RowMarks row_marks(const Frame& frame, std::uint64_t run_number, const std::optional<Context>& published) {
-    if (!published || published->source.run_number != run_number) {
-        return {};
+bool level_marked(const LevelRef& level, const std::optional<Context>& published) {
+    if (!published || !published->point) {
+        return false;
     }
-    return {
-        .pointed = published->point && published->point->frame == frame,
-        .followed = published->follow && published->follow->id == frame.id,
-    };
+    const auto* state = std::get_if<LevelState>(&published->point->target);
+    return state && state->ref == level;
 }
 
-Label point_label(const Frame& frame) { return Label{"{}##point", frame.index}; }
+bool order_pointed(const OrderRef& order, const std::optional<Context>& published) {
+    if (!published || !published->point) {
+        return false;
+    }
+    const auto* state = std::get_if<OrderState>(&published->point->target);
+    return state && state->ref == order;
+}
 
-Label follow_label(const Frame& frame) { return Label{"{}##follow{}", frame.id, frame.index}; }
+bool order_followed(const OrderRef& order, const std::optional<Context>& published) {
+    return published && published->follow && published->follow->order.ref == order;
+}
+
+Label ticker_label(std::uint32_t ticker) { return Label{"{}##ticker", ticker}; }
+
+Label level_label(const LevelRef& level) { return Label{"{}##level{}", level.price, to_string(level.side)}; }
+
+Label order_label(const Order& order) { return Label{"{}##order{}", to_string(order.side), order.order_id}; }
+
+Label follow_label(const Order& order) { return Label{"{}##follow", order.order_id}; }
 
 ViewerActions draw_viewer(const ViewerView& view) {
     ViewerActions actions;
@@ -263,9 +336,12 @@ ViewerActions draw_viewer(const ViewerView& view) {
     draw_context_bar(view, actions);
     ImGui::Separator();
     draw_status(view);
-    if (view.state.run && !view.state.run->frames().empty()) {
-        draw_price_plot(view.state.run->prices());
-        draw_frame_table(view, actions);
+    ImGui::Separator();
+    draw_tickers(view, actions);
+    draw_book(view, actions);
+    if (view.published && view.published->follow) {
+        ImGui::Separator();
+        draw_history(*view.published->follow);
     }
 
     ImGui::End();

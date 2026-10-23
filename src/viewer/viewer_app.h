@@ -1,16 +1,19 @@
-// The viewer's loop, one paint at a time: take in messages, draw, apply what the user did, publish.
+// The viewer's loop, one paint at a time: take in market data, draw, apply what the user did,
+// publish.
 //
 // The viewer program (main.cpp) and the viewer's UI tests both run the loop through this class, so
 // the tests exercise exactly the steps the program takes, in the same order.
 #pragma once
 
-#include "channel/net.h"
+#include "feed/feed_socket.h"
+#include "feed/market_update.h"
 #include "viewer/context.h"
 #include "viewer/context_publisher.h"
 #include "viewer/viewer_state.h"
 #include "viewer/viewer_view.h"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -23,21 +26,19 @@ class ViewerApp {
 public:
     using Clock = std::chrono::steady_clock;
 
+    // At most this many datagrams are taken from each stream per paint, so a burst can't stall
+    // drawing; what is left waits for the next paint.
+    static constexpr std::size_t kMaxDatagramsPerPaint = 1024;
+
     explicit ViewerApp(std::filesystem::path context_file) : publisher_{std::move(context_file)} {}
 
-    // Takes in everything the receiver has, once per paint. A new sender starts afresh once it has
-    // sent a valid message (its frames never mix with an earlier source's), so a connection that
-    // sends nothing, or nothing valid, leaves the run being examined in place. The source's
-    // connection and error are recorded.
-    void receive(MessageReceiver& receiver, Clock::time_point now);
+    // Takes in what the market data streams have, once per paint: incremental updates first, then
+    // snapshot updates (used only while recovering). The last error receiving or decoding is kept.
+    void receive(FeedSocket& incremental, FeedSocket& snapshot, Clock::time_point now);
 
-    // A new source has sent its first message: what came before belonged to another, so the run
-    // and the point are dropped (receive() calls this; tests may call it directly).
-    void begin_connection();
-
-    // Applies one message. A message that starts a new run drops the point, whose frame belonged
-    // to the old one. receive() calls this; tests may call it directly.
-    void apply(const Message& message, Clock::time_point now);
+    // Applies one update, as receive() does for each; tests call these directly.
+    void apply_incremental(const MarketUpdate& update, Clock::time_point now);
+    void apply_snapshot(const MarketUpdate& update);
 
     // One paint: draws the viewer (call between ImGui::NewFrame() and ImGui::Render()), applies what
     // the user did, and publishes the context, at once if the user did anything. Returns what the
@@ -53,7 +54,7 @@ public:
     // (with --exit-after, say) has only its output.
     [[nodiscard]] std::optional<std::string> publish_report();
 
-    // The state, which tests also set directly (for example, whether a source is connected).
+    // The state, which tests also set directly (for example, the feed's error).
     [[nodiscard]] ViewerState& state() noexcept { return state_; }
     [[nodiscard]] const Selection& selection() const noexcept { return selection_; }
     [[nodiscard]] const ContextPublisher& publisher() const noexcept { return publisher_; }
@@ -66,10 +67,9 @@ private:
     ViewerState state_;
     Selection selection_;
     ContextPublisher publisher_;
-    std::optional<Clock::time_point> last_frame_at_;
+    std::optional<Clock::time_point> last_update_at_;
     std::uint64_t paints_ = 0;
-    std::vector<Message> received_;           // reused every paint, so receiving doesn't allocate
-    bool connection_pending_ = false;         // a new sender hasn't yet sent a valid message
+    std::vector<MarketUpdate> received_;         // reused every paint, so receiving doesn't allocate
     std::optional<std::string> reported_error_;  // the publishing error last reported
 };
 

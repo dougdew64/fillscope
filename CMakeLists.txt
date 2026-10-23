@@ -56,6 +56,13 @@ add_library(fillscope_channel STATIC src/channel/message.cpp src/channel/net.cpp
 target_include_directories(fillscope_channel PUBLIC src)
 target_compile_options(fillscope_channel PRIVATE ${FILLSCOPE_WARNINGS})
 
+# src/feed: the exchange's market data: decoding and receiving it, and the books it describes.
+add_library(fillscope_feed STATIC
+  src/feed/market_update.cpp src/feed/book.cpp src/feed/book_builder.cpp src/feed/feed_socket.cpp)
+target_include_directories(fillscope_feed PUBLIC src)
+target_link_libraries(fillscope_feed PUBLIC fillscope_channel)
+target_compile_options(fillscope_feed PRIVATE ${FILLSCOPE_WARNINGS})
+
 # src/lockstep: the debugger anchor.
 add_library(fillscope_lockstep STATIC src/lockstep/anchor.cpp)
 target_include_directories(fillscope_lockstep PUBLIC src)
@@ -81,10 +88,10 @@ target_link_libraries(imgui_app PUBLIC glfw OpenGL::GL)
 # The viewer's core, without Dear ImGui: what it has received, what the user has pointed at and
 # followed, and the context it publishes. Unit-tested on its own.
 add_library(fillscope_viewer_core STATIC
-  src/viewer/viewer_state.cpp src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp
+  src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp
   src/viewer/stop_signals.cpp)
 target_include_directories(fillscope_viewer_core PUBLIC src)
-target_link_libraries(fillscope_viewer_core PUBLIC fillscope_channel nlohmann_json::nlohmann_json)
+target_link_libraries(fillscope_viewer_core PUBLIC fillscope_feed nlohmann_json::nlohmann_json)
 target_compile_options(fillscope_viewer_core PRIVATE ${FILLSCOPE_WARNINGS})
 
 # The parts that draw with Dear ImGui are compiled into each program that uses them (the viewer, and

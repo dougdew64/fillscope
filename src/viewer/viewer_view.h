@@ -22,25 +22,28 @@ namespace fillscope {
 
 // What the user did during one paint. Usually nothing; at most one click's worth.
 struct ViewerActions {
-    std::optional<Frame> point_at;        // point at this frame
-    std::optional<std::uint32_t> follow;  // follow this id
+    std::optional<PointTarget> point_at;      // point at this order or level
+    std::optional<OrderRef> follow;           // follow this order
+    std::optional<std::uint32_t> show_ticker; // show this ticker's book
     bool clear_point = false;
     bool clear_follow = false;
 
-    [[nodiscard]] bool any() const noexcept { return point_at || follow || clear_point || clear_follow; }
+    [[nodiscard]] bool any() const noexcept {
+        return point_at || follow || show_ticker || clear_point || clear_follow;
+    }
 };
 
-// Applies the user's actions to the selection.
-void apply(const ViewerActions& actions, Selection& selection);
+// Applies the user's actions: to the selection, and to which ticker is shown.
+void apply(const ViewerActions& actions, Selection& selection, ViewerState& state);
 
-// The viewer's own liveness, shown so it is visible that it keeps painting while a source is
+// The viewer's own liveness, shown so it is visible that it keeps painting while the exchange is
 // stopped in a debugger.
 struct ViewerTiming {
-    std::optional<double> seconds_since_frame;  // empty until a frame has arrived
+    std::optional<double> seconds_since_update;  // empty until an update has arrived
     std::uint64_t paints = 0;
 };
 
-// What draw_viewer draws from. The context bar, and the table's highlights, are drawn from
+// What draw_viewer draws from. The context bar, and the book's highlights, are drawn from
 // `published`: the context the file holds, never the live selection, so nothing on screen claims
 // the assistant has been given something it hasn't. `published_bar` is the bar's text for it.
 // `publish_error` says why the last write failed, if it did.
@@ -54,8 +57,8 @@ struct ViewerView {
 
 // The names of the viewer's window and of items inside it, which the UI tests use to find them.
 inline constexpr const char* kViewerWindow = "viewer";
-inline constexpr const char* kPricePlot = "price";
-inline constexpr const char* kFrameTable = "frames";
+inline constexpr const char* kBookTable = "book";
+inline constexpr const char* kHistoryTable = "history";
 inline constexpr const char* kClearPointButton = "x##clear_point";
 inline constexpr const char* kClearFollowButton = "x##clear_follow";
 
@@ -76,23 +79,19 @@ private:
     std::array<char, 64> text_{};
 };
 
-// A frame's row is clicked to point at it, and its id is clicked to follow the id. Everything after
-// "##" in a Dear ImGui label is part of the item's ID but not displayed, which keeps each row's
-// items distinct while showing just the number.
-[[nodiscard]] Label point_label(const Frame& frame);   // "<index>##point"
-[[nodiscard]] Label follow_label(const Frame& frame);  // "<id>##follow<index>"
+// The clickable items' labels. Everything after "##" in a Dear ImGui label is part of the item's ID
+// but not displayed, which keeps items distinct while showing just what matters.
+[[nodiscard]] Label ticker_label(std::uint32_t ticker);  // "<ticker>##ticker": show its book
+[[nodiscard]] Label level_label(const LevelRef& level);  // "<price>##level<buy|sell>": point at the level
+[[nodiscard]] Label order_label(const Order& order);     // "<side>##order<id>": point at the order (its row)
+[[nodiscard]] Label follow_label(const Order& order);    // "<id>##follow": follow the order
 
-// How a frame's row of run `run_number` is marked in the table: pointed at, and having the
-// followed id. Decided from the published context, like the bar, never from the live selection,
-// and only when that context is about the same run: frame indices restart at 0 in every run, so an
-// earlier run's published point must not mark the new run's frame with the same index. (A function
-// of its own, so tests can check the rule; they check the drawn table too.)
-struct RowMarks {
-    bool pointed = false;
-    bool followed = false;
-    friend bool operator==(const RowMarks&, const RowMarks&) = default;
-};
-[[nodiscard]] RowMarks row_marks(const Frame& frame, std::uint64_t run_number, const std::optional<Context>& published);
+// How the book's items are marked: decided from the published context, like the bar, never from
+// the live selection. (Functions of their own, so tests can check the rule; they check the drawn
+// book too.)
+[[nodiscard]] bool level_marked(const LevelRef& level, const std::optional<Context>& published);
+[[nodiscard]] bool order_pointed(const OrderRef& order, const std::optional<Context>& published);
+[[nodiscard]] bool order_followed(const OrderRef& order, const std::optional<Context>& published);
 
 // Draws the viewer's one full-screen window. Call between ImGui::NewFrame() and ImGui::Render().
 [[nodiscard]] ViewerActions draw_viewer(const ViewerView& view);

@@ -5,8 +5,15 @@ follows, frame by frame, and the rules that keep it working. **Status:** referen
 designing the animation, the frame interface between the core and the UI, the process split, or
 the debugger integration.
 
-The code is in `src/lockstep/` (the anchor), `src/channel/` (the socket), `src/viewer/` and
-`tools/frame_source/` (a stand-in producer); how to run it is in [RUNNING.md](RUNNING.md).
+The code is in `src/lockstep/` (the anchor), `src/channel/` (the socket) and `tools/frame_source/`
+(a stand-in producer); how to run it is in [RUNNING.md](RUNNING.md).
+
+**Where it stands (2026-10-23):** the producer is still the stand-in frame source, and the
+debugger tests check every rule below with it, its receiver played by the LLDB tests' driver. The
+viewer no longer reads frames: it shows the back end's books, rebuilt from the exchange's market
+data ([ARCHITECTURE.md](ARCHITECTURE.md), §4), and the VS Code configurations that paired it with
+the frame source are gone. Lockstep with the exchange's matcher is step 6 of [PLAN.md](PLAN.md),
+built on what this document records.
 
 ## How it works
 **The producer and the viewer are separate processes.** The producer sends each frame over a Unix
@@ -19,7 +26,7 @@ the next frame appears in the viewer when `send` runs.
 **Two ways to stop at the anchor**, both binding on the first run, with nothing to arm:
 - **Self-stop:** when the process is traced, the anchor executes a breakpoint instruction (`int3`
   on x86-64); untraced, it does nothing. How it works, and why it is written as it is, are in
-  [ARCHITECTURE.md](ARCHITECTURE.md), §5.
+  [ARCHITECTURE.md](ARCHITECTURE.md), §6.
 - **Breakpoint by name**, set from the launch configuration: `break fillscope_frame_anchor` in GDB,
   `breakpoint set -n fillscope_frame_anchor` in LLDB.
 
@@ -45,7 +52,8 @@ the next frame appears in the viewer when `send` runs.
    entries are dropped, and a breakpoint can bind and never fire.
 
 ## What is confirmed
-On 2026-10-19, with GCC 16.2.1, GDB 17.2, LLDB, and VS Code with CodeLLDB:
+On 2026-10-19, with GCC 16.2.1, GDB 17.2, LLDB, and VS Code with CodeLLDB, and the viewer as it was
+then (it read the frame source's frames):
 - the viewer keeps painting at 60 frames a second while the producer is stopped, through pauses of
   several minutes;
 - each Continue adds one frame to the viewer, and Step Over behaves as described above;

@@ -6,8 +6,9 @@
 #   python3 -I tests/backend/backend_system_test.py EXCHANGE_MAIN TRADING_MAIN
 #
 # The exchange's addresses are fixed in its code (exchange_main.cpp): orders over TCP on port 12345,
-# incremental updates on UDP multicast 233.252.14.3:20001, on the loopback interface. So only one
-# exchange can run on the machine at a time, and the test says so if another is running.
+# incremental updates on UDP multicast 233.252.14.3:20001, sent on the interface the system routes
+# the group to and looped back to this machine. So only one exchange can run on the machine at a
+# time, and the test says so if another is running.
 import os
 import signal
 import socket

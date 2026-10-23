@@ -9,7 +9,7 @@
 // and SIGTERM all end it the same way: the last context file says it is no longer running. It
 // exits 1 if that last write fails.
 
-#include "channel/net.h"
+#include "feed/feed_socket.h"
 #include "viewer/viewer_app.h"
 #include "viewer/stop_signals.h"
 #include "viewer/viewer_options.h"
@@ -19,10 +19,12 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <print>
 #include <span>
+#include <thread>
 
 namespace {
 
@@ -90,12 +92,17 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    auto listener = fillscope::listen_on(options->socket_name);
-    if (!listener) {
-        std::println(stderr, "viewer: can't listen on '{}': {}", options->socket_name, listener.error().message());
-        return 1;
+    // The exchange's two market data streams. Joining can fail (a port bound by a program that
+    // doesn't share it, say); then there is nothing to show, so the viewer says why and stops.
+    auto incremental = fillscope::FeedSocket::join(options->incremental);
+    auto snapshot = fillscope::FeedSocket::join(options->snapshot);
+    for (const auto& [stream, joined] : {std::pair{&options->incremental, &incremental}, std::pair{&options->snapshot, &snapshot}}) {
+        if (!*joined) {
+            std::println(stderr, "viewer: can't join the market data stream {}:{}: {}", stream->group, stream->port,
+                         joined->error().message());
+            return 1;
+        }
     }
-    fillscope::MessageReceiver receiver{std::move(*listener)};
     if (const auto installed = fillscope::install_stop_signals(); !installed) {
         std::println(stderr, "viewer: can't handle SIGINT and SIGTERM: {}", installed.error().message());
         return 1;
@@ -120,7 +127,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     glfwMakeContextCurrent(window.get());
-    glfwSwapInterval(1);
+    // No vsync: the loop paces itself (below). With vsync, a swap waits for the compositor, which
+    // sends a window no frames while it can't be seen (behind another, on another workspace); the
+    // loop then stopped, and with it the reading of market data (whose buffers overflowed, losing
+    // updates) and the check for SIGINT and SIGTERM.
+    glfwSwapInterval(0);
     const ImGuiSession imgui{window.get()};
     if (!imgui.ready()) {
         std::println(stderr, "viewer: can't start Dear ImGui's GLFW and OpenGL 3 backends");
@@ -131,10 +142,15 @@ int main(int argc, char** argv) {
     const auto start = std::chrono::steady_clock::now();
     int last_report_second = 0;
 
+    // About 60 paints a second, whatever the display does.
+    constexpr auto kPaintInterval = std::chrono::microseconds{1'000'000 / 60};
+    auto next_paint = std::chrono::steady_clock::now();
     while (!glfwWindowShouldClose(window.get()) && !fillscope::stop_requested()) {
+        std::this_thread::sleep_until(next_paint);
+        next_paint = std::max(next_paint + kPaintInterval, std::chrono::steady_clock::now());
         glfwPollEvents();
         const auto now = std::chrono::steady_clock::now();
-        app.receive(receiver, now);
+        app.receive(*incremental, *snapshot, now);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -157,8 +173,8 @@ int main(int argc, char** argv) {
         const double t = std::chrono::duration<double>(now - start).count();
         if (static_cast<int>(t) > last_report_second) {
             last_report_second = static_cast<int>(t);
-            const std::size_t frames = app.state().run ? app.state().run->frames().size() : 0;
-            std::println("viewer: t={} paints={} frames={}", last_report_second, app.paints(), frames);
+            std::println("viewer: t={} paints={} updates={} books as of update {}", last_report_second, app.paints(),
+                         app.state().books.updates_received(), app.state().books.last_seq());
             std::fflush(stdout);
         }
         if (options->exit_after_seconds > 0 && t >= options->exit_after_seconds) {
@@ -168,8 +184,8 @@ int main(int argc, char** argv) {
     if (fillscope::stop_requested()) {
         std::println(stderr, "viewer: stopping, as a signal asked");
     }
-    // Takes in whatever arrived since the last paint, so the last file counts every frame received.
-    app.receive(receiver, std::chrono::steady_clock::now());
+    // Takes in whatever arrived since the last paint, so the last file counts every update received.
+    app.receive(*incremental, *snapshot, std::chrono::steady_clock::now());
     if (!app.finish()) {  // the last file says this viewer is no longer running
         std::println(stderr, "viewer: can't publish the final context to {}: {}", app.publisher().file().string(),
                      *app.publisher().error());

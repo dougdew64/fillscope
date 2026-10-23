@@ -1,7 +1,7 @@
-// The viewer's core, without Dear ImGui: its command line (parse_viewer_args), what it has received
-// (ViewerState, Run, PriceEnvelope), what the user has pointed at and followed (Selection), the
-// context built from both (make_context, to_json, bar_text), and the file it is published to
-// (ContextPublisher, write_atomically).
+// The viewer's core, without Dear ImGui: its command line (parse_viewer_args), what the user has
+// pointed at and followed (Selection), the context built from the books and the selection
+// (make_context, to_json, bar_text), and the file it is published to (ContextPublisher,
+// write_atomically). The books themselves are tested in tests/feed/.
 
 #include "viewer/context.h"
 #include "viewer/context_publisher.h"
@@ -21,447 +21,408 @@
 #include <format>
 #include <fstream>
 #include <ranges>
+#include <vector>
+
+using namespace std::chrono_literals;
 
 namespace fillscope {
 namespace {
 
-using namespace std::chrono_literals;
-
-Frame frame(std::uint64_t index, std::uint32_t id, std::int64_t price = 10'000) {
-    return Frame{.index = index, .price = price, .qty = 5, .id = id};
+MarketUpdate add(std::uint64_t seq, std::uint64_t id, Side side, std::int64_t price, std::uint32_t qty, std::uint64_t priority) {
+    return {.seq = seq, .type = UpdateType::add, .order_id = id, .ticker = 0, .side = side, .price = price, .qty = qty, .priority = priority};
 }
 
-// A state holding one described run (seed 42) with the given frames.
-ViewerState described_run(std::initializer_list<Frame> frames) {
+MarketUpdate modify(std::uint64_t seq, std::uint64_t id, Side side, std::int64_t price, std::uint32_t qty) {
+    return {.seq = seq, .type = UpdateType::modify, .order_id = id, .ticker = 0, .side = side, .price = price, .qty = qty, .priority = 0};
+}
+
+MarketUpdate cancel(std::uint64_t seq, std::uint64_t id, Side side, std::int64_t price) {
+    return {.seq = seq, .type = UpdateType::cancel, .order_id = id, .ticker = 0, .side = side, .price = price, .qty = 0, .priority = 0};
+}
+
+// Ticker 0's book: orders 1 and 2 bid 100 (1 first), order 3 bids 99.
+ViewerState three_bids() {
     ViewerState state;
-    state.apply(SourceHello{.seed = 42, .frame_count = 100});
-    for (const Frame& f : frames) {
-        state.apply(f);
-    }
-    state.source_connected = true;
+    state.books.on_incremental(add(1, 1, Side::buy, 100, 5, 1));
+    state.books.on_incremental(add(2, 2, Side::buy, 100, 7, 2));
+    state.books.on_incremental(add(3, 3, Side::buy, 99, 4, 1));
     return state;
 }
 
-const Writer kWriter{.pid = 1234, .started_at_ms = 5, .running = true};
+// A snapshot as the exchange sends it, of ticker 0's orders, as of update `last_seq`.
+void recover_from_snapshot(BookBuilder& books, std::uint64_t last_seq, const std::vector<MarketUpdate>& orders) {
+    std::vector<MarketUpdate> updates{{.seq = 0, .type = UpdateType::snapshot_start, .order_id = last_seq}};
+    for (std::uint32_t ticker = 0; ticker < BookBuilder::kTickers; ++ticker) {
+        updates.push_back({.type = UpdateType::clear, .ticker = ticker});
+        if (ticker == 0) {
+            updates.insert(updates.end(), orders.begin(), orders.end());
+        }
+    }
+    updates.push_back({.type = UpdateType::snapshot_end, .order_id = last_seq});
+    for (std::uint64_t i = 0; i < updates.size(); ++i) {
+        updates[i].seq = i;
+        books.on_snapshot(updates[i]);
+    }
+}
+
+const OrderState& pointed_order(const Context& context) { return std::get<OrderState>(context.point->target); }
+const LevelState& pointed_level(const Context& context) { return std::get<LevelState>(context.point->target); }
 
 // ---- parse_viewer_args ----
 
 TEST(ParseViewerArgs, DefaultsAndEveryOption) {
     const auto defaults = parse_viewer_args({});
-    ASSERT_TRUE(defaults.has_value());
-    EXPECT_EQ(defaults->exit_after_seconds, 0.0);
-    EXPECT_EQ(defaults->socket_name, kDefaultSocketName);
-    EXPECT_EQ(defaults->context_file, kDefaultContextFile);
+    ASSERT_TRUE(defaults) << defaults.error();
+    EXPECT_EQ(defaults->exit_after_seconds, 0);
+    EXPECT_EQ(defaults->incremental, kExchangeIncremental);
+    EXPECT_EQ(defaults->snapshot, kExchangeSnapshot);
+    EXPECT_EQ(defaults->context_file, std::filesystem::path{".fillscope/context.json"});
 
-    const std::array args{"--exit-after", "2.5", "--socket", "s", "--context-file", "c.json"};
+    const std::array args{"--exit-after", "2.5", "--incremental", "239.1.2.3:3001", "--snapshot", "224.0.0.5:3000",
+                          "--context-file", "/tmp/c.json"};
     const auto options = parse_viewer_args(args);
-    ASSERT_TRUE(options.has_value()) << options.error();
+    ASSERT_TRUE(options) << options.error();
     EXPECT_EQ(options->exit_after_seconds, 2.5);
-    EXPECT_EQ(options->socket_name, "s");
-    EXPECT_EQ(options->context_file, "c.json");
+    EXPECT_EQ(options->incremental, (Stream{"239.1.2.3", 3001}));
+    EXPECT_EQ(options->snapshot, (Stream{"224.0.0.5", 3000}));
+    EXPECT_EQ(options->context_file, std::filesystem::path{"/tmp/c.json"});
 }
 
-TEST(ParseViewerArgs, RefusesWhatIsntAnOptionOrANumberOfSeconds) {
-    EXPECT_EQ(parse_viewer_args(std::array{"--bogus"}).error(), "unknown option '--bogus'");
-    EXPECT_EQ(parse_viewer_args(std::array{"--socket"}).error(), "--socket needs a value");
-    EXPECT_EQ(parse_viewer_args(std::array{"--socket", ""}).error(), "--socket needs a name");
-    for (const char* bad : {"abc", "2s", "-1", "nan", "", "inf", "-inf", "1e309"}) {
-        const std::array args{"--exit-after", bad};
-        EXPECT_FALSE(parse_viewer_args(args).has_value()) << "--exit-after '" << bad << "'";
+TEST(ParseViewerArgs, RefusesWhatIsntAnOptionAStreamOrANumberOfSeconds) {
+    for (const auto& args : std::vector<std::vector<const char*>>{
+             {"--bogus"}, {"--exit-after"}, {"--exit-after", "-1"}, {"--exit-after", "nan"}, {"--exit-after", "inf"},
+             {"--exit-after", "2s"}, {"--context-file", ""}, {"--socket", "x"},
+             {"--incremental", "239.1.2.3"},          // no port
+             {"--incremental", "10.0.0.1:3000"},      // not a multicast address
+             {"--incremental", "240.0.0.1:3000"},     // past the multicast range
+             {"--incremental", "not.an.address:3000"},
+             {"--snapshot", "239.1.2.3:0"}, {"--snapshot", "239.1.2.3:65536"}, {"--snapshot", "239.1.2.3:x"}}) {
+        EXPECT_FALSE(parse_viewer_args(args)) << args.front() << (args.size() > 1 ? std::string{" "} + args[1] : "");
     }
-    EXPECT_FALSE(parse_viewer_args(std::array{"--context-file", ""}).has_value());
-}
-
-// ---- ViewerState and Run ----
-
-TEST(ViewerState, AHelloStartsANewRunAndDropsTheOldFrames) {
-    ViewerState state = described_run({frame(0, 1), frame(1, 2)});
-    EXPECT_TRUE(state.apply(SourceHello{.seed = 7, .frame_count = 5}));
-    ASSERT_TRUE(state.run);
-    EXPECT_TRUE(state.run->frames().empty());
-    EXPECT_EQ(state.run->hello()->seed, 7u);
-}
-
-TEST(ViewerState, AHelloOnAnEmptyStateStartsARun) {
-    ViewerState state;
-    EXPECT_TRUE(state.apply(SourceHello{.seed = 3, .frame_count = 1}));
-    ASSERT_TRUE(state.run);
-    EXPECT_EQ(state.run->hello()->seed, 3u);
-}
-
-TEST(ViewerState, FramesWithoutAHelloFormARunWithNoDescription) {
-    ViewerState state;
-    EXPECT_TRUE(state.apply(frame(0, 1)));   // the first frame starts a run
-    EXPECT_FALSE(state.apply(frame(1, 1)));  // later frames join it
-    ASSERT_TRUE(state.run);
-    EXPECT_FALSE(state.run->hello());
-    EXPECT_EQ(state.run->frames().size(), 2u);
-}
-
-TEST(ViewerState, ANewConnectionNeverInheritsTheLastSourcesRun) {
-    // A source that doesn't describe itself, after one that did: its frames must not join the old
-    // run, or they would claim the old run's seed.
-    ViewerState state = described_run({frame(0, 1), frame(1, 1)});
-    state.begin_connection();
-    EXPECT_FALSE(state.run);
-    EXPECT_TRUE(state.apply(frame(0, 5)));
-    EXPECT_FALSE(state.run->hello()) << "no seed: this source never gave one";
-    EXPECT_EQ(state.run->frames().size(), 1u);
-}
-
-TEST(ViewerState, EachRunHasTheNextNumber) {
-    ViewerState state;
-    state.apply(frame(0, 1));
-    EXPECT_EQ(state.run->number(), 1u);
-    state.apply(SourceHello{.seed = 1, .frame_count = 1});
-    EXPECT_EQ(state.run->number(), 2u);
-    state.begin_connection();
-    state.apply(frame(0, 1));
-    EXPECT_EQ(state.run->number(), 3u) << "a new connection's run is a new run";
-}
-
-TEST(Run, HasReplayAddressesOnlyWhileItsIndicesCountFromZero) {
-    ViewerState state = described_run({frame(0, 1), frame(1, 1)});
-    EXPECT_FALSE(state.run->no_replay_reason());
-    state.apply(frame(5, 1));  // a gap
-    ASSERT_TRUE(state.run->no_replay_reason());
-    EXPECT_EQ(*state.run->no_replay_reason(),
-              "the run's frame indices didn't count 0, 1, 2, ...: frame 3 of the run arrived numbered #5");
-    state.apply(frame(3, 1));
-    EXPECT_TRUE(state.run->no_replay_reason()) << "for the rest of the run";
-}
-
-TEST(Run, ARepeatedIndexEndsReplayAddressesToo) {
-    const ViewerState state = described_run({frame(0, 1), frame(0, 1)});
-    EXPECT_TRUE(state.run->no_replay_reason());
-}
-
-TEST(Run, PlotsLargePricesExactly) {
-    const ViewerState state = described_run({frame(0, 1, 16'777'217), frame(1, 1, 16'777'216)});
-    const auto buckets = state.run->prices().buckets();
-    EXPECT_EQ(buckets[0].high, 16'777'217);
-    EXPECT_EQ(buckets[1].high, 16'777'216);
-}
-
-TEST(Run, IndexesEachIdsFrames) {
-    const ViewerState state = described_run({frame(0, 7), frame(1, 2), frame(2, 7)});
-    EXPECT_EQ(std::vector(std::from_range, state.run->indices_of(7)), (std::vector<std::uint64_t>{0, 2}));
-    EXPECT_EQ(std::vector(std::from_range, state.run->indices_of(2)), (std::vector<std::uint64_t>{1}));
-    EXPECT_TRUE(state.run->indices_of(19).empty());
-}
-
-// ---- PriceEnvelope ----
-
-TEST(PriceEnvelope, OneBucketPerPriceUntilFull) {
-    PriceEnvelope envelope;
-    envelope.append(3);
-    envelope.append(1);
-    ASSERT_EQ(envelope.buckets().size(), 2u);
-    EXPECT_EQ(envelope.buckets()[0], (PriceEnvelope::Bucket{.low = 3, .high = 3}));
-    EXPECT_EQ(envelope.frames_per_bucket(), 1u);
-}
-
-// Every price is in the bucket its position says, after any number of merges: each bucket but the
-// last holds frames_per_bucket() prices, and the last the rest.
-TEST(PriceEnvelope, EveryPriceStaysInTheBucketItsPositionNames) {
-    for (const std::size_t count : {std::size_t{4097}, std::size_t{8195}, std::size_t{100'003}}) {
-        PriceEnvelope envelope;
-        const std::array spikes{std::size_t{0}, count / 3, count / 2 + 1, count - 1};
-        for (std::size_t i = 0; i < count; ++i) {
-            envelope.append(std::ranges::contains(spikes, i) ? 1'000 + static_cast<std::int64_t>(i) : 10);
-        }
-        const std::size_t per_bucket = envelope.frames_per_bucket();
-        EXPECT_LE(envelope.buckets().size(), PriceEnvelope::kMaxBuckets) << count;
-        EXPECT_EQ((envelope.buckets().size() - 1) * per_bucket + envelope.frames_in_last_bucket(), count) << count;
-        for (const std::size_t spike : spikes) {
-            EXPECT_EQ(envelope.buckets()[spike / per_bucket].high, 1'000 + static_cast<std::int64_t>(spike))
-                << "spike at " << spike << " of " << count;
-        }
-    }
-}
-
-TEST(PriceEnvelope, KeepsEveryLowAndHigh) {
-    PriceEnvelope envelope;
-    for (std::size_t i = 0; i < 100'000; ++i) {
-        envelope.append(i == 31'337 ? 500 : i == 77'777 ? -400 : 10);  // one spike up and one down
-    }
-    EXPECT_EQ(std::ranges::max(envelope.buckets(), {}, &PriceEnvelope::Bucket::high).high, 500);
-    EXPECT_EQ(std::ranges::min(envelope.buckets(), {}, &PriceEnvelope::Bucket::low).low, -400);
-}
-
-TEST(PriceEnvelope, KeepsLargePricesExactly) {
-    // 2^24 + 1 is the first integer a float can't hold: as floats these two would be equal.
-    PriceEnvelope envelope;
-    envelope.append(16'777'217);
-    envelope.append(16'777'216);
-    EXPECT_EQ(envelope.buckets()[0].high, 16'777'217);
-    EXPECT_EQ(envelope.buckets()[1].high, 16'777'216);
-}
-
-// The plot draws at most one reduced bucket per pixel, so a spike anywhere must survive the
-// reduction to any width, including a last group shorter than the others.
-TEST(PriceEnvelope, ReducedToAnyWidthKeepsEverySpike) {
-    PriceEnvelope envelope;
-    constexpr std::size_t kCount = 1'003;
-    for (std::size_t i = 0; i < kCount; ++i) {
-        envelope.append(i == 441 ? 200 : i == kCount - 1 ? 300 : 100);
-    }
-    for (std::size_t width = 1; width <= 1'100; ++width) {
-        const auto reduced = envelope.reduced(width);
-        ASSERT_LE(reduced.size(), width);
-        // Each reduced bucket covers `group` consecutive frames (one frame per bucket here), the last
-        // whatever is left; the one covering frame 441 must reach its spike.
-        const std::size_t group = kCount <= width ? 1 : (kCount + width - 1) / width;
-        ASSERT_GE(reduced[441 / group].high, 200) << "at width " << width;
-        ASSERT_EQ(reduced.back().high, 300) << "the newest frame is in the last group, at width " << width;
-    }
-}
-
-TEST(PriceEnvelope, ReduceIntoReplacesWhatTheVectorHeld) {
-    PriceEnvelope envelope;
-    envelope.append(4);
-    std::vector<PriceEnvelope::Bucket> out{{.low = 1, .high = 1}, {.low = 2, .high = 2}};
-    envelope.reduce_into(10, out);
-    EXPECT_EQ(out, (std::vector<PriceEnvelope::Bucket>{{.low = 4, .high = 4}}));
 }
 
 // ---- Selection ----
 
 TEST(Selection, EachChangeTakesTheNextNumberFromOneCounter) {
     Selection selection;
-    selection.point_at(frame(3, 1));
-    selection.follow(7);
-    EXPECT_LT(selection.point_seq(), selection.follow_seq()) << "followed after pointing";
+    selection.point_at(OrderRef{0, 1});
+    EXPECT_EQ(selection.point_seq(), 1u);
+    selection.follow(OrderRef{0, 2});
+    EXPECT_EQ(selection.follow_seq(), 2u);
+    selection.point_at(LevelRef{0, Side::buy, 100});
+    EXPECT_EQ(selection.point_seq(), 3u);
+    selection.clear_follow();
+    EXPECT_EQ(selection.follow_seq(), 4u);
+    EXPECT_FALSE(selection.followed());
     selection.clear_point();
-    EXPECT_GT(selection.point_seq(), selection.follow_seq()) << "cleared the point last";
+    EXPECT_EQ(selection.point_seq(), 5u);
     EXPECT_FALSE(selection.pointed());
-    EXPECT_EQ(selection.followed(), 7u);
-}
-
-TEST(Selection, ANewRunClearsThePointButKeepsTheFollow) {
-    Selection selection;
-    selection.point_at(frame(3, 1));
-    selection.follow(7);
-    selection.new_run();
-    EXPECT_FALSE(selection.pointed());
-    EXPECT_EQ(selection.followed(), 7u);
-}
-
-TEST(Selection, ANewRunTakesNoSequenceNumberBecauseTheUserDidNothing) {
-    Selection selection;
-    selection.point_at(frame(3, 1));
-    selection.follow(7);
-    const auto point_seq = selection.point_seq();
-    selection.new_run();
-    EXPECT_EQ(selection.point_seq(), point_seq);
-    EXPECT_GT(selection.follow_seq(), selection.point_seq()) << "following is still the user's last act";
 }
 
 // ---- make_context ----
 
-TEST(MakeContext, ThePointHasAReplayAddressFromTheRunsSeed) {
-    const ViewerState state = described_run({frame(0, 1), frame(1, 2)});
+TEST(MakeContext, ARestingOrderPointedAtKnowsWhatIsAheadOfItInItsQueue) {
+    const ViewerState state = three_bids();
     Selection selection;
-    selection.point_at(frame(1, 2));
+    selection.point_at(OrderRef{0, 2});
     const Context context = make_context(state, selection);
-    ASSERT_TRUE(context.point);
-    EXPECT_EQ(context.point->frame, frame(1, 2));
-    EXPECT_EQ(context.point->replay, (ReplayAddress{.seed = 42, .frame_index = 1}));
-    EXPECT_EQ(context.point->seq, selection.point_seq());
+    const OrderState& order = pointed_order(context);
+    ASSERT_TRUE(order.resting);
+    EXPECT_EQ(order.resting->price, 100);
+    EXPECT_EQ(order.orders_ahead, 1u);
+    EXPECT_EQ(order.qty_ahead, 5u);
+    ASSERT_TRUE(order.last_event);
+    EXPECT_EQ(order.last_event->seq, 2u);
+    EXPECT_EQ(context.point->seq, 1u);
+
+    selection.point_at(OrderRef{0, 1});
+    EXPECT_EQ(pointed_order(make_context(state, selection)).orders_ahead, 0u) << "first in its queue";
 }
 
-TEST(MakeContext, WithoutADescriptionThereIsNoReplayAddress) {
+TEST(MakeContext, AnOrderNoLongerRestingSaysHowItLeft) {
+    ViewerState state = three_bids();
+    state.books.on_incremental(cancel(4, 1, Side::buy, 100));
+    Selection selection;
+    selection.point_at(OrderRef{0, 1});
+    const Context context = make_context(state, selection);  // kept: order refers into it
+    const OrderState& order = pointed_order(context);
+    EXPECT_FALSE(order.resting);
+    ASSERT_TRUE(order.last_event);
+    EXPECT_EQ(order.last_event->type, UpdateType::cancel);
+    EXPECT_EQ(order.last_event->seq, 4u);
+}
+
+TEST(MakeContext, AnOrderNeverSeenHasNeitherAPlaceNorAHistory) {
+    Selection selection;
+    selection.point_at(OrderRef{0, 99});
+    const Context context = make_context(three_bids(), selection);  // kept: order refers into it
+    const OrderState& order = pointed_order(context);
+    EXPECT_FALSE(order.resting);
+    EXPECT_FALSE(order.last_event);
+}
+
+TEST(MakeContext, ALevelPointedAtListsItsOrdersInTheOrderTheyWillFill) {
+    Selection selection;
+    selection.point_at(LevelRef{0, Side::buy, 100});
+    const Context context = make_context(three_bids(), selection);  // kept: level refers into it
+    const LevelState& level = pointed_level(context);
+    EXPECT_TRUE(level.present);
+    EXPECT_EQ(level.qty, 12u);
+    EXPECT_EQ(level.order_count, 2u);
+    ASSERT_EQ(level.orders.size(), 2u);
+    EXPECT_EQ(level.orders[0].order_id, 1u);
+
+    selection.point_at(LevelRef{0, Side::sell, 100});
+    EXPECT_FALSE(pointed_level(make_context(three_bids(), selection)).present) << "no asks at 100";
+}
+
+TEST(MakeContext, ALevelsListIsCappedButItsCountIsExact) {
     ViewerState state;
-    state.apply(frame(0, 1));
+    for (std::uint64_t i = 1; i <= kMaxLevelOrders + 5; ++i) {
+        state.books.on_incremental(add(i, i, Side::sell, 105, 1, i));
+    }
     Selection selection;
-    selection.point_at(frame(0, 1));
-    selection.follow(1);
-    const Context context = make_context(state, selection);
-    EXPECT_FALSE(context.point->replay);
-    EXPECT_FALSE(context.follow->seed);
+    selection.point_at(LevelRef{0, Side::sell, 105});
+    const Context context = make_context(state, selection);  // kept: level refers into it
+    const LevelState& level = pointed_level(context);
+    EXPECT_EQ(level.orders.size(), kMaxLevelOrders);
+    EXPECT_EQ(level.order_count, kMaxLevelOrders + 5);
+    EXPECT_TRUE(level.truncated());
 }
 
-TEST(MakeContext, IndicesThatDontCountFromZeroGiveNoReplayAddressAndSayWhy) {
-    const ViewerState state = described_run({frame(0, 1), frame(2, 1)});
+TEST(MakeContext, AFollowedOrderHasEveryEventInOrder) {
+    ViewerState state = three_bids();
+    state.books.on_incremental(modify(4, 1, Side::buy, 100, 3));
+    state.books.on_incremental(cancel(5, 1, Side::buy, 100));
     Selection selection;
-    selection.point_at(frame(2, 1));
-    selection.follow(1);
-    const Context context = make_context(state, selection);
-    EXPECT_FALSE(context.point->replay);
-    EXPECT_FALSE(context.follow->seed);
-    EXPECT_EQ(context.source.no_replay_reason, state.run->no_replay_reason());
-    const nlohmann::ordered_json json = to_json(context, kWriter, 1, 0);
-    EXPECT_EQ(json["point"]["replayAddressMissing"], *state.run->no_replay_reason());
-    EXPECT_EQ(json["background"]["noReplayAddress"], *state.run->no_replay_reason());
-}
-
-TEST(MakeContext, FollowListsEveryFrameWithTheIdAndCountsThem) {
-    const ViewerState state = described_run({frame(0, 7), frame(1, 2), frame(2, 7), frame(3, 7), frame(4, 9)});
-    Selection selection;
-    selection.follow(7);
+    selection.follow(OrderRef{0, 1});
     const Context context = make_context(state, selection);
     ASSERT_TRUE(context.follow);
-    EXPECT_EQ(context.follow->frame_indices, (std::vector<std::uint64_t>{0, 2, 3}));
-    EXPECT_EQ(context.follow->frame_count, 3u);
-    EXPECT_FALSE(context.follow->truncated());
-    EXPECT_EQ(context.follow->seed, 42u);
-}
-
-TEST(MakeContext, AFollowedIdThatNeverAppearsHasNoFrames) {
-    const ViewerState state = described_run({frame(0, 1)});
-    Selection selection;
-    selection.follow(19);
-    const Context context = make_context(state, selection);
-    EXPECT_TRUE(context.follow->frame_indices.empty());
-    EXPECT_EQ(context.follow->frame_count, 0u);
+    EXPECT_EQ(context.follow->event_count, 3u);
+    ASSERT_EQ(context.follow->events.size(), 3u);
+    EXPECT_EQ(context.follow->events[1].qty, 3u);
+    EXPECT_EQ(context.follow->events[2].type, UpdateType::cancel);
+    EXPECT_FALSE(context.follow->order.resting);
+    EXPECT_TRUE(context.follow->gaps.empty());
 }
 
 TEST(MakeContext, AFollowListIsCappedButItsCountIsExact) {
     ViewerState state;
-    state.apply(SourceHello{.seed = 1, .frame_count = 1500});
-    for (std::uint64_t i = 0; i < 1500; ++i) {
-        state.apply(frame(i, 4));
+    state.books.on_incremental(add(1, 1, Side::buy, 100, 5'000, 1));
+    for (std::uint64_t seq = 2; seq <= kMaxFollowedEvents + 10; ++seq) {
+        state.books.on_incremental(modify(seq, 1, Side::buy, 100, static_cast<std::uint32_t>(5'000 - seq)));
     }
     Selection selection;
-    selection.follow(4);
+    selection.follow(OrderRef{0, 1});
     const Context context = make_context(state, selection);
-    EXPECT_EQ(context.follow->frame_indices.size(), kMaxFollowedIndices);
-    EXPECT_EQ(context.follow->frame_count, 1500u);
+    EXPECT_EQ(context.follow->events.size(), kMaxFollowedEvents);
+    EXPECT_EQ(context.follow->event_count, kMaxFollowedEvents + 10);
     EXPECT_TRUE(context.follow->truncated());
 }
 
-TEST(MakeContext, TheBackgroundDescribesTheSourceAndTheLatestFrame) {
-    ViewerState state = described_run({frame(0, 1), frame(1, 1)});
-    state.source_error = "an empty message";
-    const Context context = make_context(state, Selection{});
-    EXPECT_TRUE(context.source.connected);
-    EXPECT_EQ(context.source.run, (SourceHello{.seed = 42, .frame_count = 100}));
-    EXPECT_EQ(context.source.frames_received, 2u);
-    EXPECT_EQ(context.source.latest_frame_index, 1u);
-    EXPECT_EQ(context.source.error, "an empty message");
-    EXPECT_FALSE(context.point);
-    EXPECT_FALSE(context.follow);
+TEST(MakeContext, AFollowedOrdersGapsAreTheRecoveriesSinceItWasFirstSeen) {
+    ViewerState state = three_bids();
+    state.books.on_incremental(add(6, 6, Side::buy, 98, 1, 1));  // 4 and 5 missed
+    recover_from_snapshot(state.books, 5, {add(0, 1, Side::buy, 100, 2, 1), add(0, 3, Side::buy, 99, 4, 1)});
+    ASSERT_EQ(state.books.status(), BookBuilder::Status::live);
+    Selection selection;
+    selection.follow(OrderRef{0, 1});
+    Context context = make_context(state, selection);
+    ASSERT_EQ(context.follow->gaps.size(), 1u);
+    EXPECT_EQ(context.follow->gaps[0].after_seq, 3u);
+    EXPECT_EQ(context.follow->gaps[0].snapshot_seq, 5u);
+    EXPECT_TRUE(context.follow->events.back().from_snapshot) << "its quantity changed while unseen";
+
+    selection.follow(OrderRef{0, 6});
+    context = make_context(state, selection);
+    EXPECT_TRUE(context.follow->gaps.empty()) << "first seen after the recovery";
+}
+
+TEST(MakeContext, TheFeedSaysWhereTheBooksAreAndWhichTickerIsShown) {
+    ViewerState state = three_bids();
+    state.shown_ticker = 5;
+    state.feed_error = "a datagram of 10 bytes isn't a whole number of 42-byte updates";
+    const Context::Feed feed = make_context(state, Selection{}).feed;
+    EXPECT_EQ(feed.status, BookBuilder::Status::live);
+    EXPECT_EQ(feed.last_seq, 3u);
+    EXPECT_EQ(feed.updates_received, 3u);
+    EXPECT_EQ(feed.shown_ticker, 5u);
+    EXPECT_EQ(feed.error, state.feed_error);
+}
+
+TEST(MakeContext, OnlyTheLatestRecoveriesAreListedButAllAreCounted) {
+    ViewerState state;
+    std::uint64_t seq = 0;
+    for (std::size_t i = 0; i < kMaxListedRecoveries + 3; ++i) {
+        seq += 2;  // one update missed each time
+        state.books.on_incremental(add(seq, seq, Side::buy, 100, 1, seq));
+        recover_from_snapshot(state.books, seq - 1, {});
+        ASSERT_EQ(state.books.status(), BookBuilder::Status::live);
+    }
+    const Context::Feed feed = make_context(state, Selection{}).feed;
+    EXPECT_EQ(feed.recovery_count, kMaxListedRecoveries + 3);
+    ASSERT_EQ(feed.latest_recoveries.size(), kMaxListedRecoveries);
+    EXPECT_EQ(feed.latest_recoveries.back().snapshot_seq, seq - 1) << "the latest, last";
 }
 
 // ---- to_json ----
 
 TEST(ContextJson, EmptySectionsAreNullAndEveryFieldIsThere) {
-    const nlohmann::ordered_json json = to_json(make_context(ViewerState{}, Selection{}), kWriter, 3, 1234);
-    EXPECT_EQ(json["version"], 1);
-    EXPECT_EQ(json["seq"], 3);
-    EXPECT_EQ(json["writtenAtMs"], 1234);
+    const auto json = nlohmann::json::parse(to_json(make_context(ViewerState{}, Selection{}), Writer{}, 1, 0).dump());
+    EXPECT_EQ(json["version"], 2);
     EXPECT_TRUE(json["point"].is_null());
     EXPECT_TRUE(json["follow"].is_null());
-    EXPECT_TRUE(json["background"]["source"]["run"].is_null());
-    EXPECT_TRUE(json["background"]["source"]["error"].is_null());
-    EXPECT_EQ(json["background"]["framesReceived"], 0);
-    EXPECT_TRUE(json["background"]["latestFrameIndex"].is_null());
-    EXPECT_TRUE(json["background"]["runNumber"].is_null());
-    EXPECT_EQ(json["background"]["moreFramesThanDescribed"], false);
-    EXPECT_TRUE(json["background"]["noReplayAddress"].is_null());
+    const auto& feed = json["background"]["feed"];
+    EXPECT_EQ(feed["status"], "waiting");
+    EXPECT_EQ(feed["lastSeq"], 0);
+    EXPECT_EQ(feed["updatesReceived"], 0);
+    EXPECT_TRUE(feed["recoveringBecause"].is_null());
+    EXPECT_EQ(feed["recoveryCount"], 0);
+    EXPECT_TRUE(feed["error"].is_null());
+    EXPECT_EQ(feed["latestRecoveries"].size(), 0u);
+    EXPECT_EQ(json["background"]["shownTicker"], 0);
+    EXPECT_EQ(json["background"]["noReplayAddress"], kNoReplayAddress);
 }
 
 TEST(ContextJson, SaysWhoWroteItAndWhetherItIsStillRunning) {
-    const nlohmann::ordered_json json = to_json(make_context(ViewerState{}, Selection{}), kWriter, 1, 0);
+    const auto json = nlohmann::json::parse(to_json(Context{}, Writer{.pid = 7, .started_at_ms = 11, .running = false}, 3, 99).dump());
+    EXPECT_EQ(json["seq"], 3);
+    EXPECT_EQ(json["writtenAtMs"], 99);
     EXPECT_EQ(json["writer"]["program"], "viewer");
-    EXPECT_EQ(json["writer"]["pid"], 1234);
-    EXPECT_EQ(json["writer"]["startedAtMs"], 5);
-    EXPECT_EQ(json["writer"]["running"], true);
+    EXPECT_EQ(json["writer"]["pid"], 7);
+    EXPECT_EQ(json["writer"]["startedAtMs"], 11);
+    EXPECT_EQ(json["writer"]["running"], false);
 }
 
-TEST(ContextJson, PointAndFollowCarryTheirFramesAndReplayAddresses) {
-    const ViewerState state = described_run({frame(0, 7, 10'003), frame(1, 2), frame(2, 7)});
+TEST(ContextJson, APointedOrderCarriesItsPlaceAndItsLastEvent) {
     Selection selection;
-    selection.point_at(frame(0, 7, 10'003));
-    selection.follow(7);
-    const nlohmann::ordered_json json = to_json(make_context(state, selection), kWriter, 1, 0);
-
-    EXPECT_EQ(json["background"]["latestFrameIndex"], 2);
+    selection.point_at(OrderRef{0, 2});
+    const auto json = nlohmann::json::parse(to_json(make_context(three_bids(), selection), Writer{}, 1, 0).dump());
     const auto& point = json["point"];
-    EXPECT_EQ(point["frame"]["index"], 0);
-    EXPECT_EQ(point["frame"]["id"], 7);
-    EXPECT_EQ(point["frame"]["price"], 10'003);
-    EXPECT_EQ(point["replayAddress"]["seed"], 42);
-    EXPECT_EQ(point["replayAddress"]["frameIndex"], 0);
-    EXPECT_EQ(point["seq"], selection.point_seq());
-
-    const auto& follow = json["follow"];
-    EXPECT_EQ(follow["id"], 7);
-    EXPECT_EQ(follow["frameIndices"], (std::vector<int>{0, 2}));
-    EXPECT_EQ(follow["frameCount"], 2);
-    EXPECT_EQ(follow["frameIndicesTruncated"], false);
-    EXPECT_EQ(follow["seed"], 42);
-    EXPECT_EQ(follow["seq"], selection.follow_seq());
+    EXPECT_EQ(point["seq"], 1);
+    EXPECT_EQ(point["asOfSeq"], 3);
+    const auto& order = point["order"];
+    EXPECT_EQ(order["ticker"], 0);
+    EXPECT_EQ(order["orderId"], 2);
+    EXPECT_EQ(order["resting"]["side"], "buy");
+    EXPECT_EQ(order["resting"]["price"], 100);
+    EXPECT_EQ(order["resting"]["qty"], 7);
+    EXPECT_EQ(order["resting"]["priority"], 2);
+    EXPECT_EQ(order["resting"]["ordersAhead"], 1);
+    EXPECT_EQ(order["resting"]["qtyAhead"], 5);
+    EXPECT_EQ(order["lastEvent"]["type"], "add");
+    EXPECT_EQ(order["lastEvent"]["seq"], 2);
+    EXPECT_EQ(order["lastEvent"]["fromSnapshot"], false);
+    EXPECT_FALSE(point.contains("level"));
 }
 
-TEST(ContextJson, AMissingReplayAddressSaysWhy) {
-    ViewerState state;
-    state.apply(frame(0, 1));
+TEST(ContextJson, APointedLevelCarriesItsOrders) {
     Selection selection;
-    selection.point_at(frame(0, 1));
-    const nlohmann::ordered_json json = to_json(make_context(state, selection), kWriter, 1, 0);
-    EXPECT_TRUE(json["point"]["replayAddress"].is_null());
-    EXPECT_TRUE(json["point"]["replayAddressMissing"].is_string());
+    selection.point_at(LevelRef{0, Side::buy, 100});
+    const auto json = nlohmann::json::parse(to_json(make_context(three_bids(), selection), Writer{}, 1, 0).dump());
+    const auto& level = json["point"]["level"];
+    EXPECT_EQ(level["side"], "buy");
+    EXPECT_EQ(level["price"], 100);
+    EXPECT_EQ(level["present"], true);
+    EXPECT_EQ(level["qty"], 12);
+    EXPECT_EQ(level["orderCount"], 2);
+    EXPECT_EQ(level["orders"][1]["orderId"], 2);
+    EXPECT_EQ(level["ordersTruncated"], false);
+    EXPECT_FALSE(json["point"].contains("order"));
+}
+
+TEST(ContextJson, AFollowedOrderCarriesItsEventsAndGaps) {
+    ViewerState state = three_bids();
+    state.books.on_incremental(cancel(4, 1, Side::buy, 100));
+    Selection selection;
+    selection.follow(OrderRef{0, 1});
+    const auto json = nlohmann::json::parse(to_json(make_context(state, selection), Writer{}, 1, 0).dump());
+    const auto& follow = json["follow"];
+    EXPECT_EQ(follow["asOfSeq"], 4);
+    EXPECT_EQ(follow["order"]["orderId"], 1);
+    EXPECT_TRUE(follow["order"]["resting"].is_null());
+    EXPECT_EQ(follow["eventCount"], 2);
+    EXPECT_EQ(follow["events"][1]["type"], "cancel");
+    EXPECT_EQ(follow["events"][1]["seq"], 4);
+    EXPECT_EQ(follow["eventsTruncated"], false);
+    EXPECT_EQ(follow["gaps"].size(), 0u);
+}
+
+TEST(ContextJson, ARecoveringFeedSaysWhyAndListsItsRecoveries) {
+    ViewerState state = three_bids();
+    state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));  // 4 missed
+    auto json = nlohmann::json::parse(to_json(make_context(state, Selection{}), Writer{}, 1, 0).dump());
+    EXPECT_EQ(json["background"]["feed"]["status"], "recovering");
+    EXPECT_EQ(json["background"]["feed"]["recoveringBecause"], "update 5 arrived when 4 was next");
+    recover_from_snapshot(state.books, 4, {});
+    json = nlohmann::json::parse(to_json(make_context(state, Selection{}), Writer{}, 1, 0).dump());
+    EXPECT_EQ(json["background"]["feed"]["status"], "live");
+    EXPECT_EQ(json["background"]["feed"]["recoveryCount"], 1);
+    EXPECT_EQ(json["background"]["feed"]["latestRecoveries"][0]["afterSeq"], 3);
+    EXPECT_EQ(json["background"]["feed"]["latestRecoveries"][0]["snapshotSeq"], 4);
+    EXPECT_EQ(json["background"]["feed"]["latestRecoveries"][0]["reason"], "update 5 arrived when 4 was next");
 }
 
 // ---- bar_text ----
 
-TEST(ContextBar, SaysWhatTheContextHolds) {
-    const ViewerState state = described_run({frame(0, 7, 10'003), frame(1, 2), frame(2, 7)});
-    Selection selection;
-    selection.point_at(frame(0, 7, 10'003));
-    selection.follow(7);
-    const ContextBarText text = bar_text(make_context(state, selection));
-    EXPECT_EQ(text.background, "source seed 42 · 3 of 100 frames · connected");
-    EXPECT_EQ(text.point, "Pointing at frame #0 (id 7, price 10003, qty 5)");
-    EXPECT_EQ(text.follow, "Following id 7: 2 frames");
+TEST(ContextBar, SaysWhereTheFeedIsAndWhichTickerIsShown) {
+    EXPECT_EQ(bar_text(make_context(ViewerState{}, Selection{})).background, "waiting for the exchange's market data · showing ticker 0");
+    ViewerState state = three_bids();
+    state.shown_ticker = 2;
+    EXPECT_EQ(bar_text(make_context(state, Selection{})).background, "exchange live at update 3 · showing ticker 2");
+    state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
+    EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
+              "exchange: recovering, the books are as of update 3 (update 5 arrived when 4 was next) · showing ticker 2");
 }
 
-TEST(ContextBar, SaysWhenASourceSentMoreFramesThanItSaidItWould) {
-    ViewerState state;
-    state.apply(SourceHello{.seed = 1, .frame_count = 3});
-    for (std::uint64_t i = 0; i < 5; ++i) {
-        state.apply(frame(i, 1));
-    }
-    const Context context = make_context(state, Selection{});
-    EXPECT_EQ(bar_text(context).background, "source seed 1 · 5 frames (the source said 3) · not connected");
-    EXPECT_EQ(to_json(context, kWriter, 1, 0)["background"]["moreFramesThanDescribed"], true);
+TEST(ContextBar, CountsRecoveriesAndShowsTheLastError) {
+    ViewerState state = three_bids();
+    state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
+    recover_from_snapshot(state.books, 4, {});
+    state.feed_error = "bad datagram";
+    EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
+              "exchange live at update 5 · showing ticker 0 · 1 recovery · last error: bad datagram");
+}
+
+TEST(ContextBar, SaysWhereAPointedOrderIsOrHowItLeft) {
+    ViewerState state = three_bids();
+    Selection selection;
+    selection.point_at(OrderRef{0, 2});
+    EXPECT_EQ(bar_text(make_context(state, selection)).point,
+              "Pointing at order 2 of ticker 0: buy 7 @ 100, 1 order (5) ahead of it in its queue");
+    state.books.on_incremental(cancel(4, 2, Side::buy, 100));
+    EXPECT_EQ(bar_text(make_context(state, selection)).point,
+              "Pointing at order 2 of ticker 0: not in the book (its last update: cancel at update 4)");
+    selection.point_at(OrderRef{0, 99});
+    EXPECT_EQ(bar_text(make_context(state, selection)).point, "Pointing at order 99 of ticker 0: never seen");
+}
+
+TEST(ContextBar, SaysWhatAPointedLevelHolds) {
+    Selection selection;
+    selection.point_at(LevelRef{0, Side::buy, 100});
+    EXPECT_EQ(bar_text(make_context(three_bids(), selection)).point, "Pointing at buy 100 of ticker 0: 12 in 2 orders");
+    selection.point_at(LevelRef{0, Side::sell, 101});
+    EXPECT_EQ(bar_text(make_context(three_bids(), selection)).point,
+              "Pointing at sell 101 of ticker 0: no orders at that price now");
+}
+
+TEST(ContextBar, SaysWhatAFollowedOrderHasDoneAndAnyGaps) {
+    ViewerState state = three_bids();
+    Selection selection;
+    selection.follow(OrderRef{0, 3});
+    EXPECT_EQ(bar_text(make_context(state, selection)).follow,
+              "Following order 3 of ticker 0: 1 event, buy 4 @ 99, 0 orders (0) ahead of it in its queue");
+    state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
+    recover_from_snapshot(state.books, 4, {add(0, 3, Side::buy, 99, 4, 1)});
+    EXPECT_EQ(bar_text(make_context(state, selection)).follow,
+              "Following order 3 of ticker 0: 2 events, buy 4 @ 99, 0 orders (0) ahead of it in its queue · "
+              "1 recovery may hide some of its events");
 }
 
 TEST(ContextBar, ShowsNoPointOrFollowLineWhenThereIsNone) {
-    const ContextBarText text = bar_text(make_context(ViewerState{}, Selection{}));
-    EXPECT_EQ(text.background, "no frames yet · not connected");
+    const ContextBarText text = bar_text(make_context(three_bids(), Selection{}));
     EXPECT_FALSE(text.point);
     EXPECT_FALSE(text.follow);
-}
-
-TEST(ContextBar, SaysWhenTheSourceDidntDescribeItsRunAndThereIsNoReplayAddress) {
-    ViewerState state;
-    state.apply(frame(0, 3));
-    Selection selection;
-    selection.point_at(frame(0, 3));
-    const ContextBarText text = bar_text(make_context(state, selection));
-    EXPECT_EQ(text.background, "a source that didn't describe its run · 1 frames · not connected");
-    EXPECT_EQ(text.point, "Pointing at frame #0 (id 3, price 10000, qty 5) · no replay address");
-}
-
-TEST(ContextBar, SaysWhyTheLastSourceWasDropped) {
-    ViewerState state;
-    state.source_error = "an empty message";
-    EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
-              "no frames yet · not connected (the last source was dropped: an empty message)");
-}
-
-TEST(ContextBar, CountsOneFrameInTheSingularAndSaysWhenTheListIsCut) {
-    ViewerState state = described_run({frame(0, 9)});
-    Selection selection;
-    selection.follow(9);
-    EXPECT_EQ(bar_text(make_context(state, selection)).follow, "Following id 9: 1 frame");
-
-    for (std::uint64_t i = 1; i < 1200; ++i) {
-        state.apply(frame(i, 9));
-    }
-    EXPECT_EQ(bar_text(make_context(state, selection)).follow, "Following id 9: 1200 frames (first 1000 listed)");
 }
 
 // ---- ContextPublisher and write_atomically ----
@@ -499,25 +460,27 @@ protected:
     const ContextPublisher::Clock::time_point t0_{};
 };
 
-Context pointing_at(std::uint64_t index) {
-    const ViewerState state = described_run({frame(0, 1), frame(1, 1), frame(2, 1)});
+// Ticker 0's book, pointing at one of its orders.
+Context pointing_at(std::uint64_t order_id) {
     Selection selection;
-    selection.point_at(frame(index, 1));
-    return make_context(state, selection);
+    selection.point_at(OrderRef{0, order_id});
+    return make_context(three_bids(), selection);
 }
 
 TEST_F(Publisher, AUserActionIsWrittenAtOnce) {
     ContextPublisher publisher{file(), 100ms};
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
-    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_ + 1ms);  // well inside the interval
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_ + 1ms);  // well inside the interval
     EXPECT_EQ(publisher.seq(), 2u);
-    EXPECT_EQ(read_file()["point"]["frame"]["index"], 1);
+    EXPECT_EQ(read_file()["point"]["order"]["orderId"], 2);
 }
 
 TEST_F(Publisher, ABackgroundChangeWaitsForTheInterval) {
     ContextPublisher publisher{file(), 100ms};
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
-    const Context later = make_context(described_run({frame(0, 1), frame(1, 1), frame(2, 1), frame(3, 1)}), Selection{});
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    ViewerState more = three_bids();
+    more.books.on_incremental(add(4, 4, Side::buy, 97, 1, 1));
+    const Context later = make_context(more, Selection{});
 
     publisher.update(later, PublishTrigger::background, t0_ + 50ms);
     EXPECT_EQ(publisher.seq(), 1u) << "held back: too soon";
@@ -530,8 +493,8 @@ TEST_F(Publisher, ABackgroundChangeWaitsForTheInterval) {
 
 TEST_F(Publisher, AnUnchangedContextIsNotRewritten) {
     ContextPublisher publisher{file()};
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_ + 1s);
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_ + 1s);
     EXPECT_EQ(publisher.seq(), 1u);
 }
 
@@ -542,7 +505,7 @@ TEST_F(Publisher, TheFileHoldsExactlyWhatPublishedSays) {
             .count();
     };
     const auto before = wall_ms();
-    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(3), PublishTrigger::user_action, t0_);
     const auto after = wall_ms();
 
     const nlohmann::json written = read_file();
@@ -557,22 +520,22 @@ TEST_F(Publisher, TheFileHoldsExactlyWhatPublishedSays) {
 
 TEST_F(Publisher, FinishSaysTheWriterIsNoLongerRunning) {
     ContextPublisher publisher{file()};
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
-    publisher.finish(pointing_at(0));
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    publisher.finish(pointing_at(1));
     EXPECT_EQ(read_file()["writer"]["running"], false);
     EXPECT_EQ(publisher.seq(), 2u);
 }
 
 TEST_F(Publisher, NoTemporaryFileIsLeftBehind) {
     ContextPublisher publisher{file()};
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
     publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
     EXPECT_EQ(entries_in(file().parent_path()), 1);
 }
 
 TEST_F(Publisher, AFailedWriteKeepsWhatTheFileHoldsAndSaysWhy) {
     ContextPublisher publisher{unwritable()};
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
     EXPECT_FALSE(publisher.published()) << "nothing was written, so nothing is published";
     ASSERT_TRUE(publisher.error());
     EXPECT_NE(publisher.error()->find("can't create"), std::string::npos) << *publisher.error();
@@ -582,36 +545,36 @@ TEST_F(Publisher, AFailedWriteKeepsWhatTheFileHoldsAndSaysWhy) {
 
 TEST_F(Publisher, AFailedWriteIsRetriedAndRecovers) {
     ContextPublisher publisher{file()};
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
     ASSERT_EQ(publisher.seq(), 1u);
 
     // Make the next write fail: the file's place is taken by a directory, which rename won't replace.
     std::filesystem::remove(file());
     std::filesystem::create_directories(file() / "blocker");
-    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
     ASSERT_TRUE(publisher.error());
-    EXPECT_EQ(publisher.published(), pointing_at(0)) << "still what was last written successfully";
+    EXPECT_EQ(publisher.published(), pointing_at(1)) << "still what was last written successfully";
     EXPECT_EQ(entries_in(file().parent_path()), 1) << "no temporary file left after the failed rename";
 
     std::filesystem::remove_all(file());
-    publisher.update(pointing_at(1), PublishTrigger::background, t0_ + 1s);  // the context that failed, retried
+    publisher.update(pointing_at(2), PublishTrigger::background, t0_ + 1s);  // the context that failed, retried
     EXPECT_FALSE(publisher.error());
     EXPECT_EQ(publisher.seq(), 2u) << "one more successful write";
-    EXPECT_EQ(read_file()["point"]["frame"]["index"], 1);
+    EXPECT_EQ(read_file()["point"]["order"]["orderId"], 2);
 }
 
 TEST_F(Publisher, AFailedWriteIsRetriedWhenTheContextReturnsToWhatWasPublished) {
     ContextPublisher publisher{file()};
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
     std::filesystem::remove(file());
     std::filesystem::create_directories(file() / "blocker");
-    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
     ASSERT_TRUE(publisher.error());
 
     // The user goes back to what was published. The context equals published(), but the last write
     // failed, so it is written again; otherwise the error would stay on screen for good.
     std::filesystem::remove_all(file());
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_ + 1s);
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_ + 1s);
     EXPECT_FALSE(publisher.error());
     EXPECT_EQ(publisher.seq(), 2u);
     EXPECT_TRUE(std::filesystem::exists(file()));
@@ -619,12 +582,12 @@ TEST_F(Publisher, AFailedWriteIsRetriedWhenTheContextReturnsToWhatWasPublished) 
 
 TEST_F(Publisher, AFailedWriteRemovesTheOldFileWhenItCan) {
     ContextPublisher publisher{file()};
-    publisher.update(pointing_at(0), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
     ASSERT_TRUE(publisher.published_bar());
     // The temporary file's place is taken by a directory, so the write fails, but the directory is
     // writable, so the old file can be removed.
     std::filesystem::create_directories(std::format("{}.{}.tmp", file().string(), ::getpid()));
-    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
     ASSERT_TRUE(publisher.error());
     EXPECT_FALSE(std::filesystem::exists(file())) << "no file, rather than one the user has since changed";
     EXPECT_FALSE(publisher.published()) << "and nothing claims it is published";
@@ -634,7 +597,7 @@ TEST_F(Publisher, AFailedWriteRemovesTheOldFileWhenItCan) {
 TEST_F(Publisher, TheBarTextIsThePublishedContexts) {
     ContextPublisher publisher{file()};
     EXPECT_FALSE(publisher.published_bar());
-    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
+    publisher.update(pointing_at(3), PublishTrigger::user_action, t0_);
     EXPECT_EQ(publisher.published_bar(), bar_text(*publisher.published()));
 }
 

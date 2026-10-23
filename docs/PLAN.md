@@ -16,7 +16,7 @@ shows what that code does and explains it from its exact state.
 
 **What the back end is** (Chapter 12, checked 2026-10-23): an exchange (a matcher, an order server
 taking orders over TCP on port 12345, a market data publisher sending snapshots on UDP multicast
-233.252.14.1:20000 and incremental updates on 233.252.14.3:20001, on the loopback interface) and a
+233.252.14.1:20000 and incremental updates on 233.252.14.3:20001) and a
 trading client (market making, liquidity taking, or random orders, seeded by the client's id).
 C++20, CMake, g++ with `-Werror`. Each chapter's folder is a full copy of the system as it stands
 then. It has no tests. A run isn't reproducible: threads and the network decide the order things
@@ -64,7 +64,7 @@ orders reach the exchange and market data leave it; CI runs it.
 **Status:** done, 2026-10-23: Fillscope `a7ca207`, pinning the fork at `941ef50` (which raised
 CMake's minimum to 3.10, to silence CMake 4.3's deprecation warning). `backend_system_tests`, in a
 new `system` tier, passes in both builds locally and in CI (about 31 s each), with the back end
-under the sanitizers in the sanitizer build; multicast on loopback works in CI's container. The
+under the sanitizers in the sanitizer build; the exchange's multicast reaches the test in CI's container. The
 test machinery covers the back end (the sanitizer check, scratch copies, test selection).
 
 ### 3. Tests of what Fillscope relies on
@@ -97,7 +97,18 @@ book, not stand-in frames.
 **Done when:** a test runs the exchange and clients and checks that the viewer's book equals the
 exchange's own book at the same sequence number; the UI tests click through it; the owner sees it
 live.
-**Status:** not started.
+**Decided while building it (2026-10-23):** the viewer becomes a viewer of the books: frames leave it
+now rather than in step 8, since keeping both would have doubled every part of it only for step 8 to
+remove one. The frame source, its socket and the anchor stay, for the debugger tests, until step 6.
+The VS Code configurations now run the viewer, the exchange and a client; lockstep returns in step
+6. The exchange gained an option, `--snapshot-interval-seconds`, so tests needn't wait a minute for a
+snapshot.
+**Status:** built and tested, CI pending. Fillscope's books (`src/feed/`) follow the trading
+client's protocol; `feed_system_tests` checks them against the exchange's snapshots, and a late
+reader's recovery. Found and fixed on the way: the viewer stopped painting, and so stopped reading
+market data and answering SIGTERM, while its window couldn't be seen (vsync); it now paces itself.
+Found, recorded in the fork's README: the exchange's multicast goes out on the default interface,
+not loopback. **Left:** the owner seeing it live (below).
 
 ### 5. Deterministic replay
 In the fork: the exchange records the client requests in the order its sequencer releases them to
@@ -131,7 +142,9 @@ The frame source, its socket messages and the stand-in frames go once the viewer
 end; ARCHITECTURE.md, RUNNING.md and DEBUGGER-LOCKSTEP.md describe the new system.
 **Done when:** nothing in Fillscope refers to stand-in frames, and every document is true of the
 code.
-**Status:** not started.
+**Status:** partly done in step 4: the viewer no longer reads frames, and the documents describe the
+new system. Left: the frame source, the channel and the anchor, which the debugger tests use until
+step 6 moves lockstep to the matcher.
 
 ### 9. A comprehensive tech-debt sweep
 Once steps 1 to 8 have landed (the owner, 2026-10-23): a sweep of Fillscope and the fork, finding
@@ -141,9 +154,9 @@ keeps what remains).
 **Status:** not started.
 
 ## Waiting on the owner
-- **The viewer shell's test:** pointing and following in the viewer and asking the assistant about
-  it ([RUNNING.md](RUNNING.md), "Pointing and following"). Still useful before step 4 rebuilds the
-  viewer's content.
+- **Seeing the book live (step 4's last part):** run **viewer + exchange + client** in VS Code,
+  point at and follow orders, and ask the assistant about them ([RUNNING.md](RUNNING.md), "Run" and
+  "Pointing and following"). This replaces the viewer shell's test, whose frames are gone.
 
 ## Later
 The rest of the roadmap becomes changes to the fork, ordered when steps 1 to 9 have landed: ITCH

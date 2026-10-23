@@ -1,10 +1,13 @@
-// Helpers shared by the tests: unique socket names, a listening receiver, child processes, and
-// shell commands.
+// Helpers shared by the tests: unique socket names, a listening receiver, child processes, shell
+// commands, and sending to a multicast group.
 #pragma once
 
 #include "channel/net.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <spawn.h>
+#include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -15,6 +18,8 @@
 #include <thread>
 #include <atomic>
 #include <cerrno>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
@@ -149,6 +154,22 @@ inline CommandResult run_command(const std::string& command) {
 
 inline bool command_exists(const std::string& name) {
     return run_command("command -v " + shell_quote(name)).status == 0;
+}
+
+// Sends one datagram to a multicast group as the exchange does: on the interface the system routes
+// the group to, with no interface chosen (its sockets name "lo" but don't use it), looped back to this
+// machine's listeners. Returns whether all of it was sent.
+inline bool send_multicast(const std::string& group, std::uint16_t port, const void* data, std::size_t size) {
+    const int fd = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) {
+        return false;
+    }
+    sockaddr_in address{.sin_family = AF_INET, .sin_port = htons(port), .sin_addr = {}, .sin_zero = {}};
+    const bool ok = ::inet_pton(AF_INET, group.c_str(), &address.sin_addr) == 1 &&
+                    ::sendto(fd, data, size, 0, reinterpret_cast<const sockaddr*>(&address), sizeof address) ==
+                        static_cast<ssize_t>(size);
+    ::close(fd);
+    return ok;
 }
 
 }  // namespace fillscope::test

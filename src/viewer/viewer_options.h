@@ -1,12 +1,13 @@
 // The viewer's command line.
 #pragma once
 
-#include "channel/net.h"
+#include "feed/feed_socket.h"
 
 #include <expected>
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace fillscope {
 
@@ -14,7 +15,9 @@ inline constexpr std::string_view kDefaultContextFile = ".fillscope/context.json
 
 struct ViewerOptions {
     double exit_after_seconds = 0;  // 0: run until the window is closed
-    std::string socket_name{kDefaultSocketName};
+    // The exchange's market data streams, by default where the exchange sends them.
+    Stream incremental = kExchangeIncremental;
+    Stream snapshot = kExchangeSnapshot;
     // Relative paths are relative to the working directory: the repository, when started from VS Code.
     std::filesystem::path context_file{kDefaultContextFile};
 };
@@ -23,6 +26,6 @@ struct ViewerOptions {
 [[nodiscard]] std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char* const> args);
 
 inline constexpr std::string_view kViewerUsage =
-    "usage: viewer [--exit-after SECONDS] [--socket NAME] [--context-file PATH]";
+    "usage: viewer [--exit-after SECONDS] [--incremental GROUP:PORT] [--snapshot GROUP:PORT] [--context-file PATH]";
 
 }  // namespace fillscope

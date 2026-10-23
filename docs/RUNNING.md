@@ -7,10 +7,9 @@ procedure. **Read when:** building, running or changing it.
 | Path | What it holds |
 |---|---|
 | `backend/` | the trading system Fillscope observes: a git submodule, the `fillscope` branch of the fork of the system in Ghosh's book, pinned to one commit ([PLAN.md](PLAN.md)); its code is in `backend/Chapter12/`, and its programs are `exchange_main` and `trading_main` |
-| `src/channel/` | `frame.h`, the stand-in frame; `message.h`, the messages a source sends (a description of its run, then frames) and their encoding; `net.h`, the socket that carries them |
-| `src/lockstep/` | `anchor.h`, `anchor.cpp`: the debugger anchor and the debugger check ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
-| `src/viewer/` | `viewer_state.h`, what the viewer has received; `context.h`, what the user points at and follows and the context built from it; `context_publisher.h`, the file it is published to; `viewer_view.h`, what the viewer draws; `viewer_app.h`, its loop; `viewer_options.h`, its command line; `main.cpp`, the window |
-| `tools/frame_source/` | a stand-in that produces fake frames until real ones exist; not the matching engine |
+| `src/feed/` | the exchange's market data as Fillscope reads it: `market_update.h`, an update and its bytes; `feed_socket.h`, a listener on one of the exchange's multicast streams; `book.h`, one ticker's book; `book_builder.h`, every book kept in step with the market data, recovering from snapshots |
+| `src/viewer/` | `viewer_state.h`, the books and the ticker shown; `context.h`, what the user points at and follows and the context built from it; `context_publisher.h`, the file it is published to; `viewer_view.h`, what the viewer draws; `viewer_app.h`, its loop; `viewer_options.h`, its command line; `main.cpp`, the window |
+| `src/channel/`, `src/lockstep/`, `tools/frame_source/` | the stand-ins the debugger tests still use: a frame source that makes up frames, the socket it sends them on, and the debugger anchor it calls after each ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `tools/vscode-debug-state/` | the VS Code extension that publishes the debugger's state ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `tools/attribution/` | `attribution.py`, which writes [ATTRIBUTION.md](ATTRIBUTION.md): per file, the owner's lines and the lines co-authored with Claude (`python3 -I tools/attribution/attribution.py`; `--check` checks the committed report) |
 | `tests/<area>/` | the tests of one area, mirroring `src/` and `tools/` (`tests/channel/` tests `src/channel/`), with the area's `CMakeLists.txt` |
@@ -71,7 +70,7 @@ frame source's path and makes the frame source one of its run-time files:
 | `ui` | 10 s (the whole program) | `iterate.py`, `run-tests.sh` |
 | `check` | 30 s (a whole run of a checker or a test runner: the type check, the extension's Node tests) | `iterate.py`, `run-tests.sh` |
 | `debugger` | 30 s | `run-tests.sh` |
-| `system` | 120 s (the back end: its tests, and its programs running together) | `run-tests.sh` |
+| `system` | 120 s (the back end: its tests, and its programs running together; a test that runs the exchange holds a CTest lock, since its ports are fixed) | `run-tests.sh` |
 
 Every passing run prints its five slowest tests. To run one program's tests by hand, select it by
 its label: `ctest --test-dir build/debug -L exe:viewer_tests`. (`-R` matches test names, which in a
@@ -94,20 +93,29 @@ the slower program adds the tier to its name.
 - **`lockstep_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** the anchor under GDB and LLDB, driven through the frame source, by breakpoint and
   by self-stop, at `-O0` and `-O2`; every stop is in the anchor, in `anchor.cpp`, at the right
-  line, with the right frame index, and (through the LLDB driver, which acts as the viewer) after
-  that frame was sent.
-- **`viewer_tests` (GoogleTest, `unit`):** the viewer's core without Dear ImGui: what it has
-  received, the price envelope, the selection, the context built from them, its JSON and bar text,
-  publishing (including failure and recovery), and the command line.
+  line, with the right frame index, and (through the LLDB driver, which acts as the frame source's
+  receiver) after that frame was sent.
+- **`feed_tests` (GoogleTest, `unit`):** Fillscope's reading of the market data: decoding (the
+  back end's own test bytes among others), a book, keeping the books in step and every way recovery
+  starts and ends, each order's history, and receiving real multicast datagrams (test-only groups
+  and ports).
+- **`feed_system_tests` (GoogleTest, `system`, the whole program as one test):** the real exchange
+  (a snapshot every second) and a client trading at random: every incremental update arrives, the
+  books built from updates 1 to S equal each of the exchange's snapshots as of S, and a reader that
+  joins late recovers and ends with the same books. About half a minute.
+- **`viewer_tests` (GoogleTest, `unit`):** the viewer's core without Dear ImGui: the selection, the
+  context built from the books and the selection (an order's place in its queue, a level's orders,
+  a followed order's events and gaps), its JSON and bar text, publishing (including failure and
+  recovery), and the command line.
 - **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** the viewer's whole loop, as
-  `ViewerApp` runs it for the program, with real clicks: pointing at and following, clearing, a new
-  run, the bar and the table's marks (as drawn: each row reports them to the Test Engine) saying
-  exactly what the file holds, a failed write shown in the bar and the tooltips, connections that
-  send nothing valid, and frames from a real frame source process followed by a second source that
-  never describes itself. (The followed rows' colour itself isn't observable; their id buttons
-  report the mark.) Text is checked through Dear ImGui's logging, since plain
-  text items have no ID for the Test Engine to find; rows, buttons and the plot are found by their
-  IDs.
+  `ViewerApp` runs it for the program, with real clicks: the book's order on screen, choosing a
+  ticker, pointing at orders and levels, following an order as it fills, clearing, the bar and the
+  book's marks (as drawn: each item reports them to the Test Engine) saying exactly what the file
+  holds, a failed write shown in the bar and the tooltips, and real multicast streams: a feed
+  joined while running, recovered from a snapshot, and a datagram that can't be decoded. (The
+  followed row's colour itself isn't observable; its id button reports the mark.) Text is checked
+  through Dear ImGui's logging, since plain text items have no ID for the Test Engine to find; rows
+  and buttons are found by their IDs.
 - **`docs_tests` (GoogleTest, `unit`):** every relative link in the repository's Markdown documents
   resolves. A link can name any file, so `iterate.py` runs it every time.
 - **`scripts_tests` (Python's unittest, `unit`):** the test machinery's own logic in `iterate.py`:
@@ -140,35 +148,43 @@ passes on the real code, so a test that already fails can't make a mutant look c
 `NAME`, it runs only the mutants whose names contain it.
 
 ## Run
-Start `build/debug/viewer`, then `build/debug/frame_source`. The frame source waits for the viewer
-to accept it, describes its run (its seed and frame count), then sends five frames a second. When
-it exits, the viewer goes back to "waiting"; a new frame source starts a new run, which replaces
-the old one's frames. A frame source started while another is connected is refused, and says so.
-`--exit-after SECONDS` closes the viewer after that long; Ctrl-C and SIGTERM close it the same
-way, so its last context file says it has stopped. `--socket NAME` must match the frame source's.
-The viewer prints on stderr when publishing the context fails and when it works again.
+The viewer shows the back end's books. In VS Code: Run and Debug, then **viewer + exchange + client**
+(it builds first). It starts the viewer, the exchange (with a snapshot every 5 seconds) and a client
+trading at random, each in a debug session of its own; the client waits for the exchange's order
+port, which takes the exchange about ten seconds. The back end runs in
+`build/debug/backend/Chapter12/`, where it writes its logs. Stopping debugging stops all three.
+
+From a terminal, start the viewer, then the back end as its README says (from
+`build/debug/backend/Chapter12/`: `./exchange_main &`, ten seconds, then `./trading_main 5 RANDOM &`;
+`--snapshot-interval-seconds S` shortens the exchange's minute between snapshots). The viewer can
+start before the exchange or after: started after, it waits for the next snapshot to rebuild the
+books (it says "recovering" until then).
+
+`--exit-after SECONDS` closes the viewer after that long; Ctrl-C and SIGTERM close it the same way,
+so its last context file says it has stopped. `--incremental GROUP:PORT` and `--snapshot GROUP:PORT`
+choose the market data streams (by default the exchange's). The viewer prints on stderr when
+publishing the context fails and when it works again, and if it can't join a stream.
 
 ## Pointing and following
-In the viewer's frame table, **click a row to point at its frame**, and **click a frame's id to
-follow the id**: every frame with it is highlighted. The context bar at the top says what the
-assistant has been given; `x` clears a line. Every change is published at once to
-`.fillscope/context.json` in the viewer's working directory (the repository, when started from VS
-Code; `--context-file` chooses another path). The file holds a replay address for what is pointed
-at: the run's seed and the frame's index, which reproduce that exact state. It also names its
-writer (the viewer's process id, when it started, and whether it is still running), so a file left
-by a viewer that has exited says so. If a write fails, the bar says so in red, keeps showing what
-the file actually holds, and the viewer keeps retrying.
+The buttons along the top choose the ticker whose book is shown. In the book, **click an order's
+row to point at it**, **click a price to point at that level**, and **click an order's id to follow
+it**: its row is highlighted, and its history (every update applied to it) is shown below. The
+context bar at the top says what the assistant has been given; `x` clears a line. Every change is
+published at once to `.fillscope/context.json` in the viewer's working directory (the repository,
+when started from VS Code; `--context-file` chooses another path).
 
-## Debug in lockstep (VS Code, CodeLLDB)
-Run and Debug, then one of the two compounds (each builds first):
-- **viewer + frame source (self-stop):** the anchor executes a breakpoint instruction when the
-  process is traced (by a debugger, here; under another tracer such as `strace`, that ends it).
-- **viewer + frame source (breakpoint by name):** LLDB sets a breakpoint on the anchor at launch.
+The file says what the books hold as of the last update applied (`asOfSeq`): for an order pointed at,
+its place in its queue (the orders and quantity ahead of it), or how it left; for a level, its
+orders in the order they will fill; for an order followed, its events, and any recoveries whose
+updates they may be missing. It has no replay address yet (deterministic replay is step 5 of
+[PLAN.md](PLAN.md)). It names its writer (the viewer's process id, when it started, and whether it is
+still running), so a file left by a viewer that has exited says so. If a write fails, the bar says
+so in red, keeps showing what the file actually holds, and the viewer keeps retrying.
 
-The frame source stops at frame 0. Each Continue (F5) adds one frame to the viewer's table and
-price line; F10 from a self-stop steps back into the loop (from a breakpoint by name, through the
-rest of the anchor first), and the frame appears when `send` runs. "Viewer
-paints" keeps rising while the frame source is stopped.
+## Debug in lockstep
+Not yet with the exchange: stepping its matcher while the viewer's books follow is step 6 of
+[PLAN.md](PLAN.md). The rules it will rest on, and what the debugger tests check with the stand-in
+frame source, are in [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md).
 
 ## The debug-state extension
 Installed by linking its folder into VS Code's extensions directory, so it runs straight from the
@@ -179,5 +195,4 @@ ln -s "$PWD/tools/vscode-debug-state" ~/.vscode/extensions/fillscope.fillscope-d
 Remove the link to uninstall it. It starts with the first debug session, and writes only for
 sessions in a Fillscope folder; open the folder in one VS Code window only. Its output channel,
 **Fillscope debug state**, logs every write, e.g.
-`#7 frame source: stopped at anchor.cpp:LINE in fillscope_frame_anchor (3 frames, 2 locals)`, where
-LINE is the anchor's breakpoint instruction for a self-stop.
+`#SEQ SESSION: stopped at FILE:LINE in FUNCTION (N frames, N locals)`, one line per write.

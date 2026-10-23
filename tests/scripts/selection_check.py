@@ -23,7 +23,8 @@ sys.dont_write_bytecode = True
 EXTENSION = {"vscode_debug_state_tests", "vscode_debug_state_typecheck"}
 ATTRIBUTION = {"attribution_tests", "attribution_report_check"}
 ALL = {"channel_tests", "docs_tests", "lockstep_tests", "frame_source_tests", "lockstep_debugger_tests",
-       "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests"} | EXTENSION | ATTRIBUTION
+       "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests", "feed_tests",
+       "feed_system_tests"} | EXTENSION | ATTRIBUTION
 # The programs iterate.py runs every time, affected or not.
 ALWAYS = {"docs_tests", "attribution_report_check"}
 
@@ -39,13 +40,19 @@ CASES = [
     ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"}),
     # The loop main.cpp runs is in ViewerApp, which the UI tests run too.
     ("src/viewer/viewer_app.cpp", CPP_PROBE, {"viewer_ui_tests"}),
+    # The feed's socket uses the channel's Fd (channel/net.h, which includes the messages), so
+    # everything that links the feed is affected too.
     ("src/channel/frame.h", CPP_PROBE,
-     {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_tests", "viewer_ui_tests"}),
+     {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_tests", "viewer_ui_tests", "feed_tests",
+      "feed_system_tests"}),
     # The viewer's core is linked by both of the viewer's test programs, and by nothing else.
     ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"}),
-    ("src/lockstep/anchor.cpp", CPP_PROBE, {"lockstep_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
-    ("tools/frame_source/frame_source.cpp", CPP_PROBE, {"frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
-    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests", "docs_tests", "viewer_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests"} - EXTENSION - ATTRIBUTION),
+    ("src/lockstep/anchor.cpp", CPP_PROBE, {"lockstep_tests", "frame_source_tests", "lockstep_debugger_tests"}),
+    ("tools/frame_source/frame_source.cpp", CPP_PROBE, {"frame_source_tests", "lockstep_debugger_tests"}),
+    # The books: Fillscope's reading of the market data, which the viewer and the system test link.
+    ("src/feed/book_builder.cpp", CPP_PROBE, {"feed_tests", "feed_system_tests", "viewer_tests", "viewer_ui_tests"}),
+    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests", "docs_tests", "viewer_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
+           "feed_system_tests"} - EXTENSION - ATTRIBUTION),
     ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
     ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
     ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
@@ -53,13 +60,15 @@ CASES = [
     # A run-time file deleted is a change too.
     ("tests/lockstep/lldb_driver.py", DELETE, {"lockstep_debugger_tests"}),
     # Reaches its programs only as a run-time file: the frame source binary they start.
-    ("tools/frame_source/main.cpp", CPP_PROBE, {"frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
+    ("tools/frame_source/main.cpp", CPP_PROBE, {"frame_source_tests", "lockstep_debugger_tests"}),
     ("src/channel/net.cpp", CPP_PROBE,
-     {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_tests", "viewer_ui_tests"}),
+     {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_tests", "viewer_ui_tests", "feed_tests",
+      "feed_system_tests"}),
     ("tools/vscode-debug-state/tsconfig.json", JS_PROBE, EXTENSION),
     ("tools/attribution/attribution.py", TEXT_PROBE, ATTRIBUTION),
     # The back end: its own tests link it, and the system test starts its programs.
-    ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE, {"backend_system_tests", "lowlatency_tests"}),
+    ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
+     {"backend_system_tests", "lowlatency_tests", "feed_system_tests"}),
     ("CMakeLists.txt", TEXT_PROBE, ALL),
     # Any build file can change how a test runs (a timeout, a label), so each one counts for all.
     ("tests/viewer/CMakeLists.txt", TEXT_PROBE, ALL),

@@ -5,13 +5,15 @@
 // asked of the assistant, in another program. So the viewer can't wait to see the question: it
 // publishes the assembled context as soon as it changes (context_publisher.h). Two ways to assemble
 // it, kept apart because they mean different things:
-//   - point at: one frame, the subject of a question;
-//   - follow:   one id across every frame where it appears, a lens on the question.
+//   - point at: an order, or a price level, the subject of a question ("why didn't this fill?");
+//   - follow:   an order through every update the books applied to it, a lens on the question.
 // Each has its own sequence number, taken only when the user changes it, so the assistant can tell
 // which the user did last.
 #pragma once
 
-#include "channel/message.h"
+#include "feed/book.h"
+#include "feed/book_builder.h"
+#include "feed/market_update.h"
 #include "viewer/viewer_state.h"
 
 #include <nlohmann/json.hpp>
@@ -20,89 +22,123 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace fillscope {
+
+// An order, by the exchange's id within its ticker.
+struct OrderRef {
+    std::uint32_t ticker = 0;
+    std::uint64_t order_id = 0;
+    friend bool operator==(const OrderRef&, const OrderRef&) = default;
+};
+
+// A price on one side of a ticker's book.
+struct LevelRef {
+    std::uint32_t ticker = 0;
+    Side side = Side::none;
+    std::int64_t price = 0;
+    friend bool operator==(const LevelRef&, const LevelRef&) = default;
+};
+
+using PointTarget = std::variant<OrderRef, LevelRef>;
 
 // The user's choices: what is pointed at and what is followed. Changed only through the member
 // functions, which keep the sequence numbers right.
 class Selection {
 public:
-    void point_at(const Frame& frame);
+    void point_at(const PointTarget& target);
     void clear_point();
-    void follow(std::uint32_t id);
+    void follow(const OrderRef& order);
     void clear_follow();
 
-    // A new run has started: the frame pointed at belonged to the old one, so it is cleared. What is
-    // followed is an id, which is just as meaningful in the new run, so it stays. The viewer did
-    // this, not the user, so it takes no sequence number: the numbers say what the user did.
-    void new_run();
-
-    [[nodiscard]] const std::optional<Frame>& pointed() const noexcept { return pointed_; }
-    [[nodiscard]] std::optional<std::uint32_t> followed() const noexcept { return followed_; }
+    [[nodiscard]] const std::optional<PointTarget>& pointed() const noexcept { return pointed_; }
+    [[nodiscard]] const std::optional<OrderRef>& followed() const noexcept { return followed_; }
     // When each last changed, on one shared counter, so the two can be compared.
     [[nodiscard]] std::uint64_t point_seq() const noexcept { return point_seq_; }
     [[nodiscard]] std::uint64_t follow_seq() const noexcept { return follow_seq_; }
 
 private:
-    std::optional<Frame> pointed_;
-    std::optional<std::uint32_t> followed_;
+    std::optional<PointTarget> pointed_;
+    std::optional<OrderRef> followed_;
     std::uint64_t point_seq_ = 0;
     std::uint64_t follow_seq_ = 0;
     std::uint64_t next_seq_ = 1;
 };
 
-// A frame's replay address: the run's seed and the frame's index identify one exact state, which
-// the frame source can reproduce by running with that seed.
-struct ReplayAddress {
-    std::uint64_t seed;
-    std::uint64_t frame_index;
+// At most this many orders are listed for a level pointed at, and events for an order followed; the
+// counts are always exact.
+inline constexpr std::size_t kMaxLevelOrders = 100;
+inline constexpr std::size_t kMaxFollowedEvents = 1000;
+// At most this many of the latest recoveries are listed in the background; the count is exact.
+inline constexpr std::size_t kMaxListedRecoveries = 10;
 
-    friend bool operator==(const ReplayAddress&, const ReplayAddress&) = default;
+// Why nothing published has a replay address yet: the exchange's runs aren't recorded.
+inline constexpr std::string_view kNoReplayAddress =
+    "the exchange's runs aren't recorded, so no state can be rebuilt exactly yet (deterministic replay is "
+    "step 5 of docs/PLAN.md)";
+
+// An order as the books have it now: resting, with its place in its price's queue; or not resting,
+// with the last update applied to it (how it left), or never seen.
+struct OrderState {
+    OrderRef ref;
+    std::optional<Order> resting;
+    std::size_t orders_ahead = 0;     // when resting: the orders before it in its price's queue
+    std::uint64_t qty_ahead = 0;      // and their total quantity
+    std::optional<OrderEvent> last_event;  // empty if the books never applied an update to it
+
+    friend bool operator==(const OrderState&, const OrderState&) = default;
 };
 
-// At most this many frame indices are listed for a followed id; the count is always exact.
-inline constexpr std::size_t kMaxFollowedIndices = 1000;
+// A price level as the books have it now; `present` is false once it has no orders.
+struct LevelState {
+    LevelRef ref;
+    bool present = false;
+    std::uint64_t qty = 0;
+    std::size_t order_count = 0;
+    std::vector<Order> orders;  // in the order they will fill, up to kMaxLevelOrders
+
+    [[nodiscard]] bool truncated() const noexcept { return order_count > orders.size(); }
+    friend bool operator==(const LevelState&, const LevelState&) = default;
+};
 
 // Everything published at one moment: a value, built from the viewer's state and the selection by
 // make_context. The context bar draws the Context that was last published, and the file holds the
 // same Context as JSON, so the bar can't show anything the file doesn't say.
 struct Context {
-    struct Source {
-        bool connected = false;
-        std::optional<std::uint64_t> run_number;  // which of the viewer's runs; empty before the first
-        std::optional<SourceHello> run;           // the run's description; empty if none was given
-        std::size_t frames_received = 0;          // in the current run
-        std::optional<std::uint64_t> latest_frame_index;
-        std::optional<std::string> no_replay_reason;  // why the run's frames have no replay address
-        std::optional<std::string> error;  // why the last source was dropped or refused, if it was
+    struct Feed {
+        BookBuilder::Status status = BookBuilder::Status::waiting;
+        std::uint64_t last_seq = 0;  // the books are as of this incremental update
+        std::uint64_t updates_received = 0;
+        std::optional<std::string> recovering_because;
+        std::size_t recovery_count = 0;
+        std::vector<Recovery> latest_recoveries;  // up to kMaxListedRecoveries, oldest first
+        std::optional<std::string> error;        // the last datagram that couldn't be received or decoded
+        std::uint32_t shown_ticker = 0;
 
-        // The source sent more frames than its description said it would.
-        [[nodiscard]] bool more_frames_than_described() const noexcept {
-            return run && frames_received > run->frame_count;
-        }
-
-        friend bool operator==(const Source&, const Source&) = default;
+        friend bool operator==(const Feed&, const Feed&) = default;
     };
     struct Point {
-        std::uint64_t seq;
-        Frame frame;
-        std::optional<ReplayAddress> replay;  // empty when the run has none (Source::no_replay_reason)
+        std::uint64_t seq = 0;
+        std::variant<OrderState, LevelState> target;
 
         friend bool operator==(const Point&, const Point&) = default;
     };
     struct Follow {
-        std::uint64_t seq;
-        std::uint32_t id;
-        std::vector<std::uint64_t> frame_indices;  // where the id appears, up to kMaxFollowedIndices
-        std::size_t frame_count = 0;               // where it appears, all of them
-        std::optional<std::uint64_t> seed;         // with an index, a replay address
+        std::uint64_t seq = 0;
+        OrderState order;
+        std::vector<OrderEvent> events;  // up to kMaxFollowedEvents, in order
+        std::size_t event_count = 0;
+        // Recoveries since the order was first seen: their updates were never applied one by one, so
+        // the order's events from them are missing.
+        std::vector<Recovery> gaps;
 
-        [[nodiscard]] bool truncated() const noexcept { return frame_count > frame_indices.size(); }
+        [[nodiscard]] bool truncated() const noexcept { return event_count > events.size(); }
         friend bool operator==(const Follow&, const Follow&) = default;
     };
 
-    Source source;
+    Feed feed;
     std::optional<Point> point;
     std::optional<Follow> follow;
 
@@ -110,6 +146,9 @@ struct Context {
 };
 
 [[nodiscard]] Context make_context(const ViewerState& state, const Selection& selection);
+
+// An order as the books have it now (also used to draw it).
+[[nodiscard]] OrderState order_state(const BookBuilder& books, const OrderRef& ref);
 
 // Who wrote the file. The file outlives the viewer, so a reader needs to tell a current file from
 // one a viewer left behind: `running` is false in the last file a viewer writes as it exits
