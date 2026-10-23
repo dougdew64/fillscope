@@ -39,6 +39,7 @@ BOOK = "backend/Chapter12/exchange/matcher/me_order_book.cpp"
 BOOK_HEADER = "backend/Chapter12/exchange/matcher/me_order_book.h"
 MD_PUBLISHER = "backend/Chapter12/exchange/market_data/market_data_publisher.cpp"
 SNAPSHOT = "backend/Chapter12/exchange/market_data/snapshot_synthesizer.cpp"
+PRICE_LEVELS = "backend/Chapter12/exchange/matcher/price_level_table.h"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -248,6 +249,16 @@ MUTANTS = [
     ("a better bid doesn't become the best", BOOK_HEADER,
      [("          if ((new_orders_at_price->side_ == Side::BUY && new_orders_at_price->price_ > best_orders_by_price->price_) ||",
        "          if ((new_orders_at_price->side_ == Side::BUY && new_orders_at_price->price_ < best_orders_by_price->price_) ||")],
+     "lowlatency_tests"),
+    ("a price's level is whatever the probe meets first", PRICE_LEVELS,
+     [("        if (level == nullptr || level->price_ == price) {", "        if (true) {")],
+     "lowlatency_tests"),
+    ("a removal leaves a hole in the probe", PRICE_LEVELS,
+     [("        if (distance(home(slots_[slot]->price_), slot) >= distance(hole, slot)) {", "        if (false) {")],
+     "lowlatency_tests"),
+    ("a removal moves entries that belong after the hole", PRICE_LEVELS,
+     [("        if (distance(home(slots_[slot]->price_), slot) >= distance(hole, slot)) {",
+       "        if (distance(home(slots_[slot]->price_), slot) < distance(hole, slot)) {")],
      "lowlatency_tests"),
     ("the incremental feed's sequence number doesn't advance", MD_PUBLISHER,
      [("        ++next_inc_seq_num_;\n", "")],

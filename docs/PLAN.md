@@ -81,9 +81,11 @@ market data's layout, the matching (price-time priority, partial fills, sweeps, 
 numbers, a snapshot's content. Nine mutants, all caught. Bugs found and fixed in the fork, each by
 a test that failed first: `MEOrderBook`'s table of client orders and its table of price levels
 were never initialized; `createSocket()` leaked `getaddrinfo()`'s list. The build file's
-`CMAKE_CXX_COMPILER` after `project()` also had to go. Known, not fixed (the fork's README):
-prices 256 or more ticks apart corrupt a book (a decision for the owner); threads are never
-joined; shutdown clears 2 GB per book. The tests take about 8 s and 3 GB, since the exchange's
+`CMAKE_CXX_COMPILER` after `project()` also had to go. Then, at the owner's request (fork
+`c7f9b35`), a fourth: prices 256 or more ticks apart shared a price level and could leave a book
+crossed; levels are now found by exact price, in a fixed-size hash table (`PriceLevelTable`), so
+real prices such as ITCH's work. Known, not fixed (the fork's README): a book holds at most 255
+price levels at once; threads are never joined; shutdown clears 2 GB per book. The tests take about 8 s and 3 GB, since the exchange's
 objects preallocate their pools, so they run in the `system` tier.
 
 ### 4. The viewer shows the live book
