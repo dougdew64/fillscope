@@ -25,8 +25,7 @@ cmake --build build/debug
 ```
 The back end builds with its own build file and flags (C++20, its own `-Werror`), into
 `build/debug/backend/Chapter12/`, and with the sanitizers in the sanitizer build like everything
-else. Changing it: commit and push on the `fillscope` branch in `backend/` first, then commit the
-new pin in Fillscope (`git add backend`).
+else. Changing it, step by step: [WORKING-WITH-GIT.md](WORKING-WITH-GIT.md).
 Needs GCC, CMake, Ninja, `glfw-devel` and `mesa-libGL-devel`; for the tests, also Python 3, GDB,
 LLDB with `python3-lldb`, `flock` (util-linux), and Node.js with npm. Dear ImGui, GoogleTest and
 the Dear ImGui Test Engine are fetched as release archives checked against their SHA-256; the

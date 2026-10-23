@@ -60,6 +60,7 @@ Nasdaq's public ITCH samples, downloaded locally.
 [docs/CHARTER.md](docs/CHARTER.md) (purpose, priorities, decisions) ·
 [docs/DECISIONS.md](docs/DECISIONS.md) (the record) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (how the code works) ·
 [docs/PLAN.md](docs/PLAN.md) (next steps) · [docs/TECH-DEBT.md](docs/TECH-DEBT.md) (known debt) · [docs/RUNNING.md](docs/RUNNING.md) (build, run, test) ·
+[docs/WORKING-WITH-GIT.md](docs/WORKING-WITH-GIT.md) (git and the back end, step by step) ·
 [docs/AI-USE.md](docs/AI-USE.md) (how AI is used here, and what checks it) ·
 [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md) (who wrote each file's lines) ·
 [docs/DEBUGGER-LOCKSTEP.md](docs/DEBUGGER-LOCKSTEP.md) (stepping the engine while the animation
