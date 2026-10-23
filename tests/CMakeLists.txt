@@ -1,14 +1,12 @@
 # The tests: one directory per area, mirroring src/ and tools/, plus support/ (shared helpers) and
 # scripts/ (the commands that run and check them; docs/RUNNING.md).
 
-# Release archives checked against their SHA-256, as in the top-level CMakeLists.txt.
-FetchContent_Declare(googletest URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz
-  URL_HASH SHA256=65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c)
+# Release archives checked against their SHA-256, as in the top-level CMakeLists.txt (which fetches
+# GoogleTest, before the back end).
 FetchContent_Declare(imgui_test_engine
   URL https://github.com/ocornut/imgui_test_engine/archive/refs/tags/v1.93.0.tar.gz
   URL_HASH SHA256=1a65938e1b9a6f5f154ec1f92a6b5a14ea6ef6b4247ca22cd166c19e5befd6a5)
-set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest imgui_test_engine)
+FetchContent_MakeAvailable(imgui_test_engine)
 
 include(GoogleTest)
 

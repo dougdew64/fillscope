@@ -71,7 +71,7 @@ frame source's path and makes the frame source one of its run-time files:
 | `ui` | 10 s (the whole program) | `iterate.py`, `run-tests.sh` |
 | `check` | 30 s (a whole run of a checker or a test runner: the type check, the extension's Node tests) | `iterate.py`, `run-tests.sh` |
 | `debugger` | 30 s | `run-tests.sh` |
-| `system` | 120 s (whole programs of the back end, running together) | `run-tests.sh` |
+| `system` | 120 s (the back end: its tests, and its programs running together) | `run-tests.sh` |
 
 Every passing run prints its five slowest tests. To run one program's tests by hand, select it by
 its label: `ctest --test-dir build/debug -L exe:viewer_tests`. (`-R` matches test names, which in a
@@ -81,6 +81,12 @@ GoogleTest program are its tests' own names, such as `Publisher.AUserActionIsWri
 the slower program adds the tier to its name.
 - **`channel_tests`, `lockstep_tests`, `frame_source_tests` (GoogleTest, `unit`):** the socket;
   the anchor and the debugger check; the frame source (generation, the command line, a whole run).
+- **`lowlatency_tests` (GoogleTest, `system`, the whole program as one test):** the back end's own
+  tests, in the fork (`backend/Chapter12/tests/`): the market data's layout on the wire, the
+  matching (price-time priority, partial fills, sweeps, cancels), the incremental feed's sequence
+  numbers and a snapshot's content. One process for them all, about 8 s and 3 GB (nearly 30 s in
+  the sanitizer build alongside the other tests): the exchange's objects take seconds and
+  gigabytes to make. The fork's own CI runs them too.
 - **`backend_system_tests` (Python, `system`):** the back end as Fillscope builds it: the exchange
   and a random-trading client run together for about half a minute, and the test, joined to the
   exchange's incremental market data feed, sees orders added and every update arrive in sequence.

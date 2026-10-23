@@ -35,6 +35,10 @@ DOC_LINKS = "tests/docs/doc_links_test.cpp"
 DEBUG_STATE = "tools/vscode-debug-state/src/debug_state.js"
 EXTENSION = "tools/vscode-debug-state/src/extension.js"
 ATTRIBUTION = "tools/attribution/attribution.py"
+BOOK = "backend/Chapter12/exchange/matcher/me_order_book.cpp"
+BOOK_HEADER = "backend/Chapter12/exchange/matcher/me_order_book.h"
+MD_PUBLISHER = "backend/Chapter12/exchange/market_data/market_data_publisher.cpp"
+SNAPSHOT = "backend/Chapter12/exchange/market_data/snapshot_synthesizer.cpp"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -222,6 +226,39 @@ MUTANTS = [
     ("the system tier's timeout is one second", "tests/CMakeLists.txt",
      [("set(FILLSCOPE_TIMEOUT_system 120)", "set(FILLSCOPE_TIMEOUT_system 1)")],
      "backend_system_tests"),
+    # The back end's matching and market data, caught by its own tests (one CTest test runs them).
+    ("a buy doesn't trade at the ask's price", BOOK,
+     [("        if (LIKELY(price < ask_itr->price_)) {", "        if (LIKELY(price <= ask_itr->price_)) {")],
+     "lowlatency_tests"),
+    ("a fill takes the resting order's whole quantity", BOOK,
+     [("    const auto fill_qty = std::min(*leaves_qty, order_qty);", "    const auto fill_qty = order_qty;")],
+     "lowlatency_tests"),
+    ("a rejected cancel is reported as cancelled", BOOK,
+     [("      client_response_ = {ClientResponseType::CANCEL_REJECTED, client_id, ticker_id, order_id, OrderId_INVALID,",
+       "      client_response_ = {ClientResponseType::CANCELED, client_id, ticker_id, order_id, OrderId_INVALID,")],
+     "lowlatency_tests"),
+    ("priorities at a price skip one", BOOK_HEADER,
+     [("      return orders_at_price->first_me_order_->prev_order_->priority_ + 1;",
+       "      return orders_at_price->first_me_order_->prev_order_->priority_ + 2;")],
+     "lowlatency_tests"),
+    ("a new order goes to the front of its price's queue", BOOK_HEADER,
+     [("        first_order->prev_order_ = order;\n",
+       "        first_order->prev_order_ = order;\n        orders_at_price->first_me_order_ = order;\n")],
+     "lowlatency_tests"),
+    ("a better bid doesn't become the best", BOOK_HEADER,
+     [("          if ((new_orders_at_price->side_ == Side::BUY && new_orders_at_price->price_ > best_orders_by_price->price_) ||",
+       "          if ((new_orders_at_price->side_ == Side::BUY && new_orders_at_price->price_ < best_orders_by_price->price_) ||")],
+     "lowlatency_tests"),
+    ("the incremental feed's sequence number doesn't advance", MD_PUBLISHER,
+     [("        ++next_inc_seq_num_;\n", "")],
+     "lowlatency_tests"),
+    ("a snapshot ignores a modify", SNAPSHOT,
+     [("        order->qty_ = me_market_update.qty_;\n", "")],
+     "lowlatency_tests"),
+    ("a snapshot's start doesn't say where to resume", SNAPSHOT,
+     [("    const MDPMarketUpdate start_market_update{snapshot_size++, {MarketUpdateType::SNAPSHOT_START, last_inc_seq_num_}};",
+       "    const MDPMarketUpdate start_market_update{snapshot_size++, {MarketUpdateType::SNAPSHOT_START, 0}};")],
+     "lowlatency_tests"),
     ("a drain takes everything waiting", CHANNEL,
      [("while (sender_ && result.received < max_per_drain_) {", "while (sender_) {")],
      "Channel.ADrainTakesAtMostItsBound"),

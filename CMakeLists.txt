@@ -100,6 +100,15 @@ target_compile_options(viewer PRIVATE ${FILLSCOPE_WARNINGS})
 if(NOT EXISTS ${PROJECT_SOURCE_DIR}/backend/Chapter12/CMakeLists.txt)
   message(FATAL_ERROR "backend/ is empty: run `git submodule update --init`")
 endif()
+if(FILLSCOPE_TESTS)
+  # GoogleTest, fetched here, before the back end, whose tests use it too (its tests/CMakeLists.txt
+  # fetches the same release when it is built on its own). Its own flags would otherwise apply.
+  FetchContent_Declare(googletest URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz
+    URL_HASH SHA256=65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+  set(LOWLATENCY_TESTS ON CACHE BOOL "Build the back end's tests" FORCE)
+endif()
 add_subdirectory(backend/Chapter12)
 
 if(FILLSCOPE_TESTS)
