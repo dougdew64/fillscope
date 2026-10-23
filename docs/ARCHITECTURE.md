@@ -58,6 +58,7 @@ whatever you do at once, and other changes within a tenth of a second (§6).
 | `src/viewer/` | The viewer: its core (no Dear ImGui) and its drawing | library `fillscope_viewer_core`, program `viewer` |
 | `tools/frame_source/` | The stand-in that makes frames | library `frame_source_lib`, program `frame_source` |
 | `tools/vscode-debug-state/` | The VS Code extension that publishes the debugger's state | JavaScript, run by VS Code |
+| `tools/attribution/` | The report of who wrote each file's lines ([AI-USE.md](AI-USE.md)) | Python script |
 | `tests/` | One directory per area, mirroring the above | one test program per area and cost tier |
 
 Dependencies point one way: the viewer and the frame source depend on the channel, and the frame

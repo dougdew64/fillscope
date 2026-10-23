@@ -34,6 +34,7 @@ VIEWER_STATE_HEADER = "src/viewer/viewer_state.h"
 DOC_LINKS = "tests/docs/doc_links_test.cpp"
 DEBUG_STATE = "tools/vscode-debug-state/src/debug_state.js"
 EXTENSION = "tools/vscode-debug-state/src/extension.js"
+ATTRIBUTION = "tools/attribution/attribution.py"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -190,6 +191,30 @@ MUTANTS = [
     ("a deleted run-time file crashes the fingerprint", "tests/scripts/iterate.py",
      [("    if not file.exists():\n        return b\"missing\"\n", "")],
      "scripts_tests"),
+    ("blame credits a whitespace-only change", ATTRIBUTION,
+     [('"blame", "--porcelain", "-w", "-M", "-C",', '"blame", "--porcelain", "-M", "-C",')],
+     "attribution_tests"),
+    ("blame doesn't follow lines moved between files", ATTRIBUTION,
+     [('"blame", "--porcelain", "-w", "-M", "-C",', '"blame", "--porcelain", "-w",')],
+     "attribution_tests"),
+    ("a co-author whose name starts with Claude counts as Claude", ATTRIBUTION,
+     [('    return value == "Claude" or value.startswith("Claude ")', '    return value.startswith("Claude")')],
+     "attribution_tests"),
+    ("binary files are counted", ATTRIBUTION,
+     [('        if added != "-" and path in regular:', '        if path in regular:')],
+     "attribution_tests"),
+    ("the report counts itself", ATTRIBUTION,
+     [("        if path == REPORT:\n            continue\n", "")],
+     "attribution_tests"),
+    ("files nobody wrote are counted", ATTRIBUTION,
+     [("        if path in NOT_WRITTEN:", "        if False:")],
+     "attribution_tests"),
+    ("the check accepts a commit outside HEAD's history", ATTRIBUTION,
+     [("    if ancestor.returncode != 0:", "    if False:")],
+     "attribution_tests"),
+    ("the check doesn't compare the numbers", ATTRIBUTION,
+     [("    if report(root, commit) != text:", "    if False:")],
+     "attribution_tests"),
     ("a drain takes everything waiting", CHANNEL,
      [("while (sender_ && result.received < max_per_drain_) {", "while (sender_) {")],
      "Channel.ADrainTakesAtMostItsBound"),

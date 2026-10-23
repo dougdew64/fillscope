@@ -5,7 +5,14 @@ those checks caught (charter decision 7). **Status:** record. **Read when:** jud
 AI-built parts can be trusted, or adding a new use.
 
 The rule: AI output is trusted only through a check that doesn't depend on the AI. Code written by
-hand is listed nowhere here; commits co-authored by Claude carry a `Co-Authored-By` trailer.
+hand is listed nowhere here.
+
+**Attribution is mechanical.** A commit is either the owner's, with no trailer, or co-authored by
+Claude, with a `Co-Authored-By: Claude` trailer; never both. A change Claude suggests to the
+owner's code is typed by the owner, or committed on its own, co-authored. Which code is the owner's
+is decided stage by stage ([charter](CHARTER.md) §4), never in advance. So `git blame` can say who
+wrote every line, and [ATTRIBUTION.md](ATTRIBUTION.md) says it per file, generated from the
+history by `tools/attribution/attribution.py`, which anyone can rerun to check it.
 
 ## Uses
 | What | Written by | Checked by |
@@ -13,6 +20,7 @@ hand is listed nowhere here; commits co-authored by Claude carry a `Co-Authored-
 | The channel, the debugger anchor, the viewer and the stand-in frame source (`src/`, `tools/`; [RUNNING.md](RUNNING.md)), begun as the lockstep experiment | Claude | Their tests, in a normal and a sanitizer build; a mutation check (deliberate bugs, each must fail a named test); the owner, stepping them in VS Code |
 | The tests (`tests/`) | Claude | The mutation check (a test that can't fail is caught there); each new test seen to fail before its fix |
 | The debug-state extension (`tools/vscode-debug-state/`) | Claude | Its unit tests, driving it with fake debug sessions; a type check of its JavaScript by the TypeScript compiler, shown to catch a misspelt property the unit tests miss; mutants, each naming the single tests that catch it; the owner, stepping with it in VS Code while the assistant read the file (2026-10-19) |
+| The attribution report (`tools/attribution/`, [ATTRIBUTION.md](ATTRIBUTION.md)) | Claude | `attribution_tests`, on small repositories built for each case (trailers, whitespace-only changes, moved lines, binary files); a check, run every time, that the committed report is exactly what its named commit gives; mutants of each rule, each caught; and anyone, by rerunning it |
 | Test selection (`tests/scripts/iterate.py`), tiers and the checks of the tests | Claude | `scripts_tests`, the scripts' own unit tests; `selection_check.py` (changes, each must select exactly the right programs, and runs that must run, record and not record the right ones), itself shown to fail when the selection ignores run-time files or the files that always run; mutants of the scripts' logic and of each tier's timeout |
 
 ## Defects caught

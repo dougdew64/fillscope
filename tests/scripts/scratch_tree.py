@@ -5,7 +5,8 @@
 #
 # The copy holds the working tree as it is, uncommitted changes included: every file git tracks or
 # would track (untracked files that aren't ignored), plus the extension's installed development
-# tools. It is made a git repository of its own, since iterate.py asks git which build files exist.
+# tools. It is made a git repository of its own, since iterate.py asks git which build files exist,
+# with the real repository's history (below).
 # Its build reuses the dependencies the real debug build has already fetched, when it has, rather
 # than fetching them again.
 import os
@@ -47,6 +48,16 @@ def make(root):
         shutil.copytree(root / NODE_MODULES, copy / NODE_MODULES, symlinks=True)
     quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "check": True}
     subprocess.run(["git", "-C", str(copy), "init", "-q"], **quiet)
+    # The real repository's history too, borrowed rather than copied: its objects through an
+    # alternates file, and its HEAD's commit as the copy's. The attribution check blames that
+    # history.
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "-q", "HEAD"],
+                          stdout=subprocess.PIPE, text=True).stdout.strip()
+    if head:
+        objects = subprocess.run(["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                 stdout=subprocess.PIPE, text=True, check=True).stdout.strip()
+        (copy / ".git" / "objects" / "info" / "alternates").write_text(f"{objects}/objects\n")
+        subprocess.run(["git", "-C", str(copy), "update-ref", "HEAD", head], **quiet)
     subprocess.run(["git", "-C", str(copy), "add", "-A"], **quiet)
     return copy
 

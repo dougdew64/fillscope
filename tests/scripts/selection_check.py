@@ -21,8 +21,11 @@ import tempfile
 sys.dont_write_bytecode = True
 
 EXTENSION = {"vscode_debug_state_tests", "vscode_debug_state_typecheck"}
+ATTRIBUTION = {"attribution_tests", "attribution_report_check"}
 ALL = {"channel_tests", "docs_tests", "lockstep_tests", "frame_source_tests", "lockstep_debugger_tests",
-       "viewer_tests", "viewer_ui_tests", "scripts_tests"} | EXTENSION
+       "viewer_tests", "viewer_ui_tests", "scripts_tests"} | EXTENSION | ATTRIBUTION
+# The programs iterate.py runs every time, affected or not.
+ALWAYS = {"docs_tests", "attribution_report_check"}
 
 # A change that reaches the binary: an extra string in the .comment section. (A comment in the
 # source would change nothing the build produces, which is the point of building from the output.)
@@ -42,7 +45,7 @@ CASES = [
     ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"}),
     ("src/lockstep/anchor.cpp", CPP_PROBE, {"lockstep_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
     ("tools/frame_source/frame_source.cpp", CPP_PROBE, {"frame_source_tests", "lockstep_debugger_tests", "viewer_ui_tests"}),
-    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests", "docs_tests", "viewer_tests", "scripts_tests"} - EXTENSION),
+    ("tests/support/test_support.h", CPP_PROBE, ALL - {"lockstep_tests", "docs_tests", "viewer_tests", "scripts_tests"} - EXTENSION - ATTRIBUTION),
     ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
     ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
     ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
@@ -54,22 +57,24 @@ CASES = [
     ("src/channel/net.cpp", CPP_PROBE,
      {"channel_tests", "frame_source_tests", "lockstep_debugger_tests", "viewer_tests", "viewer_ui_tests"}),
     ("tools/vscode-debug-state/tsconfig.json", JS_PROBE, EXTENSION),
+    ("tools/attribution/attribution.py", TEXT_PROBE, ATTRIBUTION),
     ("CMakeLists.txt", TEXT_PROBE, ALL),
     # Any build file can change how a test runs (a timeout, a label), so each one counts for all.
     ("tests/viewer/CMakeLists.txt", TEXT_PROBE, ALL),
     # Nothing tests the viewer's window yet, so changing it affects no test program.
     ("src/viewer/main.cpp", CPP_PROBE, set()),
-    # A file no program lists. docs_tests may still link to it, which is why it always runs (below).
+    # A file no program lists. docs_tests may still link to it, which is why it always runs (below);
+    # the attribution check always runs because the history its report describes is no file.
     ("LICENSE", TEXT_PROBE, set()),
 ]
 
 # (file changed, probe, the programs iterate.py must run): what it runs is what --list reports,
-# plus docs_tests, which always runs; afterwards none of them may be affected. A change that
-# affects only the slow tier runs only docs_tests.
+# plus those that always run; afterwards none of them may be affected. A change that affects only
+# the slow tier runs only those that always run.
 RUN_CASES = [
-    ("LICENSE", TEXT_PROBE, {"docs_tests"}),
-    ("src/viewer/context.cpp", CPP_PROBE, {"docs_tests", "viewer_tests", "viewer_ui_tests"}),
-    ("tests/lockstep/lldb_driver.py", TEXT_PROBE, {"docs_tests"}),
+    ("LICENSE", TEXT_PROBE, ALWAYS),
+    ("src/viewer/context.cpp", CPP_PROBE, ALWAYS | {"viewer_tests", "viewer_ui_tests"}),
+    ("tests/lockstep/lldb_driver.py", TEXT_PROBE, ALWAYS),
 ]
 
 # A test made to fail: its program must not be recorded as passed, so it stays affected.

@@ -8,6 +8,7 @@ Newest first.
 
 | Date | Decision |
 |---|---|
+| 2026-10-23 | Attribution is mechanical: a commit is the owner's or co-authored by Claude, never mixed, and which code is the owner's is decided stage by stage, never in advance. A generated report, [ATTRIBUTION.md](ATTRIBUTION.md), gives each file's lines from each kind of commit (`git blame`), as of a named commit, so the claim can be checked. |
 | 2026-10-20 | ARCHITECTURE.md grows from the owner's questions: each answer about how or why the code works is written there, not left in conversation. The first: why execution halts in the anchor under self-stop. |
 | 2026-10-19 | A frame source opens each connection by describing its run (a `SourceHello`: seed and frame count), so the socket carries two kinds of message (`std::variant`). Without it the viewer can't know the seed, and a replay address needs it. The context bar draws the last *published* context, so it can't claim what a failed write didn't deliver; changes the user didn't make are published at most ten times a second. |
 | 2026-10-19 | Fillscope is also a way to learn modern C++ from the inside (charter §1): its code, the AI-written parts included, is written to be learned from, and the assistant explains running code from the debugger's published state. Prompted by stepping through the frame source, where a variable's value before its lifetime began needed explaining. |

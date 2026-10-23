@@ -20,6 +20,13 @@ defects and suggests, but doesn't write it. Claude writes everything else, and *
 code aggressively, the owner's included**. Which code is the owner's is decided stage by stage
 (charter §4); until a stage's split is decided, Claude asks before writing any of that stage's code.
 
+**Attribution is mechanical** ([docs/AI-USE.md](docs/AI-USE.md)): a commit is the owner's (no
+trailer) or co-authored (`Co-Authored-By: Claude`), never both. Every commit Claude makes carries
+the trailer, and Claude never folds a change into the owner's commit: a suggested change to the
+owner's code is typed by the owner, or committed on its own, co-authored. In every commit it makes, Claude first
+regenerates [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md) (`python3 -I tools/attribution/attribution.py`),
+so the report describes the commit before.
+
 ## Every session
 1. `git pull`; commit and push every commit at once, without asking.
 2. Use `date` for today's date.

@@ -11,6 +11,7 @@ procedure. **Read when:** building, running or changing it.
 | `src/viewer/` | `viewer_state.h`, what the viewer has received; `context.h`, what the user points at and follows and the context built from it; `context_publisher.h`, the file it is published to; `viewer_view.h`, what the viewer draws; `viewer_app.h`, its loop; `viewer_options.h`, its command line; `main.cpp`, the window |
 | `tools/frame_source/` | a stand-in that produces fake frames until real ones exist; not the matching engine |
 | `tools/vscode-debug-state/` | the VS Code extension that publishes the debugger's state ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
+| `tools/attribution/` | `attribution.py`, which writes [ATTRIBUTION.md](ATTRIBUTION.md): per file, the owner's lines and the lines co-authored with Claude (`python3 -I tools/attribution/attribution.py`; `--check` checks the committed report) |
 | `tests/<area>/` | the tests of one area, mirroring `src/` and `tools/` (`tests/channel/` tests `src/channel/`), with the area's `CMakeLists.txt` |
 | `tests/support/` | helpers shared by every area's tests |
 | `tests/scripts/` | the commands that run the tests and check them (below) |
@@ -96,6 +97,10 @@ the slower program adds the tier to its name.
 - **`scripts_tests` (Python's unittest, `unit`):** the test machinery's own logic in `iterate.py`:
   reading the manifest, what is never recorded as passed, the registration and sanitizer checks,
   fingerprints and the pass record.
+- **`attribution_tests` and `attribution_report_check` (Python, `check`):** the attribution
+  script's logic, on small repositories of its own; and that the committed
+  [ATTRIBUTION.md](ATTRIBUTION.md) is exactly what its named commit gives. The report's numbers
+  depend on the repository's history, so `iterate.py` runs the check every time.
 - **`vscode_debug_state_tests` (Node's test runner, `check`) and `vscode_debug_state_typecheck`
   (the TypeScript compiler, `check`):** the debug-state extension's logic, driven by fake debug
   sessions; its VS Code side, run against a fake `vscode` module; and its JavaScript checked

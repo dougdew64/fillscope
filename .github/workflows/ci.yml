@@ -44,6 +44,8 @@ jobs:
           glfw-devel mesa-libGL-devel gdb lldb python3-lldb nodejs npm util-linux-core
       # Actions are pinned to the commit of a release (named in the comment), not a movable tag.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+        with:
+          fetch-depth: 0  # the whole history: the attribution check runs git blame
       - name: Trust the checkout
         # The container runs as root and the checkout belongs to another user, which git refuses.
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
