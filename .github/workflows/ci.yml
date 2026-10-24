@@ -11,12 +11,13 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same pull request supersedes a run still in progress. On main a run in
-# progress is never cancelled, but one group holds one running run and one waiting: a newer push
-# replaces the waiting one, so of three commits pushed while a run is going, the middle one gets no
-# result of its own (the last one's tests cover it).
+# A newer push to the same pull request supersedes a run still in progress. On main each commit has
+# a group of its own, so every commit gets a run and a result of its own, in parallel with the others
+# (free on standard runners for a public repository). One group for all of main held one running run
+# and one waiting, and a newer push replaced the waiting one: of three commits pushed while a run was
+# going, the middle one got no result.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

@@ -148,7 +148,8 @@ the slower program adds the tier to its name.
 **CI** ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) runs `run-tests.sh` and both checks
 below on every push to `main` and every pull request, in a Fedora container pinned by digest,
 with warnings as errors and `FILLSCOPE_REQUIRE_DEBUGGERS` set so a missing debugger fails the
-debugger tests instead of skipping them.
+debugger tests instead of skipping them. Every commit pushed to `main` gets a run of its own, in
+parallel with any still going; a newer push to a pull request cancels that pull request's run.
 
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh
