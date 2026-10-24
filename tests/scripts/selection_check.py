@@ -21,7 +21,7 @@ import tempfile
 sys.dont_write_bytecode = True
 
 EXTENSION = {"vscode_debug_state_tests", "vscode_debug_state_typecheck"}
-ATTRIBUTION = {"attribution_tests", "attribution_report_check"}
+ATTRIBUTION = {"attribution_tests", "attribution_report_check", "attribution_copy_check"}
 ALL = {"channel_tests", "docs_tests", "lockstep_tests", "frame_source_tests", "lockstep_debugger_tests",
        "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests", "feed_tests",
        "feed_system_tests", "replay_debugger_tests"} | EXTENSION | ATTRIBUTION

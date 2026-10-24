@@ -145,6 +145,42 @@ class ReportTest(TempRepoTest):
         self.assertIn("| `a.cpp` | 1 | 0 |", text)
 
 
+class UpstreamTest(TempRepoTest):
+    """A fork: some commits are upstream's (the history it was forked from), the rest the owner's or
+    co-authored."""
+
+    def fork(self):
+        self.repo.commit("Upstream's first", **{"lib.cpp": "a\nb\nc\n", "untouched.cpp": "1\n2\n3\n4\n"})
+        upstream = self.repo.commit("Upstream's second", **{"README.md": "# Book\n"})
+        self.repo.commit("Owner's change", **{"lib.cpp": "a\nB\nc\n"})
+        self.repo.commit("Claude's change" + TRAILER, **{"lib.cpp": "a\nB\nc\nd\n", "new.cpp": "x\ny\n"})
+        return upstream
+
+    def test_each_line_is_upstreams_the_owners_or_co_authored(self):
+        upstream = self.fork()
+        text = attribution.report(self.repo.root, "HEAD", "ATTRIBUTION.md", upstream)
+        self.assertIn(f"**Upstream:** commit `{upstream}` and its ancestors", text)
+        self.assertIn("| `lib.cpp` | 2 | 1 | 1 |", text)
+        self.assertIn("| `new.cpp` | 0 | 0 | 2 |", text)
+        self.assertIn("| Code, tests and configuration | 6 | 1 | 3 |", text)
+        self.assertIn("| Documents (`.md`) | 1 | 0 | 0 |", text)
+
+    def test_files_unchanged_since_upstream_are_summed_not_listed(self):
+        upstream = self.fork()
+        text = attribution.report(self.repo.root, "HEAD", "ATTRIBUTION.md", upstream)
+        self.assertNotIn("`untouched.cpp`", text)
+        self.assertIn("The other 2 files are upstream's throughout: 5 lines.", text)
+
+    def test_a_forks_report_checks_against_its_upstream(self):
+        upstream = self.fork()
+        self.assertEqual(attribution.main(["--root", str(self.repo.root), "--report", "ATTRIBUTION.md", "--upstream", upstream]), 0)
+        self.repo.commit("Report" + TRAILER)
+        self.assertIsNone(attribution.check(self.repo.root, "ATTRIBUTION.md"))
+        path = self.repo.root / "ATTRIBUTION.md"
+        path.write_text(path.read_text().replace("| `lib.cpp` | 2 | 1 | 1 |", "| `lib.cpp` | 3 | 0 | 1 |"))
+        self.assertIn("isn't what commit", attribution.check(self.repo.root, "ATTRIBUTION.md"))
+
+
 class CheckTest(TempRepoTest):
     def publish(self, rev="HEAD"):
         self.assertEqual(attribution.main(["--root", str(self.repo.root), "--at", rev]), 0)

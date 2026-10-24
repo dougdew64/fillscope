@@ -12,7 +12,9 @@ Claude, with a `Co-Authored-By: Claude` trailer; never both. A change Claude sug
 owner's code is typed by the owner, or committed on its own, co-authored. Which code is the owner's
 is decided stage by stage ([charter](CHARTER.md) §4), never in advance. So `git blame` can say who
 wrote every line, and [ATTRIBUTION.md](ATTRIBUTION.md) says it per file, generated from the
-history by `tools/attribution/attribution.py`, which anyone can rerun to check it.
+history by `tools/attribution/attribution.py`, which anyone can rerun to check it. The back end's
+fork has its own report, `backend/ATTRIBUTION.md`, with a third kind of line: upstream's, the book's
+code as Packt's repository has it.
 
 ## Uses
 | What | Written by | Checked by |

@@ -71,7 +71,7 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 | `src/viewer/` | The viewer: its core (no Dear ImGui) and its drawing | library `fillscope_viewer_core`, program `viewer` |
 | `tools/vscode-debug-state/` | The VS Code extension that publishes the debugger's state | JavaScript, run by VS Code |
 | `src/channel/`, `src/lockstep/`, `tools/frame_source/` | The stand-ins the debugger tests still use: a frame source, its socket, and the debugger anchor (§6) | libraries `fillscope_channel`, `fillscope_lockstep`, `frame_source_lib`; program `frame_source` |
-| `tools/attribution/` | The report of who wrote each file's lines ([AI-USE.md](AI-USE.md)) | Python script |
+| `tools/attribution/` | The report of who wrote each file's lines ([AI-USE.md](AI-USE.md)), Fillscope's and, with upstream's lines too, the back end's (a copy) | Python script |
 | `tests/` | One directory per area, mirroring the above | one test program per area and cost tier |
 
 Dependencies point one way: the viewer depends on the feed; the feed uses the channel's `Fd` (a

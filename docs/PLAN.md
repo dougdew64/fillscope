@@ -143,7 +143,8 @@ Rejected: lockstep live, the matcher waiting before each stop until the publishe
 everything, which changes how the live system runs, and can't be repeated.
 **Done when:** stepping the matcher in VS Code, each Continue moves the viewer's book by exactly one
 request; the debugger tests check it under GDB and LLDB, as they do the frame source today.
-**Status:** built and tested, CI pending. `exchange_replay --publish` sends each request's updates,
+**Status:** built and tested, 2026-10-24: Fillscope `44382ac`, fork `8bfd544`; both CIs pass.
+`exchange_replay --publish` sends each request's updates,
 then calls the back end's anchor (`fillscope_request_anchor`); `replay_debugger_tests` check, under
 GDB and LLDB, by breakpoint and self-stop, at `-O0` and `-O2`, that every stop is in the anchor with
 its arguments readable and, under LLDB, that the viewer already has every update published through
@@ -156,7 +157,12 @@ line, not the debugger's report of the exit. **Left:** the owner stepping it in 
 The attribution report in the fork, with a third column for upstream lines, tested and checked as
 Fillscope's is.
 **Done when:** the fork publishes its report, and its check runs in its CI.
-**Status:** not started.
+**Status:** built and tested, CI pending. Fillscope's script gained `--upstream` (the commit forked
+from: its history's lines are upstream's) and `--report`; files unchanged since upstream are summed
+without blaming them, so the fork's 456 files take a fifth of a second. The fork keeps a copy
+(`tools/attribution/`), which `attribution_copy_check` keeps identical, and its report,
+`ATTRIBUTION.md`, which its CI checks against its history. Three mutants of the upstream mode are
+caught.
 
 ### 8. The stand-ins retire
 The frame source, its socket messages and the stand-in frames go once the viewer runs on the back
