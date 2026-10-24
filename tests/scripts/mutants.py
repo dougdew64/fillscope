@@ -53,6 +53,7 @@ MATCHING_ENGINE = "backend/Chapter12/exchange/matcher/matching_engine.h"
 REPLAY_MAIN = "backend/Chapter12/exchange/exchange_replay.cpp"
 REQUEST_ANCHOR = "backend/Chapter12/exchange/matcher/lockstep_anchor.cpp"
 LF_QUEUE = "backend/Chapter12/common/lf_queue.h"
+MACROS = "backend/Chapter12/common/macros.h"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -336,11 +337,15 @@ MUTANTS = [
      [("        case Exchange::ClientResponseType::REJECTED: {\n          order->order_state_ = OMOrderState::DEAD;\n",
        "        case Exchange::ClientResponseType::REJECTED: {\n")],
      "lowlatency_tests"),
+    ("an ASSERT builds its message when it holds", MACROS,
+     [("    if (UNLIKELY(!(cond))) {                              \\\n      std::cerr << \"ASSERT : \" << (msg) << std::endl;     \\\n",
+       "    const std::string message_ = (msg);                   \\\n    if (UNLIKELY(!(cond))) {                              \\\n      std::cerr << \"ASSERT : \" << message_ << std::endl; \\\n")],
+     "lowlatency_allocation_tests"),
     ("a full queue is overwritten", LF_QUEUE,
-     [("if (UNLIKELY(num_elements_ == store_.size())) {", "if (UNLIKELY(false)) {")],
+     [("ASSERT(num_elements_ != store_.size(),", "ASSERT(true,")],
      "lowlatency_tests"),
     ("a queue is full one element early", LF_QUEUE,
-     [("if (UNLIKELY(num_elements_ == store_.size())) {", "if (UNLIKELY(num_elements_ + 1 == store_.size())) {")],
+     [("ASSERT(num_elements_ != store_.size(),", "ASSERT(num_elements_ + 1 < store_.size(),")],
      "lowlatency_tests"),
     ("a write cut off part-way leaves its part in the recording", RECORDING,
      [("if (written > 0 && ::ftruncate(", "if (written > 0 && false && ::ftruncate(")],

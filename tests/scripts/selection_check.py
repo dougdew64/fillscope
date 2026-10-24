@@ -24,7 +24,8 @@ EXTENSION = {"vscode_debug_state_tests", "vscode_debug_state_typecheck"}
 ATTRIBUTION = {"attribution_tests", "attribution_report_check", "attribution_copy_check"}
 CODE_MAP = {"code_map_tests", "code_map_check"}
 ALL = {"common_tests", "docs_tests",
-       "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests", "feed_tests",
+       "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
+       "lowlatency_allocation_tests", "feed_tests",
        "feed_system_tests", "replay_debugger_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP
 # The programs iterate.py runs every time, affected or not.
 ALWAYS = {"docs_tests", "attribution_report_check", "code_map_check"}
@@ -65,6 +66,8 @@ CASES = [
     # The back end: its own tests link it, and the system test starts its programs.
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "feed_system_tests", "replay_debugger_tests"}),
+    # The allocation tests are a program of their own, so a change to them affects only it.
+    ("backend/Chapter12/tests/allocation_test.cpp", CPP_PROBE, {"lowlatency_allocation_tests"}),
     ("CMakeLists.txt", TEXT_PROBE, ALL),
     # Any build file can change how a test runs (a timeout, a label), so each one counts for all.
     ("tests/viewer/CMakeLists.txt", TEXT_PROBE, ALL),

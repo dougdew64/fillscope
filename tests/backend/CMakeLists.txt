@@ -6,6 +6,11 @@
 # but about 40 s in the sanitizer build alongside the other tests.
 fillscope_test_program(lowlatency_tests system COMMAND $<TARGET_FILE:lowlatency_tests>)
 
+# What must not allocate (the queues, the pools, the price levels, the snapshot's updates), in a
+# program of its own, since it replaces operator new. The system tier, as one test: making a
+# snapshot synthesizer, which preallocates its pools, takes over a second.
+fillscope_test_program(lowlatency_allocation_tests system COMMAND $<TARGET_FILE:lowlatency_allocation_tests>)
+
 # Its exchange and a client, run together. The system tier: it takes half a minute, mostly the
 # programs' own start-up waits.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

@@ -84,7 +84,11 @@ two ways. In a run of the debug build started from VS Code (its logs' times):
 | 28 s | its first order reaches the exchange, which publishes it, and the viewer shows it |
 
 The pools are built up front so that trading never allocates memory, which is slow and takes an
-unpredictable time; the book's design pays that cost once, at start. The debug build is
+unpredictable time; the book's design pays that cost once, at start. The checks inside them, and
+in the queues (`ASSERT`, in `common/macros.h`), are a macro, so a check's message is built only
+when it fails. The book's `ASSERT` was a function taking a `std::string`, which built the message
+on every call, and that allocated: one allocation per message read from a queue, three per order
+taken from a pool and returned. The debug build is
 unoptimized, so building them takes seconds. The viewer is ready from the start and waits on
 nothing: it shows the first order as soon as the exchange publishes it.
 

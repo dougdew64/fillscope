@@ -86,6 +86,11 @@ the slower program adds the tier to its name.
   numbers, a snapshot's content and its interval, recording and replaying requests, and the order
   server refusing what the matcher can't process. One process for them all, about 17 s and 4.3 GB (about 40 s in the sanitizer build alongside the other tests):
   the exchange's objects take seconds and gigabytes to make. The fork's own CI runs them too.
+- **`lowlatency_allocation_tests` (GoogleTest, `system`, the whole program as one test):** in the
+  fork too: what must not allocate (a queue's write and read, a memory pool's allocate and release,
+  a price level added and removed, the snapshot synthesizer's updates, and an `ASSERT` that holds),
+  counted by its own `operator new`, which is why it is a program apart. About a second, most of
+  it making the snapshot synthesizer.
 - **`backend_system_tests` (Python, `system`):** the back end as Fillscope builds it: the exchange
   and a random-trading client run together for about half a minute, and the test, joined to the
   exchange's incremental market data feed, sees orders added and every update arrive in sequence;
