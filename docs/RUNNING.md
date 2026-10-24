@@ -173,9 +173,10 @@ parallel with any still going; a newer push to a pull request cancels that pull 
 python3 -I tests/scripts/mutants.py [NAME]   # deliberate bugs, each must fail the tests it names
 python3 -I tests/scripts/selection_check.py  # iterate.py selects, runs and records the right programs
 ```
-**How long each takes** (measured 2026-10-23 on the development machine, with both builds already
-current): `run-tests.sh` about 2 minutes; the selection check about 2; the mutation check about 19,
-for 152 mutants, each a rebuild and a test run. A cold build adds several minutes to the first.
+**How long each takes** (measured on the development machine, with both builds already current):
+`run-tests.sh` about 2 minutes and the selection check about 2 (2026-10-23); the mutation check
+about 39, for 181 mutants, each a rebuild and a test run (2026-10-24; 28.5 minutes of it the test
+runs, mostly of the back end's tests, which wait more than they compute). A cold build adds several minutes to the first.
 Run as root (CI's container), the mutation check skips, and names, the mutants whose test needs a
 directory it can't write to, which root always can.
 Both work in a scratch copy of the working tree, with a build of their own, so the files being
