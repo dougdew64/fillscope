@@ -103,6 +103,10 @@ so often the exchange's snapshot synthesizer also sends a snapshot of every book
 for each of the 8 tickers followed by its resting orders, an end, numbered from 0; the start and
 end name the last incremental update the snapshot includes.
 
+**A ticker** is one instrument the exchange trades, as a stock symbol names a company's shares.
+The book's exchange trades 8 of them (`ME_MAX_TICKERS`), each with its own order book. They have no
+names, only numbers from 0 to 7.
+
 **A book** (`book.h`) holds one ticker's resting orders by order id, and each price's queue by
 priority, bids best (highest) first and asks best (lowest) first. It checks every update against
 what it holds: an add for an order it already has, a modify or cancel for one it hasn't, or a
@@ -201,6 +205,10 @@ for each ticker; and the shown ticker's book, one row per resting order, asks ab
 side's best price nearest the middle, and within a price the orders in the order they will fill.
 Clicking a row points at its order, clicking a price points at its level, clicking an order's id
 follows it. A followed order's history is drawn below.
+
+The screen shows one ticker's book at a time; the ticker buttons, 0 to 7, choose which, and hovering
+over one shows how many orders its book holds. The bar's "showing ticker N" tells the assistant which book is on
+screen, so a question like "why is the best bid empty?" is about the book you are looking at.
 
 ### The pieces
 | Type (file) | Holds | Why it is shaped this way |

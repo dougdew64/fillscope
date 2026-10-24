@@ -160,7 +160,7 @@ void draw_replay(const ViewerView& view, ViewerActions& actions) {
     }
 }
 
-// One button per ticker, with its order count; the shown one is marked.
+// One button per ticker, its order count in its tooltip; the shown one is marked.
 void draw_tickers(const ViewerView& view, ViewerActions& actions) {
     text("ticker");
     for (std::uint32_t ticker = 0; ticker < BookBuilder::kTickers; ++ticker) {
