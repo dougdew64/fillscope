@@ -485,10 +485,14 @@ These mutants aren't the thousands a mutation-testing tool generates. Each is wr
 for one claim a test makes, paired with the bug the test says it guards against: "a full queue
 stops the program" with "a full queue is overwritten". So there are about two hundred, and each
 is worth running. Even so the check costs the most of anything here, since every mutant is a
-rebuild and a test run: 39 minutes for 181 (2026-10-24, [RUNNING.md](RUNNING.md)). The cost is
-lopsided. Fillscope's own 128 mutants take under a minute of test time between them; most of the
-rest is the back end's tests, which mostly wait (the book's code sleeps after starting each thread,
-and its client waits ten seconds before trading) rather than compute.
+rebuild and a test run: 23 minutes for 181 (2026-10-24, [RUNNING.md](RUNNING.md)). The cost is
+lopsided. Fillscope's own 128 mutants take under a minute of test time between them; the rest is
+rebuilds and the back end's tests, which mostly wait (the book's code sleeps after starting each
+thread, and its client waits ten seconds before trading) rather than compute. Each mutant names the
+tests that must catch it, and runs only those: the back end's own tests are one CTest test for
+their whole program (they share one matching engine, which takes seconds to make), so a back-end
+mutant names its GoogleTest tests inside it (`lowlatency:LFQueue.WritingToAFullQueueStopsTheProgram`),
+which took the check from 39 minutes to 23.
 
 The cost grows with the mutants and with the time their tests take, both of which grow with the
 code, so a very large codebase can't run every mutant on every change. The practice published for

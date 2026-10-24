@@ -169,46 +169,53 @@ MUTANTS = [
     # The back end's matching and market data, caught by its own tests (one CTest test runs them).
     ("a buy doesn't trade at the ask's price", BOOK,
      [("        if (LIKELY(price < ask_itr->price_)) {", "        if (LIKELY(price <= ask_itr->price_)) {")],
-     "lowlatency_tests"),
+     ("lowlatency:OrderBookTest.ABidAndAnAskFarApartBothRest:"
+      "OrderBookTest.ABuySweepTakesTheAsksBestPriceFirst:OrderBookTest.AFilledOrderCannotBeCancelled:"
+      "OrderBookTest.APartialFillLeavesTheRestingOrderWithItsPriority:"
+      "OrderBookTest.AnOrderThatCrossesFillsTheEarliestOrderAtThePriceFirst:"
+      "Replay.GivesTheMarketUpdatesTheRequestsMakeNumberedFromOne")),
     ("a fill takes the resting order's whole quantity", BOOK,
      [("    const auto fill_qty = std::min(*leaves_qty, order_qty);", "    const auto fill_qty = order_qty;")],
-     "lowlatency_tests"),
+     ("lowlatency:OrderBookTest.APartialFillLeavesTheRestingOrderWithItsPriority:"
+      "Replay.GivesTheMarketUpdatesTheRequestsMakeNumberedFromOne")),
     ("a rejected cancel is reported as cancelled", BOOK,
      [("      client_response_ = {ClientResponseType::CANCEL_REJECTED, client_id, ticker_id, order_id, OrderId_INVALID,",
        "      client_response_ = {ClientResponseType::CANCELED, client_id, ticker_id, order_id, OrderId_INVALID,")],
-     "lowlatency_tests"),
+     ("lowlatency:OrderBookTest.ACancelOfAnOrderNeverSentIsRejected:"
+      "OrderBookTest.AFilledOrderCannotBeCancelled:OrderBookTest.ASecondCancelOfAnOrderIsRejected")),
     ("priorities at a price skip one", BOOK_HEADER,
      [("      return orders_at_price->first_me_order_->prev_order_->priority_ + 1;",
        "      return orders_at_price->first_me_order_->prev_order_->priority_ + 2;")],
-     "lowlatency_tests"),
+     "lowlatency:OrderBookTest.OrdersAtOnePriceGetIncreasingPriorities"),
     ("a new order goes to the front of its price's queue", BOOK_HEADER,
      [("        first_order->prev_order_ = order;\n",
        "        first_order->prev_order_ = order;\n        orders_at_price->first_me_order_ = order;\n")],
-     "lowlatency_tests"),
+     ("lowlatency:OrderBookTest.AnOrderThatCrossesFillsTheEarliestOrderAtThePriceFirst:"
+      "OrderBookTest.OrdersAtOnePriceGetIncreasingPriorities")),
     ("a better bid doesn't become the best", BOOK_HEADER,
      [("          if ((new_orders_at_price->side_ == Side::BUY && new_orders_at_price->price_ > best_orders_by_price->price_) ||",
        "          if ((new_orders_at_price->side_ == Side::BUY && new_orders_at_price->price_ < best_orders_by_price->price_) ||")],
-     "lowlatency_tests"),
+     "lowlatency:OrderBookTest.ASellSweepTakesTheBidsBestPriceFirst"),
     ("a price's level is whatever the probe meets first", PRICE_LEVELS,
      [("        if (level == nullptr || level->price_ == price) {", "        if (true) {")],
-     "lowlatency_tests"),
+     "lowlatency:PriceLevelTable.AgreesWithAMapThroughRandomInsertsAndRemovals"),
     ("a removal leaves a hole in the probe", PRICE_LEVELS,
      [("        if (distance(home(slots_[slot]->price_), slot) >= distance(hole, slot)) {", "        if (false) {")],
-     "lowlatency_tests"),
+     "lowlatency:PriceLevelTable.AgreesWithAMapThroughRandomInsertsAndRemovals"),
     ("a removal moves entries that belong after the hole", PRICE_LEVELS,
      [("        if (distance(home(slots_[slot]->price_), slot) >= distance(hole, slot)) {",
        "        if (distance(home(slots_[slot]->price_), slot) < distance(hole, slot)) {")],
-     "lowlatency_tests"),
+     "lowlatency:PriceLevelTable.AgreesWithAMapThroughRandomInsertsAndRemovals"),
     ("the incremental feed's sequence number doesn't advance", MD_PUBLISHER,
      [("        ++next_inc_seq_num_;\n", "")],
-     "lowlatency_tests"),
+     "lowlatency:MarketDataPublisher.NumbersEachUpdateFromOneInOrder"),
     ("a snapshot ignores a modify", SNAPSHOT,
      [("        order->qty_ = me_market_update.qty_;\n", "")],
-     "lowlatency_tests"),
+     "lowlatency:SnapshotSynthesizer.ASnapshotHoldsEveryLiveOrderAsItIsNow"),
     ("a snapshot's start doesn't say where to resume", SNAPSHOT,
      [("    const MDPMarketUpdate start_market_update{snapshot_size++, {MarketUpdateType::SNAPSHOT_START, last_inc_seq_num_}};",
        "    const MDPMarketUpdate start_market_update{snapshot_size++, {MarketUpdateType::SNAPSHOT_START, 0}};")],
-     "lowlatency_tests"),
+     "lowlatency:SnapshotSynthesizer.ASnapshotHoldsEveryLiveOrderAsItIsNow"),
     # Fillscope's reading of the market data (src/feed/).
     ("the price is read from the side's byte", UPDATE,
      [("kSideAt = 21, kPriceAt = 22,", "kSideAt = 21, kPriceAt = 21,")],
@@ -314,49 +321,60 @@ MUTANTS = [
     # Deterministic replay: the back end's recording and replay, and the viewer's replay mode.
     ("a replay numbers its updates from 0", REPLAY,
      [("    size_t next_seq = 1;  // as MarketDataPublisher::next_inc_seq_num_ starts", "    size_t next_seq = 0;")],
-     "lowlatency_tests|feed_system_tests"),
+     "lowlatency:Replay.GivesTheMarketUpdatesTheRequestsMakeNumberedFromOne"),
     ("a recording's partial last request is read", RECORDING,
      [("    if (body % sizeof(MEClientRequest) != 0) {", "    if (false) {")],
-     "lowlatency_tests"),
+     "lowlatency:RequestRecording.SaysWhyARecordingCantBeRead"),
     ("a recording's requests aren't checked", RECORDING,
      [("      if (const auto why = unprocessable(recording.requests[i])) {",
        "      if (const auto why = unprocessable(recording.requests[i]); why && false) {")],
-     "lowlatency_tests"),
+     "lowlatency:RequestRecording.RefusesARequestTheMatcherCantProcess"),
     ("a request's ticker isn't checked", CLIENT_REQUEST,
      [("    if (ticker >= Common::ME_MAX_TICKERS) {", "    if (false) {")],
-     "lowlatency_tests"),
+     ("lowlatency:OrderServer.AClientIdPastTheTablesIsDroppedAndTheServerRunsOn:"
+      "OrderServer.ANewOrderWithNoSideIsRejected:OrderServer.ARequestOfUnknownTypeIsRejected:"
+      "OrderServer.ATickerPastTheBooksIsRejected:RequestRecording.RefusesARequestTheMatcherCantProcess")),
     ("a request's order id isn't checked", CLIENT_REQUEST,
      [("    if (order >= Common::ME_MAX_ORDER_IDS) {", "    if (false) {")],
-     "lowlatency_tests|backend_system_tests"),
+     ("lowlatency:OrderServer.ACancelPastTheOrderIdsIsCancelRejected:"
+      "OrderServer.AClientIdPastTheTablesIsDroppedAndTheServerRunsOn:"
+      "OrderServer.ANewOrderPastTheOrderIdsIsRejected:OrderServer.ANewOrderWithNoSideIsRejected:"
+      "OrderServer.ARequestOfUnknownTypeIsRejected:OrderServer.ATickerPastTheBooksIsRejected:"
+      "OrderServer.RefusalsTakeTheClientsResponseNumbersInTurn:"
+      "RequestRecording.RefusesARequestTheMatcherCantProcess")),
     # The order server refuses what the matcher can't process.
     ("the order server passes on what the matcher can't process", ORDER_SERVER,
      [("            refuse(socket, request->me_client_request_, *why);\n            continue;\n", "")],
-     "lowlatency_tests|backend_system_tests"),
+     ("lowlatency:OrderServer.ACancelPastTheOrderIdsIsCancelRejected:"
+      "OrderServer.AClientIdPastTheTablesIsDroppedAndTheServerRunsOn:"
+      "OrderServer.ANewOrderPastTheOrderIdsIsRejected:OrderServer.ANewOrderWithNoSideIsRejected:"
+      "OrderServer.ARequestOfUnknownTypeIsRejected:OrderServer.ATickerPastTheBooksIsRejected:"
+      "OrderServer.RefusalsTakeTheClientsResponseNumbersInTurn")),
     ("a refused cancel is answered as a rejected order", ORDER_SERVER,
      [("request.type_ == ClientRequestType::CANCEL ? ClientResponseType::CANCEL_REJECTED : ClientResponseType::REJECTED",
        "ClientResponseType::REJECTED")],
-     "lowlatency_tests"),
+     "lowlatency:OrderServer.ACancelPastTheOrderIdsIsCancelRejected"),
     ("a refusal takes no response number", ORDER_SERVER,
      [("      socket->send(&response, sizeof(MEClientResponse));\n      ++next_outgoing_seq_num;\n",
        "      socket->send(&response, sizeof(MEClientResponse));\n")],
-     "lowlatency_tests"),
+     "lowlatency:OrderServer.RefusalsTakeTheClientsResponseNumbersInTurn"),
     ("the trading client ignores a rejection", ORDER_MANAGER,
      [("        case Exchange::ClientResponseType::REJECTED: {\n          order->order_state_ = OMOrderState::DEAD;\n",
        "        case Exchange::ClientResponseType::REJECTED: {\n")],
-     "lowlatency_tests"),
+     "lowlatency:OrderManager.ARejectedOrderIsDead"),
     ("a test claims its slot without locking it", TEST_SUPPORT,
      [("if (fd >= 0 && ::flock(fd, LOCK_EX | LOCK_NB) == 0) {", "if (fd >= 0) {")],
      "TestPort.ThisProcessHoldsItsSlot"),
     ("a back-end test claims its slot without locking it", FORK_TEST_SUPPORT,
      [("if (fd >= 0 && ::flock(fd, LOCK_EX | LOCK_NB) == 0) {", "if (fd >= 0) {")],
-     "lowlatency_tests"),
+     "lowlatency:TestPort.ThisProcessHoldsItsSlot"),
     ("the system test claims its slot without locking it", BACKEND_SYSTEM_TEST,
      [("            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n            return slot",
        "            return slot")],
      "backend_system_tests"),
     ("a stream's group need not be multicast", ENDPOINTS,
      [(" || !IN_MULTICAST(ntohl(address.s_addr))", "")],
-     "lowlatency_tests"),
+     "lowlatency:Endpoints.RefusesAValueThatIsntOne"),
     ("the exchange publishes its updates on the book's port whatever it is given", EXCHANGE_MAIN_SOURCE,
      [("inc_pub_port = endpoints.incremental.port;", "inc_pub_port = 20001;")],
      "backend_system_tests|feed_system_tests"),
@@ -365,10 +383,14 @@ MUTANTS = [
      "backend_system_tests"),
     ("the exchange's multicast leaves on the default interface", SOCKET_UTILS,
      [("if (socket_cfg.is_udp_ && !socket_cfg.is_listening_) {", "if (false) {")],
-     "lowlatency_tests|backend_system_tests"),
+     ("lowlatency:MarketDataPublisher.NumbersEachUpdateFromOneInOrder:"
+      "McastSocket.ASenderOnAnInterfaceThatDoesntExistStopsTheProgram:"
+      "McastSocket.ASenderSendsOnTheInterfaceItIsGiven:"
+      "SnapshotSynthesizer.ASnapshotHoldsEveryLiveOrderAsItIsNow:"
+      "SnapshotSynthesizer.PublishesASnapshotEveryInterval")),
     ("a book listener joins on the default interface", SOCKET_UTILS,
      [("{inet_addr(iface_ip.c_str())}};", "{htonl(INADDR_ANY)}};")],
-     "lowlatency_tests"),
+     "lowlatency:McastSocket.AListenerJoinsOnTheInterfaceItIsGiven"),
     ("the viewer joins on the default interface", FEED_SOCKET,
      [(".imr_interface = {htonl(INADDR_LOOPBACK)}", ".imr_interface = {htonl(INADDR_ANY)}")],
      "FeedSocket.ReceivesWhatIsSentToItsGroup"),
@@ -378,22 +400,23 @@ MUTANTS = [
      "lowlatency_allocation_tests"),
     ("a full queue is overwritten", LF_QUEUE,
      [("ASSERT(num_elements_ != store_.size(),", "ASSERT(true,")],
-     "lowlatency_tests"),
+     "lowlatency:LFQueue.WritingToAFullQueueStopsTheProgram"),
     ("a queue is full one element early", LF_QUEUE,
      [("ASSERT(num_elements_ != store_.size(),", "ASSERT(num_elements_ + 1 < store_.size(),")],
-     "lowlatency_tests"),
+     "lowlatency:LFQueue.AQueueHoldsAsManyAsItsSizeInOrder"),
     ("a write cut off part-way leaves its part in the recording", RECORDING,
      [("if (written > 0 && ::ftruncate(", "if (written > 0 && false && ::ftruncate(")],
-     "lowlatency_tests"),
+     "lowlatency:RequestRecording.AWriteCutOffPartWayLeavesTheWholeRequestsBefore"),
     ("a cut-off recording is cut back one request too long", RECORDING,
      [("sizeof(kRecordingMagic) + recorded_ * sizeof(request)", "sizeof(kRecordingMagic) + (recorded_ + 1) * sizeof(request)")],
-     "lowlatency_tests"),
+     "lowlatency:RequestRecording.AWriteCutOffPartWayLeavesTheWholeRequestsBefore"),
     ("a failed recording write says nothing of where it stopped", RECORDING,
      [("    ++recorded_;\n", "")],
-     "lowlatency_tests"),
+     ("lowlatency:RequestRecording.AFailedWriteStopsTheRecordingAndSaysWhy:"
+      "RequestRecording.AWriteCutOffPartWayLeavesTheWholeRequestsBefore")),
     ("the running matcher records nothing", MATCHING_ENGINE,
      [("            recorder_->record(*me_client_request);\n", "")],
-     "lowlatency_tests"),
+     "lowlatency:RequestRecording.TheRunningMatcherRecordsWhatItProcesses"),
     ("an infinite snapshot interval is accepted", "backend/Chapter12/exchange/exchange_main.cpp",
      [("!(seconds >= 0.001 && seconds <= 1e6)", "!(seconds > 0)")],
      "backend_system_tests"),
@@ -410,7 +433,8 @@ MUTANTS = [
     ("the tracer check says untraced whatever the status says", REQUEST_ANCHOR,
      [("        return error == std::errc{} && ptr == value.data() + value.size() && pid != 0;",
        "        return error == std::errc{} && ptr == value.data() + value.size() && pid < 0;")],
-     "lowlatency_tests"),
+     ("lowlatency:LockstepAnchor.KnowsWhetherThisProcessIsTraced:"
+      "LockstepAnchor.ReadsTracerPidOnlyFromTheStartOfALine")),
     ("a market data file's numbering isn't checked", "src/feed/market_data_file.cpp",
      [("        if ((*updates)[i].seq != i + 1) {", "        if (false) {")],
      "MarketDataFileTest.SaysWhyAFileCantBeRead"),
@@ -434,11 +458,11 @@ MUTANTS = [
      "ReplayLockstep.Lldb"),
     ("the request anchor's self-stop skips the tracer check", REQUEST_ANCHOR,
      [("  } else if (*traced) {\n", "  } else {\n")],
-     "lowlatency_tests"),
+     "lowlatency:LockstepAnchor.SelfStopWithoutATracerDoesNotStop"),
     ("the request anchor reads TracerPid anywhere in a line", REQUEST_ANCHOR,
      [("      if (line.starts_with(key)) {", "      if (line.find(key) != std::string_view::npos) {"),
       ("        auto value = line.substr(key.size());", "        auto value = line.substr(line.find(key) + key.size());")],
-     "lowlatency_tests"),
+     "lowlatency:LockstepAnchor.ReadsTracerPidOnlyFromTheStartOfALine"),
     ("the request anchor's self-stop is reported past its own line", REQUEST_ANCHOR,
      [('    asm volatile("int3\\n\\tnop" ::"r"(request_number), "r"(updates_published));',
        '    asm volatile("int3" ::"r"(request_number), "r"(updates_published));\n    Exchange::g_anchored = false;')],
@@ -450,10 +474,12 @@ MUTANTS = [
     ("the request anchor takes any TracerPid for a tracer", REQUEST_ANCHOR,
      [("        return error == std::errc{} && ptr == value.data() + value.size() && pid != 0;",
        "        return error == std::errc{} && ptr == value.data() + value.size();")],
-     "lowlatency_tests"),
+     ("lowlatency:LockstepAnchor.KnowsWhetherThisProcessIsTraced:"
+      "LockstepAnchor.ReadsTracerPidOnlyFromTheStartOfALine:"
+      "LockstepAnchor.SelfStopWithoutATracerDoesNotStop")),
     ("the request anchor doesn't record the request", REQUEST_ANCHOR,
      [("  Exchange::g_last_request = request_number;", "  Exchange::g_last_request = 0;")],
-     "lowlatency_tests"),
+     "lowlatency:LockstepAnchor.RecordsEachRequest:LockstepAnchor.SelfStopWithoutATracerDoesNotStop"),
     ("--self-stop does nothing", REQUEST_ANCHOR,
      [("  auto setSelfStop(bool on) -> void { g_self_stop = on; }", "  auto setSelfStop(bool) -> void {}")],
      "ReplayLockstep.GdbSelfStop|ReplayLockstep.LldbSelfStop"),
@@ -709,7 +735,11 @@ class Runner:
         parts of test names);
       "node:PATTERN", the extension's Node tests whose names match, as `node --test-name-pattern`
         takes;
-    and several, joined by " + ", are all run. Each check returns (passed, ran any)."""
+      "lowlatency:FILTER", the back end's own tests (lowlatency_tests, one CTest test for the whole
+        program) whose names match, as --gtest_filter takes: the tests that catch the mutant, not
+        the whole program, which takes about 20 seconds;
+    and several, joined by " + ", are all run. A CTest expression naming several programs runs them
+    in parallel. Each check returns (passed, ran any)."""
 
     def __init__(self, copy, build):
         self.copy = copy
@@ -735,7 +765,12 @@ class Runner:
             failed = re.search(r"^# fail (\d+)", result.stdout, re.MULTILINE)
             ran = tests is not None and int(tests.group(1)) > 0
             return result.returncode == 0 and failed is not None and failed.group(1) == "0", ran
-        result = run(["ctest", "--test-dir", str(self.build), "-R", spec])
+        if spec.startswith("lowlatency:"):
+            # The program makes a directory of its own for the logs it writes, and enters it.
+            result = run([str(self.build / "backend" / "Chapter12" / "tests" / "lowlatency_tests"),
+                          f"--gtest_filter={spec[len('lowlatency:'):]}"])
+            return result.returncode == 0, "[ RUN      ]" in result.stdout
+        result = run(["ctest", "--test-dir", str(self.build), "-j", str(os.cpu_count() or 1), "-R", spec])
         return result.returncode == 0, "No tests were found" not in result.stdout
 
 
@@ -814,4 +849,5 @@ def check(runner, copy, build, mutants):
     sys.exit(0 if caught == len(mutants) and not problems else 1)
 
 
-main()
+if __name__ == "__main__":  # loaded by other scripts too, which run its parts themselves
+    main()

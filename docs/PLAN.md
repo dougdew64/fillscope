@@ -216,14 +216,20 @@ once afterwards. Measured 2026-10-24, the mutation check takes about as long on 
 machine as in CI, 39 minutes for 181 mutants against 34 to 39: most of it is the back end's tests
 waiting (on its threads' start-up sleeps, the client's ten seconds, the exchange starting), not
 computing. 28.5 of the 39 minutes are test runs, and the 47 mutants that name the back end's
-programs take about 26 of them: each of 33 mutants naming `lowlatency_tests` runs the whole
+programs take about 26 of them: each of 36 mutants naming `lowlatency_tests` runs the whole
 program, about 21 seconds, and a mutant naming two programs runs them one after the other. CI's
 two failures in 65 runs were both mutants the local run hadn't run. The owner discusses the options again when step 10 begins. The owner's direction
 (2026-10-24, DECISIONS.md): favor simplicity and confidence in the results; where tests are quick,
 don't skip programs to save time; the cost to work on is the mutation check's.
 **Done when:** the time from a change to its tests' result is measured before and after, and each
 shortcut is shown not to skip a test the change affects.
-**Status:** not started.
+**Status:** in progress. First change (2026-10-24): each of the 36 back-end mutants names the
+GoogleTest tests that catch it (`lowlatency:FILTER`, found by running each mutant against the whole
+program), so it runs those rather than the whole program; and a mutant's programs run in parallel
+(`ctest -j`), which bought little, since the CTest lock keeps the two system tests apart. Measured
+with every command timed: the mutation check from 39.3 to 23.0 minutes, 181 of 181 caught both
+times; the back end's own tests from 16.4 minutes to 2.6. What remains is mostly rebuilds (10.3)
+and the system tests (about 7). The owner discusses the next options on these numbers.
 
 ## Waiting on the owner
 - **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,

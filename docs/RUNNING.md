@@ -175,8 +175,9 @@ python3 -I tests/scripts/selection_check.py  # iterate.py selects, runs and reco
 ```
 **How long each takes** (measured on the development machine, with both builds already current):
 `run-tests.sh` about 2 minutes and the selection check about 2 (2026-10-23); the mutation check
-about 39, for 181 mutants, each a rebuild and a test run (2026-10-24; 28.5 minutes of it the test
-runs, mostly of the back end's tests, which wait more than they compute). A cold build adds several minutes to the first.
+about 23, for 181 mutants, each a rebuild and a test run (2026-10-24: about 10 minutes of
+rebuilds, and about 7 of the back end's system tests, which wait more than they compute; it took
+39 before each back-end mutant ran only the tests that catch it). A cold build adds several minutes to the first.
 Run as root (CI's container), the mutation check skips, and names, the mutants whose test needs a
 directory it can't write to, which root always can.
 Both work in a scratch copy of the working tree, with a build of their own, so the files being
