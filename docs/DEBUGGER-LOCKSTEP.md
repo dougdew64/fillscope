@@ -2,7 +2,7 @@
 
 **Purpose:** how a debugger steps the matcher, one request at a time, while the viewer's books
 follow, and the rules that keep it working. **Status:** reference. **Read when:** changing the
-replay, the anchors, the process split, or the debugger integration.
+replay, the anchor, the process split, or the debugger integration.
 
 How to run it is in [RUNNING.md](RUNNING.md), "Debug in lockstep".
 
@@ -19,18 +19,16 @@ Each Continue advances them by exactly one request. A replayed run is the same e
 stepped.
 
 **The producer and the viewer are separate processes**, for the same reason: a stop freezes the
-process it is in. Before the back end, the producer was a stand-in frame source, which sends each
-frame and then calls its own anchor, `fillscope_frame_anchor(frame_index)` (`src/lockstep/`); its
-debugger tests remain until step 8 retires it. The rules below hold for both anchors, and the
-debugger tests check them for both.
+process it is in. Before the back end, the producer was a stand-in frame source, which sent each
+frame and then called an anchor of its own; the rules below were learned on it, and the request
+anchor follows them. The stand-in was retired in step 8 of the plan ([PLAN.md](PLAN.md)).
 
 **Two ways to stop at the anchor**, both binding on the first run, with nothing to arm:
 - **Self-stop:** when the process is traced, the anchor executes a breakpoint instruction (`int3`
   on x86-64); untraced, it does nothing. How it works, and why it is written as it is, are in
   [ARCHITECTURE.md](ARCHITECTURE.md), §6.
 - **Breakpoint by name**, set from the launch configuration: `break fillscope_request_anchor` in GDB,
-  `breakpoint set -n fillscope_request_anchor` in LLDB (`fillscope_frame_anchor` for the frame
-  source).
+  `breakpoint set -n fillscope_request_anchor` in LLDB.
 
 ## Rules for the anchor
 1. **Its body must survive optimization.** GCC merges identical functions at `-O2` (`-fipa-icf`,
@@ -38,10 +36,10 @@ debugger tests check them for both.
    function, and a breakpoint on it would fire from unrelated code. An inlined anchor would execute
    its self-stop inside its caller. Today neither can happen: the one caller is in another file,
    and the build doesn't use link-time optimization. The measures keep that true if either changes:
-   the anchor is `noinline`, its store has a reader (`lastAnchoredRequest`, `last_anchored_frame`),
+   the anchor is `noinline`, its store has a reader (`lastAnchoredRequest`),
    an `asm volatile` memory clobber keeps the store, and the self-stop's `asm` takes the arguments
    as inputs, so a debugger can read them in an optimized build too. Checked by the
-   `ReplayLockstep.AtO2` and `LockstepDebugger.AtO2` tests, which run the replay and the frame source
+   `ReplayLockstep.AtO2` tests, which run the replay
    built at `-O2` (without the sanitizers, whose own code changes what an optimized build can show a
    debugger) under GDB and LLDB.
 2. **Its first statement must be plain code of our own source.** GDB puts a breakpoint by name
@@ -49,9 +47,9 @@ debugger tests check them for both.
    `std::atomic` store, which libstdc++ inlines even at `-O0`, LLDB's breakpoint opened
    `atomic_base.h` (GDB's stayed in our file). When it was an
    `std::optional` assignment, GDB's breakpoint in the sanitizer build stopped before the argument
-   was stored, and every stop read `frame_index` as 0. So the anchor stores to plain variables.
-   Guarded by the `ReplayLockstep` and `LockstepDebugger` tests, which run in both builds, and a
-   mutant of the atomic version.
+   was stored, and every stop read the frame source's `frame_index` as 0. So the anchor stores to
+   plain variables. Guarded by the `ReplayLockstep` tests, which run in both builds, and a mutant
+   of the atomic version.
 3. **The code under study builds at `-O0`**, the default build type. At higher levels, line-table
    entries are dropped, and a breakpoint can bind and never fire.
 
@@ -72,16 +70,17 @@ And by hand: the viewer, live, followed a replay of 502 requests publishing on t
 stream, every one of its 505 updates, with no recovery.
 
 On 2026-10-19, with the frame source, and the viewer as it was then (it read the frame source's
-frames):
+frames); a record, since both were retired in step 8:
 - the viewer keeps painting at 60 frames a second while the producer is stopped, through pauses of
   several minutes;
-- each Continue adds one frame to the viewer, and Step Over behaves as described above;
-- both stop methods stop inside the anchor, in `anchor.cpp`, at the lines described above, with
-  `frame_index` readable, under GDB and LLDB, at `-O0` and at `-O2`; the `lockstep_debugger_tests`
-  check this on every full test run;
+- each Continue adds one frame to the viewer, and Step Over from a stop returns to the frame
+  source's loop;
+- both stop methods stop inside the anchor, in `anchor.cpp` (GDB's breakpoint by name at its first
+  statement, LLDB's at its `if`, a self-stop at the breakpoint instruction), with
+  `frame_index` readable, under GDB and LLDB, at `-O0` and at `-O2`, as its debugger tests
+  checked on every full test run;
 - at each stop for frame N, the viewer already has the run's description and frames 0 to N: the
-  LLDB tests' driver (`tests/lockstep/lldb_driver.py`) acts as the viewer and counts what has
-  arrived at each stop;
+  LLDB tests' driver acted as the viewer and counted what had arrived at each stop;
 - self-stop does nothing without a tracer (`Anchor.SelfStopWithoutATracerDoesNotStop`), and stops a
   traced process in the anchor (`Anchor.SelfStopStopsATracedProcessInTheAnchor`, in which the test
   itself is the tracer).
@@ -110,7 +109,7 @@ no stack and no values. So a VS Code extension, `tools/vscode-debug-state/`, wri
 existed, so it meets these requirements, each checked by its tests (and each shown, by a mutant, to
 fail a test when broken):
 - **One entry per debug session.** A lockstep run debugs two programs at once; the viewer's
-  "running" must not overwrite the frame source's stop. A child session names its parent.
+  "running" must not overwrite the replay's stop. A child session names its parent.
 - **What the program is doing, exactly:** "starting" until the launch or attach succeeds;
   "running"; "stopped", with the stack and locals; "moving" after an accepted `goto` or
   `restartFrame`, which reposition the program without running it (a stop follows); "exited", with

@@ -23,7 +23,7 @@ const {
  * a reply that is an Error makes the request fail.
  * @param {{ id?: string, name?: string, parentId?: string, replies?: Record<string, any> }} [options]
  */
-function fakeSession({ id = 's1', name = 'frame source', parentId, replies = {} } = {}) {
+function fakeSession({ id = 's1', name = 'replay', parentId, replies = {} } = {}) {
     /** @type {{ command: string, args: any }[]} */
     const requests = [];
     return {
@@ -92,8 +92,8 @@ function stoppedEntry(entry) {
 /** @param {number} count */
 function frames(count) {
     return Array.from({ length: count }, (_, i) => ({
-        id: 100 + i, name: i === 0 ? 'fillscope_frame_anchor' : `caller${i}`, line: 69 + i, column: 5,
-        source: { path: '/repo/src/lockstep/anchor.cpp' },
+        id: 100 + i, name: i === 0 ? 'fillscope_request_anchor' : `caller${i}`, line: 69 + i, column: 5,
+        source: { path: '/repo/backend/Chapter12/exchange/matcher/lockstep_anchor.cpp' },
     }));
 }
 
@@ -110,8 +110,8 @@ function anchorSession(extra = {}, identity = {}) {
             scopes: { scopes: [{ name: 'Locals', variablesReference: 7 }, { name: 'Registers', variablesReference: 8, expensive: true }] },
             variables: (/** @type {any} */ args) => args.variablesReference === 7
                 ? { variables: [
-                    { name: 'frame_index', value: '12', type: 'uint64_t', variablesReference: 0 },
-                    { name: 'frame', value: '{...}', type: 'Frame', variablesReference: 9 },
+                    { name: 'request_number', value: '12', type: 'uint64_t', variablesReference: 0 },
+                    { name: 'request', value: '{...}', type: 'MEClientRequest', variablesReference: 9 },
                 ] }
                 : { variables: [{ name: 'price', value: '10003', type: 'int64_t', variablesReference: 0 }] },
             ...extra,
@@ -143,11 +143,11 @@ test('a stop publishes the stack, the locals and the stop reason', async () => {
     const entry = stoppedEntry(last().sessions.s1);
     assert.equal(entry.stop.reason, 'breakpoint');
     assert.equal(entry.stop.threadId, 1);
-    assert.deepEqual(entry.frames[0], { name: 'fillscope_frame_anchor', path: '/repo/src/lockstep/anchor.cpp', line: 69, column: 5 });
+    assert.deepEqual(entry.frames[0], { name: 'fillscope_request_anchor', path: '/repo/backend/Chapter12/exchange/matcher/lockstep_anchor.cpp', line: 69, column: 5 });
     assert.equal(entry.frameCount, 3);
     assert.equal(entry.framesTruncated, false);
     assert.equal(entry.variablesScope, 'Locals');
-    assert.deepEqual(entry.variables?.map((v) => v.name), ['frame_index', 'frame']);
+    assert.deepEqual(entry.variables?.map((v) => v.name), ['request_number', 'request']);
     assert.deepEqual(entry.variables?.[1].children, [{ name: 'price', value: '10003', type: 'int64_t' }]);
     assert.equal(entry.parentId, null);
 });
@@ -249,7 +249,7 @@ test('only the first few structured locals are expanded, and the rest say so', a
 test('members that could not be read say why', async () => {
     const { last } = await stoppedInTheAnchor({
         variables: (/** @type {any} */ args) => args.variablesReference === 7
-            ? { variables: [{ name: 'frame', value: '{...}', variablesReference: 9 }] }
+            ? { variables: [{ name: 'request', value: '{...}', variablesReference: 9 }] }
             : new Error('members unavailable'),
     });
     const entry = stoppedEntry(last().sessions.s1);
@@ -451,13 +451,13 @@ test('nothing changes a session after it has ended', async () => {
 
 test('a session that ends is published as ended, and dropped when a new session starts', () => {
     const { publisher, last } = recordingPublisher();
-    publisher.sessionStarted({ id: 'old', name: 'frame source' });
+    publisher.sessionStarted({ id: 'old', name: 'replay' });
     publisher.sessionEnded('old', 'the debug adapter exited (code 1, signal none)');
     const ended = last().sessions.old;
     assert.equal(ended.state, 'ended');
     assert.equal(ended.state === 'ended' && ended.endReason, 'the debug adapter exited (code 1, signal none)');
 
-    publisher.sessionStarted({ id: 'new', name: 'frame source' });
+    publisher.sessionStarted({ id: 'new', name: 'replay' });
     assert.equal(last().sessions.old, undefined);
     assert.equal(last().sessions.new.state, 'starting');
 });
@@ -538,7 +538,7 @@ function scratch(/** @type {import('node:test').TestContext} */ t) {
 test('the file is replaced whole, and no temporary file is left behind', (t) => {
     const file = path.join(scratch(t), '.fillscope', 'debug-state.json');
     const publisher = new DebugStatePublisher((state) => writeAtomically(file, state));
-    publisher.sessionStarted({ id: 's1', name: 'frame source' });
+    publisher.sessionStarted({ id: 's1', name: 'replay' });
     publisher.sessionEnded('s1');
 
     const written = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -553,7 +553,7 @@ test('a failed write throws and leaves no temporary file', (t) => {
     fs.mkdirSync(path.join(file, 'blocker'), { recursive: true });  // rename can't replace a directory
     const { publisher } = recordingPublisher();
     publisher.write = (state) => writeAtomically(file, state);
-    assert.throws(() => publisher.sessionStarted({ id: 's1', name: 'frame source' }));
+    assert.throws(() => publisher.sessionStarted({ id: 's1', name: 'replay' }));
     assert.deepEqual(fs.readdirSync(dir), ['debug-state.json']);
 });
 
@@ -619,11 +619,11 @@ test('a reader never sees part of a write', async (t) => {
 
 test('the output line names the session, the place and the counts', async () => {
     const { publisher, last, session } = await stoppedInTheAnchor();
-    assert.equal(summarize(last()), '#2 frame source: stopped at anchor.cpp:69 in fillscope_frame_anchor (3 frames, 2 locals)');
+    assert.equal(summarize(last()), '#2 replay: stopped at lockstep_anchor.cpp:69 in fillscope_request_anchor (3 frames, 2 locals)');
     await publisher.onAdapterMessage(session, event('exited', { exitCode: 3 }));
-    assert.equal(summarize(last()), '#3 frame source: exited (code 3)');
+    assert.equal(summarize(last()), '#3 replay: exited (code 3)');
     publisher.sessionEnded('s1', 'the debug adapter exited with code 1');
-    assert.equal(summarize(last()), '#4 frame source: ended (the debug adapter exited with code 1)');
+    assert.equal(summarize(last()), '#4 replay: ended (the debug adapter exited with code 1)');
     publisher.sessionStarted(fakeSession({ id: 's2', name: 'viewer' }));
     publisher.sessionStarted(fakeSession({ id: 's3', name: 'other' }));
     publisher.stop();

@@ -2,7 +2,7 @@
 # stop, while acting as the viewer: it listens to the multicast group the replay publishes on, and at
 # each stop counts the market updates that have arrived. Prints one line per stop and one at exit,
 # for replay_debugger_test.cpp to check:
-#   stop: signal SIGTRAP in fillscope_request_anchor request_number=2 updates_published=3 file=lockstep_anchor.cpp line=97 received=3
+#   stop: signal SIGTRAP in fillscope_request_anchor request_number=2 updates_published=3 file=lockstep_anchor.cpp line=104 received=3
 #   exchange_replay: 3 requests, 4 market updates, published to 233.252.18.1:24001
 #   exited: 0
 # (the program's own output, then its exit status). "received" is how many updates had arrived when the replay stopped; "updates_published" how many

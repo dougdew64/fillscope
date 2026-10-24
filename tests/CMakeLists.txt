@@ -13,7 +13,7 @@ include(GoogleTest)
 # Every test program is registered through fillscope_test_program, which gives its tests:
 #   - a cost tier, as a label and a per-test timeout, so a slow test fails as slow the day it
 #     is added: unit (2 s), ui (10 s, the whole program), check (30 s, a whole checker run such
-#     as a type check), debugger (30 s);
+#     as a type check), debugger (30 s), system (120 s, the back end's programs);
 #   - a label naming the program, exe:<name>, so tests/scripts/iterate.py can run one program's
 #     tests;
 #   - a line in test-manifest.txt: the program, its tier, whether it always runs, and the files
@@ -21,14 +21,12 @@ include(GoogleTest)
 # iterate.py re-runs a program only when the program, one of those files, a shared library it
 # loads, a FILLSCOPE_ environment variable, or any CMakeLists.txt (which can change how any test
 # runs) has changed, or on every iteration if it is ALWAYS (its result depends on files it can't
-# list). A program that runs
-# the frame source says so (USES_FRAME_SOURCE): it then gets the frame source's path, is built
-# after it, and lists it as a run-time file, so all three can't fall out of step.
+# list).
 # tests/scripts/iterate.py --check-registration (run by run-tests.sh) fails on any test registered
 # some other way.
 # A program's tests are all in one tier, so a program is either fast or slow, never both.
-# Programs are named for the area they test (channel_tests); when an area's tests span tiers, the
-# slower program adds the tier (lockstep_debugger_tests).
+# Programs are named for the area they test (feed_tests); when an area's tests span tiers, the
+# slower program adds the tier (feed_system_tests).
 set(FILLSCOPE_TIMEOUT_unit 2)
 set(FILLSCOPE_TIMEOUT_ui 10)
 set(FILLSCOPE_TIMEOUT_debugger 30)
@@ -39,14 +37,9 @@ set(FILLSCOPE_TIMEOUT_system 120)
 # option), or a command that isn't built here (COMMAND, e.g. Node running the extension's tests;
 # its RUNTIME_DEPS are then everything it reads, since there is no binary to fingerprint).
 function(fillscope_test_program name tier)
-  cmake_parse_arguments(ARG "GTEST;ALWAYS;USES_FRAME_SOURCE" "" "RUNTIME_DEPS;COMMAND" ${ARGN})
+  cmake_parse_arguments(ARG "GTEST;ALWAYS" "" "RUNTIME_DEPS;COMMAND" ${ARGN})
   if(NOT DEFINED FILLSCOPE_TIMEOUT_${tier})
     message(FATAL_ERROR "${name}: unknown test tier '${tier}'")
-  endif()
-  if(ARG_USES_FRAME_SOURCE)
-    target_compile_definitions(${name} PRIVATE FILLSCOPE_FRAME_SOURCE="$<TARGET_FILE:frame_source>")
-    add_dependencies(${name} frame_source)
-    list(APPEND ARG_RUNTIME_DEPS $<TARGET_FILE:frame_source>)
   endif()
   set(labels "${tier}\\;exe:${name}")
   if(ARG_GTEST)
@@ -76,19 +69,17 @@ function(fillscope_test_program name tier)
 endfunction()
 
 # A GoogleTest program: its sources, the libraries it tests, and the files it uses at run time.
-# ALWAYS and USES_FRAME_SOURCE are passed on to fillscope_test_program.
+# ALWAYS is passed on to fillscope_test_program.
 function(fillscope_gtest name tier)
-  cmake_parse_arguments(ARG "ALWAYS;USES_FRAME_SOURCE" "" "SOURCES;LIBS;RUNTIME_DEPS" ${ARGN})
+  cmake_parse_arguments(ARG "ALWAYS" "" "SOURCES;LIBS;RUNTIME_DEPS" ${ARGN})
   add_executable(${name} ${ARG_SOURCES})
   target_link_libraries(${name} PRIVATE ${ARG_LIBS} GTest::gtest_main)
   target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
   target_compile_options(${name} PRIVATE ${FILLSCOPE_WARNINGS})
-  set(options)  # the options given, passed on as given
-  foreach(option ALWAYS USES_FRAME_SOURCE)
-    if(ARG_${option})
-      list(APPEND options ${option})
-    endif()
-  endforeach()
+  set(options)  # the option, passed on if given
+  if(ARG_ALWAYS)
+    list(APPEND options ALWAYS)
+  endif()
   fillscope_test_program(${name} ${tier} GTEST ${options} RUNTIME_DEPS ${ARG_RUNTIME_DEPS})
 endfunction()
 
@@ -112,12 +103,10 @@ target_compile_definitions(imgui_te PUBLIC IMGUI_USER_CONFIG="imconfig_test_engi
 target_link_libraries(imgui_te PUBLIC Threads::Threads)
 
 add_subdirectory(attribution)
+add_subdirectory(common)
 add_subdirectory(backend)
-add_subdirectory(channel)
 add_subdirectory(docs)
 add_subdirectory(feed)
-add_subdirectory(lockstep)
-add_subdirectory(frame_source)
 add_subdirectory(viewer)
 add_subdirectory(vscode-debug-state)
 add_subdirectory(scripts)

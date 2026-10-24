@@ -34,7 +34,7 @@ target_link_options(exchange_replay_o2 PRIVATE -fno-sanitize=all)
 target_link_libraries(exchange_replay_o2 PRIVATE Threads::Threads)
 
 set(request_anchor_source ${BACKEND}/exchange/matcher/lockstep_anchor.cpp)
-fillscope_gtest(replay_debugger_tests debugger SOURCES replay_debugger_test.cpp LIBS fillscope_channel
+fillscope_gtest(replay_debugger_tests debugger SOURCES replay_debugger_test.cpp
   RUNTIME_DEPS ${CMAKE_CURRENT_SOURCE_DIR}/replay_lldb_driver.py $<TARGET_FILE:exchange_replay>
                $<TARGET_FILE:exchange_replay_o2> ${request_anchor_source})
 add_dependencies(replay_debugger_tests exchange_replay exchange_replay_o2)

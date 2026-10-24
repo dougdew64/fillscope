@@ -16,9 +16,7 @@ its README (`backend/README.md`).
 Today the viewer shows the live order books of the back end, a fork of the trading system in
 Ghosh's book ([PLAN.md](PLAN.md)), rebuilt from the exchange's market data, and lets you point at
 and follow orders, and a debugger steps the exchange's matcher through a recorded run, one request at
-a time, while the viewer follows. The stand-ins that came first (a frame source, the socket it sends
-on, and the debugger anchor it calls) remain only for their debugger tests, until step 8 of the plan
-retires them.
+a time, while the viewer follows.
 
 ## 1. The big picture
 The back end's programs run, the viewer listens to the exchange, and an assistant reads what the
@@ -66,16 +64,15 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 ## 2. The code, by directory
 | Directory | Its job | Built as |
 |---|---|---|
-| `backend/` | The trading system Fillscope observes: a fork of the one in Ghosh's book, a git submodule ([PLAN.md](PLAN.md)) | its own build file; programs `exchange_main`, `trading_main` |
+| `backend/` | The trading system Fillscope observes: a fork of the one in Ghosh's book, a git submodule ([PLAN.md](PLAN.md)) | its own build file; programs `exchange_main`, `trading_main`, `exchange_replay` |
 | `src/feed/` | The exchange's market data as Fillscope reads it: decoding, receiving, and the books it describes | library `fillscope_feed` |
 | `src/viewer/` | The viewer: its core (no Dear ImGui) and its drawing | library `fillscope_viewer_core`, program `viewer` |
+| `src/common/` | Helpers the others share: `Fd`, a file descriptor's owner, and `parse_number`, strict parsing of a number from text | headers only |
 | `tools/vscode-debug-state/` | The VS Code extension that publishes the debugger's state | JavaScript, run by VS Code |
-| `src/channel/`, `src/lockstep/`, `tools/frame_source/` | The stand-ins the debugger tests still use: a frame source, its socket, and the debugger anchor (§6) | libraries `fillscope_channel`, `fillscope_lockstep`, `frame_source_lib`; program `frame_source` |
 | `tools/attribution/` | The report of who wrote each file's lines ([AI-USE.md](AI-USE.md)), Fillscope's and, with upstream's lines too, the back end's (a copy) | Python script |
 | `tests/` | One directory per area, mirroring the above | one test program per area and cost tier |
 
-Dependencies point one way: the viewer depends on the feed; the feed uses the channel's `Fd` (a
-file descriptor's owner); the frame source depends on the channel and the anchor. Nothing in
+Dependencies point one way: the viewer depends on the feed, and both use `src/common/`. Nothing in
 Fillscope links the back end: it is read only through its market data. (Tests run its programs.)
 
 ## 3. The market data (`src/feed/`)
@@ -147,7 +144,7 @@ publisher would, and then calls the back end's lockstep anchor,
 `fillscope_request_anchor(request_number, updates_published)`, where a debugger stops. The replay is
 one thread, so when the debugger stops after request N, the viewer, listening to the group, already
 shows the books after it; the live exchange's publisher is a thread of its own, which a stop would
-freeze mid-way. The anchor follows the same rules as the frame source's anchor (§6).
+freeze mid-way. How the anchor stops a program is §6.
 
 ## 4. The viewer (`src/viewer/`)
 **The problem:** show the books as the market data describes them, let you point at and follow
@@ -254,51 +251,38 @@ entry per session and treating an accepted step request as "running", are in
 Code, so its tests drive it with fake sessions; `extension.js` connects it to VS Code, choosing
 each session's file by its workspace folder, and its tests run it against a fake `vscode` module.
 
-## 6. The stand-ins the debugger tests use (`src/channel/`, `tools/frame_source/`, `src/lockstep/`)
-Before the back end, a frame source made up frames and sent them to the viewer, and a debugger
-stopped it once per frame. The viewer no longer reads frames, and lockstep now runs on a replay
-(§3), through the back end's own anchor, built to the same rules as the one below. The frame source,
-its socket and its anchor remain, with their debugger tests (`lockstep_debugger_tests`), until step
-8 of the plan retires them. What follows explains how such an anchor stops a program, which holds
-for both.
+## 6. The lockstep anchor: how the debugger stops once per request
+**The problem:** to step through a run one request at a time, a debugger must stop the replay once
+per request. Each stop must come after that request's market data has been sent, be in our own code
+rather than a library's, and have the request's number readable.
 
-**The channel** (`message.h`, `net.h`): a frame source sends a `SourceHello { seed, frame_count }`,
-then `Frame`s, held as `std::variant<SourceHello, Frame>`, each one datagram on a Unix
-`SOCK_SEQPACKET` socket in Linux's abstract namespace (message boundaries kept, nothing on disk). A
-receiver acknowledges a sender it accepts with one byte, so a sender never believes frames arrived
-that were only queued. `Fd` owns a file descriptor and closes it in its destructor; the feed's
-socket uses it too.
-
-**The frame source** (`frame_source.cpp`) connects, waits for the acknowledgement, describes its
-run, then for each frame: makes it from its seed (`FrameGenerator`, `std::mt19937_64` with the
-project's own bounded draw, so a seed gives the same frames on any compiler), sends it, and calls the
-anchor. The LLDB tests' driver acts as its receiver.
-
-### The anchor: how the debugger stops once per item
-**The problem:** to step through a producer's output one item at a time, a debugger must stop it
-once per item. Each stop must come after that item has been sent, be in our own code rather than a
-library's, and have the item's index readable.
-
-`fillscope_frame_anchor(frame_index)` is where it stops. The frame source calls it right after
-sending each frame, so at the stop for frame N its receiver already has frames 0 to N. The launch
-configuration picks one of two ways to stop there:
+`fillscope_request_anchor(request_number, updates_published)`, in the back end's
+`exchange/matcher/lockstep_anchor.cpp`, is where it stops. `exchange_replay` calls it after each
+request, once that request's updates have gone out on the group (§3), so at the stop for request N
+a viewer listening has every update up to N's. The launch configuration picks one of two ways to stop
+there:
 - **Self-stop:** the program stops itself. Nobody sets a breakpoint; the program *is* the
   breakpoint.
 - **Breakpoint by name:** the debugger sets a breakpoint on the function, as on any other.
 
-#### Self-stop, step by step
-Under a debugger with self-stop, execution halts at this line of `anchor.cpp`, and the debugger
-reports the stop as `signal SIGTRAP`:
+(The anchor was first written for a stand-in, a frame source that made up frames for the viewer
+before the back end arrived; the stand-in and its anchor are gone, and their lessons are in this
+one.)
+
+### Self-stop, step by step
+Under a debugger with self-stop, execution halts at this line of `lockstep_anchor.cpp`, and the
+debugger reports the stop as `signal SIGTRAP`:
 ```cpp
-asm volatile("int3\n\tnop" ::"r"(frame_index));
+asm volatile("int3\n\tnop" ::"r"(request_number), "r"(updates_published));
 ```
 How it gets there:
-1. The program is started as `frame_source --self-stop`. The frame source passes that on with
-   `set_self_stop(true)`.
-2. Its loop sends a frame, then calls `fillscope_frame_anchor(frame.index)`.
-3. The anchor records the index. Self-stop is on, so it asks whether a debugger is attached:
-   `tracer_attached_now()` reads the `TracerPid` line of `/proc/self/status`. A nonzero value is
-   the process id of another process tracing this one, such as LLDB or GDB.
+1. The program is started as `exchange_replay RECORDING --publish GROUP:PORT --self-stop`, which
+   passes the option on with `Exchange::setSelfStop(true)`.
+2. For each request, the replay hands it to the matcher, sends the updates it made, then calls
+   `fillscope_request_anchor(request_number, sent)`.
+3. The anchor records the request's number. Self-stop is on, so it asks whether a debugger is
+   attached: `tracerAttachedNow()` reads the `TracerPid` line of `/proc/self/status`. A nonzero
+   value is the process id of another process tracing this one, such as LLDB or GDB.
 4. If it's traced, the anchor executes `int3`.
 
 **What `int3` does:** it is x86's breakpoint instruction, the same one a debugger writes into
@@ -309,40 +293,48 @@ then highlights the line.
 
 **Why it is written this way:**
 - **The tracer check keeps it safe without a debugger.** An unhandled `SIGTRAP` ends a program,
-  so untraced, the anchor does nothing, and `frame_source --self-stop` run from a terminal just
+  so untraced, the anchor does nothing, and `exchange_replay --self-stop` run from a terminal just
   runs. If the status file can't be read, it says so once on stderr and doesn't stop. Linux
   reports *that* a process is traced, not by what, so under a tracer that isn't a debugger
   (`strace`, `rr`) the `SIGTRAP` ends the process: self-stop is for running under a debugger only.
+  Only a line that *starts* with `TracerPid:` counts, since the status file's first line is the
+  program's name, which can be any text.
 - **The `nop` keeps the highlight on that line.** After `int3`, the program counter points at the
   next instruction, and that is where the debugger reports the stop. Without the `nop`, the next
-  instruction would belong to the function's closing brace.
+  instruction would belong to whatever code follows, on another line.
 - **Continue needs nothing special.** The program counter is already past `int3`, so Continue
   resumes at the `nop`, and the debugger doesn't pass the `SIGTRAP` on. The anchor returns, the
-  loop sleeps, sends the next frame and stops again: one frame per Continue. Step Over from the
-  stop returns to the frame source's loop.
-- **`"r"(frame_index)` keeps the frame's index readable at the stop.** It makes the instruction
-  take the index as an input in a register, so the value exists right there, and a debugger can
-  show it even in an optimized build, where it might otherwise be gone.
+  replay takes the next request, sends its updates and stops again: one request per Continue. Step
+  Over from the stop returns to the replay's loop.
+- **The arguments as inputs keep them readable at the stop.** `"r"(request_number)` and
+  `"r"(updates_published)` make the instruction take both in registers, so the values exist right
+  there, and a debugger can show them even in an optimized build, where they might otherwise be
+  gone (the tests check this at -O2).
 - **Not `raise(SIGTRAP)` or C++26's `std::breakpoint()`.** Under GDB, `raise(SIGTRAP)` stopped two
   frames down, inside libc. libstdc++ implements `std::breakpoint()` out of line, so it too would
   stop inside the library. Either way the debugger would open the library's source, not ours.
 - **x86 only, for now.** Another architecture needs its own breakpoint instruction and its own
   answer to how its debuggers resume past it; until then the code doesn't compile there.
 
-#### Breakpoint by name
+### Breakpoint by name
 Without `--self-stop`, the anchor never executes `int3`. Instead the debugger is told to set a
-breakpoint on the function: `breakpoint set -n fillscope_frame_anchor` in LLDB, `break
-fillscope_frame_anchor` in GDB. A breakpoint by name stops after the function's prologue, and the
-debuggers place it differently: GDB 17.2 stops at the first statement, the store of `frame_index`;
-LLDB 22.1.8 stops after the stores, at the `if`. Step Over from there steps through the rest of
-the anchor before it returns to the loop.
+breakpoint on the function: `breakpoint set -n fillscope_request_anchor` in LLDB, `break
+fillscope_request_anchor` in GDB. A breakpoint by name stops after the function's prologue, and the
+debuggers place it differently: GDB 17.2 stops at the first statement, the store of
+`request_number` (line 88); LLDB 22.1.8 stops after the stores, at the `if` (line 91). Step Over
+from there steps through the rest of the anchor before it returns to the replay's loop.
 
-#### What keeps both working
-The anchor is shaped so that both ways stop in `anchor.cpp`, with `frame_index` readable, at every
-optimization level. That is why it stores to plain variables rather than an `std::atomic`, whose
-`store()` is inlined from a libstdc++ header: LLDB's breakpoint by name once stopped in
-`atomic_base.h`. These rules, and the tests that guard them, are in
-[DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md).
+### What keeps both working
+The anchor is shaped so that both ways stop in `lockstep_anchor.cpp`, with its arguments readable,
+at every optimization level:
+- It stores to plain variables rather than an `std::atomic`, whose `store()` is inlined from a
+  libstdc++ header even at -O0: LLDB's breakpoint by name once stopped in `atomic_base.h`.
+- `[[gnu::noinline]]` keeps it a function of its own, so the `int3` executes here and not inlined
+  into the replay's loop; stores no other function makes, which have a reader
+  (`lastAnchoredRequest`), keep GCC from merging it with another function or removing its body.
+
+These rules, and the tests that guard them (`replay_debugger_tests`, under GDB and LLDB, at -O0 and
+-O2), are in [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md).
 
 ## 7. One update, end to end
 1. A client's order crosses a resting sell at 101: the exchange's matcher partly fills the resting
@@ -392,13 +384,13 @@ end's own tests are in the fork. How tests are selected, tiered and run is in
   for example, the matcher's `price < ask` made `price <= ask`, so a buy no longer trades at the
   ask's price. For each, it rebuilds what the edit affects, runs the tests named for that mutant,
   and requires one of them to fail; a mutant that survives is a blind spot in the tests. Each of
-  the 150 is a rebuild and a test run, so the whole check takes about 15 minutes. A mutant names
+  the 131 is a rebuild and a test run, so the whole check takes about 15 minutes. A mutant names
   the tests expected to catch it, so a change to one test needs only the mutants that name it (the
   script runs a subset by mutant name; choosing them from what changed is a later improvement).
 - **The selection check** (`tests/scripts/selection_check.py`). Between edits, `iterate.py` runs
   only the test programs an edit affects, judged from what the build produced rather than a
   hand-kept list. If it judged wrongly, a test that should run wouldn't, and the tests would look
-  green over a break. So the check makes 26 known edits in a scratch copy and requires
+  green over a break. So the check makes 23 known edits in a scratch copy and requires
   `iterate.py` to choose exactly the right programs for each, no more and no fewer; each edit is a
   rebuild, about 4 minutes in all. It matters when the test machinery or the build's structure
   changes (a new test program, a new dependency).

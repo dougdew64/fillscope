@@ -6,13 +6,13 @@ procedure. **Read when:** building, running or changing it.
 ## Where things are
 | Path | What it holds |
 |---|---|
-| `backend/` | the trading system Fillscope observes: a git submodule, the `fillscope` branch of the fork of the system in Ghosh's book, pinned to one commit ([PLAN.md](PLAN.md)); its code is in `backend/Chapter12/`, and its programs are `exchange_main` and `trading_main` |
+| `backend/` | the trading system Fillscope observes: a git submodule, the `fillscope` branch of the fork of the system in Ghosh's book, pinned to one commit ([PLAN.md](PLAN.md)); its code is in `backend/Chapter12/`, and its programs are `exchange_main`, `trading_main` and `exchange_replay` |
 | `src/feed/` | the exchange's market data as Fillscope reads it: `market_update.h`, an update and its bytes; `feed_socket.h`, a listener on one of the exchange's multicast streams; `book.h`, one ticker's book; `book_builder.h`, every book kept in step with the market data, recovering from snapshots |
 | `src/viewer/` | `viewer_state.h`, the books and the ticker shown; `context.h`, what the user points at and follows and the context built from it; `context_publisher.h`, the file it is published to; `viewer_view.h`, what the viewer draws; `viewer_app.h`, its loop; `viewer_options.h`, its command line; `main.cpp`, the window |
-| `src/channel/`, `src/lockstep/`, `tools/frame_source/` | the stand-ins the debugger tests still use: a frame source that makes up frames, the socket it sends them on, and the debugger anchor it calls after each ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
+| `src/common/` | helpers the others share: `fd.h`, a file descriptor's owner; `parse.h`, strict parsing of a number from text |
 | `tools/vscode-debug-state/` | the VS Code extension that publishes the debugger's state ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `tools/attribution/` | `attribution.py`, which writes [ATTRIBUTION.md](ATTRIBUTION.md): per file, the owner's lines and the lines co-authored with Claude (`python3 -I tools/attribution/attribution.py`; `--check` checks the committed report). The back end keeps a copy, which writes its own report with upstream's lines too (`--upstream`; its `CLAUDE.md` gives the command) |
-| `tests/<area>/` | the tests of one area, mirroring `src/` and `tools/` (`tests/channel/` tests `src/channel/`), with the area's `CMakeLists.txt` |
+| `tests/<area>/` | the tests of one area, mirroring `src/` and `tools/` (`tests/feed/` tests `src/feed/`), with the area's `CMakeLists.txt` |
 | `tests/support/` | helpers shared by every area's tests |
 | `tests/scripts/` | the commands that run the tests and check them (below) |
 
@@ -60,9 +60,7 @@ none in the normal build is.
 
 **Tiers.** Every test program has one cost tier, set where its area's `CMakeLists.txt` registers it
 (`fillscope_gtest` or `fillscope_test_program`, defined in `tests/CMakeLists.txt`), which gives
-each of its tests a label and a timeout, so a test that grows slow fails as slow the day it does.
-A program that starts the frame source says so there (`USES_FRAME_SOURCE`), which gives it the
-frame source's path and makes the frame source one of its run-time files:
+each of its tests a label and a timeout, so a test that grows slow fails as slow the day it does:
 
 | Tier | Timeout per test | Run by |
 |---|---|---|
@@ -78,8 +76,9 @@ GoogleTest program are its tests' own names, such as `Publisher.AUserActionIsWri
 
 **The test programs.** Programs are named for the area they test; when an area's tests span tiers,
 the slower program adds the tier to its name.
-- **`channel_tests`, `lockstep_tests`, `frame_source_tests` (GoogleTest, `unit`):** the socket;
-  the anchor and the debugger check; the frame source (generation, the command line, a whole run).
+- **`common_tests` (GoogleTest, `unit`):** the shared helpers: `Fd` closes what it owns, once,
+  and a move leaves the source empty; `parse_number` reads a number only when the whole text is
+  one, in range.
 - **`lowlatency_tests` (GoogleTest, `system`, the whole program as one test):** the back end's own
   tests, in the fork (`backend/Chapter12/tests/`): the market data's layout on the wire, the
   matching (price-time priority, partial fills, sweeps, cancels), the incremental feed's sequence
@@ -96,11 +95,6 @@ the slower program adds the tier to its name.
   every stop is in the request anchor, in `lockstep_anchor.cpp`, at the right line, with the
   request's number and the updates published, and (through the LLDB driver, which is the viewer)
   with every update published through that request already arrived.
-- **`lockstep_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
-  installed):** the anchor under GDB and LLDB, driven through the frame source, by breakpoint and
-  by self-stop, at `-O0` and `-O2`; every stop is in the anchor, in `anchor.cpp`, at the right
-  line, with the right frame index, and (through the LLDB driver, which acts as the frame source's
-  receiver) after that frame was sent.
 - **`feed_tests` (GoogleTest, `unit`):** Fillscope's reading of the market data: decoding (the
   back end's own test bytes among others), a book, keeping the books in step and every way recovery
   starts and ends, each order's history, a replay's market data file, and receiving real multicast

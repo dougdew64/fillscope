@@ -1,10 +1,12 @@
-// The viewer: receives messages from a frame source, draws them with Dear ImGui, and publishes what
-// the user points at and follows for the assistant working beside it.
+// The viewer: rebuilds the exchange's order books from its multicast market data, or from a
+// replay's market data file, draws them with Dear ImGui, and publishes what the user points at and
+// follows for the assistant working beside it.
 //
-//   viewer [--exit-after SECONDS] [--socket NAME] [--context-file PATH]
+//   viewer [--exit-after SECONDS] [--incremental GROUP:PORT] [--snapshot GROUP:PORT] [--replay FILE]
+//          [--context-file PATH]
 //
-// It prints one line per second, "viewer: t=… paints=… frames=…", so a script can check that it
-// keeps painting while the frame source is stopped in a debugger, and a line on stderr whenever
+// It prints one line per second, "viewer: t=… paints=… updates=… books as of update …", so a script
+// can check that it keeps painting and taking in market data, and a line on stderr whenever
 // publishing the context starts failing or works again. Closing the window, --exit-after, SIGINT
 // and SIGTERM all end it the same way: the last context file says it is no longer running. It
 // exits 1 if that last write fails.

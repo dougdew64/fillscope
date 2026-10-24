@@ -1,126 +1,20 @@
-// Helpers shared by the tests: unique socket names, a listening receiver, child processes, shell
-// commands, and sending to a multicast group.
+// Helpers shared by the tests: shell commands, and sending to a multicast group.
 #pragma once
-
-#include "channel/net.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <spawn.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <array>
-#include <chrono>
-#include <mutex>
-#include <stop_token>
-#include <thread>
-#include <atomic>
-#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <vector>
-
-extern char** environ;
 
 namespace fillscope::test {
-
-// A socket name no other test, and no running viewer, is using.
-inline std::string unique_socket_name() {
-    static std::atomic<int> counter{0};
-    return "fillscope-test-" + std::to_string(::getpid()) + "-" + std::to_string(counter++);
-}
-
-// A receiver listening on `name`. Throws if it can't listen, which GoogleTest reports as the
-// test's failure, with the reason.
-inline MessageReceiver listen(std::string_view name) {
-    auto listener = listen_on(name);
-    if (!listener) {
-        throw std::runtime_error("can't listen on " + std::string{name} + ": " + listener.error().message());
-    }
-    return MessageReceiver{std::move(*listener)};
-}
-
-// A receiver drained on a thread of its own, every millisecond, for tests that run a frame source
-// and look at what arrived afterwards: a frame source waits until a drain accepts its connection,
-// so draining only afterwards would leave it waiting.
-class BackgroundReceiver {
-public:
-    explicit BackgroundReceiver(std::string_view name) : receiver_{listen(name)} {}
-    BackgroundReceiver(const BackgroundReceiver&) = delete;
-    BackgroundReceiver& operator=(const BackgroundReceiver&) = delete;
-
-    // Everything received so far.
-    [[nodiscard]] std::vector<Message> messages() const {
-        const std::scoped_lock lock{mutex_};
-        return messages_;
-    }
-
-private:
-    void run(const std::stop_token& stop) {
-        while (!stop.stop_requested()) {
-            {
-                const std::scoped_lock lock{mutex_};
-                receiver_.drain(messages_);
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds{1});
-        }
-    }
-
-    MessageReceiver receiver_;
-    mutable std::mutex mutex_;
-    std::vector<Message> messages_;
-    // Declared last, so it starts after everything it uses exists, and (as std::jthread asks its
-    // thread to stop and joins it in its destructor) stops before any of it is destroyed.
-    std::jthread thread_{[this](const std::stop_token& stop) { run(stop); }};
-};
-
-// A child process started with posix_spawn. The destructor waits for it, so none is left behind.
-class ChildProcess {
-public:
-    explicit ChildProcess(const std::vector<std::string>& argv) {
-        std::vector<char*> args;
-        for (const auto& arg : argv) {
-            args.push_back(const_cast<char*>(arg.c_str()));  // posix_spawn's C interface takes char*
-        }
-        args.push_back(nullptr);
-        started_ = ::posix_spawn(&pid_, args[0], nullptr, nullptr, args.data(), environ) == 0;
-        if (!started_) {
-            pid_ = -1;
-        }
-    }
-    ChildProcess(const ChildProcess&) = delete;
-    ChildProcess& operator=(const ChildProcess&) = delete;
-    ~ChildProcess() { (void)wait(); }
-
-    // Whether the process was started, whether or not it has been waited for since.
-    [[nodiscard]] bool started() const { return started_; }
-
-    // The exit status, or -1 if the process didn't exit normally or couldn't be waited for. Waits
-    // the first time; later calls return the same answer.
-    int wait() {
-        if (pid_ > 0) {
-            int status = 0;
-            pid_t waited = 0;
-            do {
-                waited = ::waitpid(pid_, &status, 0);
-            } while (waited < 0 && errno == EINTR);  // interrupted by a signal: wait again
-            exit_code_ = waited == pid_ && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-            pid_ = -1;
-        }
-        return exit_code_;
-    }
-
-private:
-    bool started_ = false;
-    pid_t pid_ = -1;
-    int exit_code_ = -1;
-};
 
 // `text` quoted for a POSIX shell: in single quotes, with each single quote inside written as '\''.
 inline std::string shell_quote(std::string_view text) {

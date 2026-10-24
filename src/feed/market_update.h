@@ -52,7 +52,7 @@ inline constexpr std::size_t kUpdateSize = 42;
 // whole updates of known types.
 [[nodiscard]] std::expected<std::vector<MarketUpdate>, std::string> decode_updates(std::span<const std::byte> datagram);
 
-// An update's bytes, as the exchange sends them: for tests, and for a stand-in exchange.
+// An update's bytes, as the exchange sends them, for tests.
 [[nodiscard]] std::array<std::byte, kUpdateSize> encode_update(const MarketUpdate& update) noexcept;
 
 }  // namespace fillscope

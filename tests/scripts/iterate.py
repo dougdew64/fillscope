@@ -14,9 +14,9 @@
 #   --record-all                        record every program as passed, as the files are now
 #   --check-registration                every CTest test belongs to a program in the manifest, and
 #                                       every program has a test
-#   --check-sanitizers yes|no           every program in the build (its manifest's, the frame
-#                                       source, the viewer and the back end's two) is linked with both sanitizers (yes), or
-#                                       with neither (no)
+#   --check-sanitizers yes|no           every program in the build (its manifest's, the viewer,
+#                                       and the back end's exchange, client and replay) is linked
+#                                       with both sanitizers (yes), or with neither (no)
 #
 # FILLSCOPE_ITERATE_BUILD and FILLSCOPE_ITERATE_STATE choose another build directory and pass
 # record; the other FILLSCOPE_ variables configure the tests, so they count in the fingerprint
@@ -305,8 +305,8 @@ def main(args):
         return 0
     if len(args) == 2 and args[0] == "--check-sanitizers" and args[1] in ("yes", "no"):
         binaries = [p.binary for p in programs() if p.binary is not None] + [
-            str(BUILD / "frame_source"), str(BUILD / "viewer"),
-            str(BUILD / "backend" / "Chapter12" / "exchange_main"), str(BUILD / "backend" / "Chapter12" / "trading_main")]
+            str(BUILD / "viewer"),
+            *(str(BUILD / "backend" / "Chapter12" / program) for program in ("exchange_main", "trading_main", "exchange_replay"))]
         problems = sanitizer_problems(binaries, args[1] == "yes", run_ldd)
         for problem in problems:
             print(f"PROBLEM: {problem}")

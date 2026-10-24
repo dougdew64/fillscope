@@ -51,33 +51,12 @@ if(FILLSCOPE_WERROR)
   list(APPEND FILLSCOPE_WARNINGS -Werror)
 endif()
 
-# src/channel: the messages a frame source sends the viewer, and the socket that carries them.
-add_library(fillscope_channel STATIC src/channel/message.cpp src/channel/net.cpp)
-target_include_directories(fillscope_channel PUBLIC src)
-target_compile_options(fillscope_channel PRIVATE ${FILLSCOPE_WARNINGS})
-
 # src/feed: the exchange's market data: decoding and receiving it, and the books it describes.
 add_library(fillscope_feed STATIC
   src/feed/market_update.cpp src/feed/book.cpp src/feed/book_builder.cpp src/feed/feed_socket.cpp
   src/feed/market_data_file.cpp)
 target_include_directories(fillscope_feed PUBLIC src)
-target_link_libraries(fillscope_feed PUBLIC fillscope_channel)
 target_compile_options(fillscope_feed PRIVATE ${FILLSCOPE_WARNINGS})
-
-# src/lockstep: the debugger anchor.
-add_library(fillscope_lockstep STATIC src/lockstep/anchor.cpp)
-target_include_directories(fillscope_lockstep PUBLIC src)
-target_compile_options(fillscope_lockstep PRIVATE ${FILLSCOPE_WARNINGS})
-
-# tools/frame_source: the stand-in that produces frames until real ones exist.
-add_library(frame_source_lib STATIC tools/frame_source/frame_source.cpp)
-target_include_directories(frame_source_lib PUBLIC tools/frame_source)
-target_link_libraries(frame_source_lib PUBLIC fillscope_channel fillscope_lockstep)
-target_compile_options(frame_source_lib PRIVATE ${FILLSCOPE_WARNINGS})
-
-add_executable(frame_source tools/frame_source/main.cpp)
-target_link_libraries(frame_source PRIVATE frame_source_lib)
-target_compile_options(frame_source PRIVATE ${FILLSCOPE_WARNINGS})
 
 # src/viewer: the Dear ImGui viewer.
 add_library(imgui_app STATIC ${IMGUI_SOURCES}

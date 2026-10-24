@@ -137,13 +137,13 @@ publishes from a thread of its own in the same process as the matcher; a debugge
 every thread, so when the matcher stops after request N, the publisher may not yet have sent N's
 updates, and the viewer would show the books before N: not lockstep.
 **Decided (the owner, 2026-10-23): lockstep on a replay.** `exchange_replay` is single-threaded, so
-it processes request N, sends N's updates to the viewer, then calls the anchor, as the frame source
-sends each frame and then calls the anchor; and a run is the same every time it is stepped.
+it processes request N, sends N's updates to the viewer, then calls the anchor, as the stand-in
+frame source sent each frame and then called its anchor; and a run is the same every time it is stepped.
 Rejected: lockstep live, the matcher waiting before each stop until the publisher has sent
 everything, which changes how the live system runs, and can't be repeated.
 **Done when:** stepping the matcher in VS Code, each Continue moves the viewer's book by exactly one
-request; the debugger tests check it under GDB and LLDB, as they do the frame source today.
-**Status:** built and tested, 2026-10-24: Fillscope `44382ac`, fork `8bfd544`; both CIs pass.
+request; the debugger tests check it under GDB and LLDB, as they did the frame source.
+**Status:** built and tested, 2026-10-23: Fillscope `44382ac`, fork `8bfd544`; both CIs pass.
 `exchange_replay --publish` sends each request's updates,
 then calls the back end's anchor (`fillscope_request_anchor`); `replay_debugger_tests` check, under
 GDB and LLDB, by breakpoint and self-stop, at `-O0` and `-O2`, that every stop is in the anchor with
@@ -157,7 +157,7 @@ line, not the debugger's report of the exit. **Left:** the owner stepping it in 
 The attribution report in the fork, with a third column for upstream lines, tested and checked as
 Fillscope's is.
 **Done when:** the fork publishes its report, and its check runs in its CI.
-**Status:** built and tested, CI pending. Fillscope's script gained `--upstream` (the commit forked
+**Status:** done, 2026-10-23: Fillscope `64e885b`, fork `5caa519`; both CIs pass. Fillscope's script gained `--upstream` (the commit forked
 from: its history's lines are upstream's) and `--report`; files unchanged since upstream are summed
 without blaming them, so the fork's 456 files take a fifth of a second. The fork keeps a copy
 (`tools/attribution/`), which `attribution_copy_check` keeps identical, and its report,
@@ -169,9 +169,12 @@ The frame source, its socket messages and the stand-in frames go once the viewer
 end; ARCHITECTURE.md, RUNNING.md and DEBUGGER-LOCKSTEP.md describe the new system.
 **Done when:** nothing in Fillscope refers to stand-in frames, and every document is true of the
 code.
-**Status:** partly done in step 4: the viewer no longer reads frames, and the documents describe the
-new system. Left: the frame source, the channel and the anchor, with their debugger tests; since step
-6, lockstep's debugger tests run on the replay, so these can go.
+**Status:** done, 2026-10-23. The viewer stopped reading frames in step 4; now the frame source,
+its socket (`src/channel/`), its anchor (`src/lockstep/`) and their tests are gone. What the rest
+still used moved to `src/common/`: `Fd`, with tests of its own, and the number parser's tests,
+which had been the frame source's (`common_tests`). The mutation check's mutants of the anchor, the
+driver and the tiers' timeouts now target the request anchor, the replay's driver and the common
+tests (131 mutants), and ARCHITECTURE.md §6 explains the request anchor.
 
 ### 9. A comprehensive tech-debt sweep
 Once steps 1 to 8 have landed (the owner, 2026-10-23): a sweep of Fillscope and the fork, finding

@@ -1,6 +1,6 @@
 #include "viewer/context_publisher.h"
 
-#include "channel/net.h"  // Fd: owns a file descriptor
+#include "common/fd.h"
 
 #include <fcntl.h>
 #include <unistd.h>

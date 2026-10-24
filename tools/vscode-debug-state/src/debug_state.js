@@ -632,7 +632,7 @@ function writeAtomically(file, state, io = fs) {
 
 /**
  * One line for the output channel about the latest write, e.g.
- * "#7 frame source: stopped at anchor.cpp:125 in fillscope_frame_anchor (3 frames, 2 locals)".
+ * "#7 replay (self-stop): stopped at lockstep_anchor.cpp:104 in fillscope_request_anchor (3 frames, 2 locals)".
  * @param {DebugStateFile} state
  */
 function summarize(state) {

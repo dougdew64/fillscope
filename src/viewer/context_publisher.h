@@ -22,8 +22,8 @@ namespace fillscope {
 [[nodiscard]] std::expected<void, std::string> write_atomically(const std::filesystem::path& file,
                                                                 std::string_view text);
 
-// Why a context is being published: the user did something, or something else changed (frames
-// arrived). An enum rather than a bool, so a call reads update(context, PublishTrigger::user_action,
+// Why a context is being published: the user did something, or something else changed (market
+// data arrived). An enum rather than a bool, so a call reads update(context, PublishTrigger::user_action,
 // now) instead of update(context, true, now), whose `true` says nothing at the call site.
 enum class PublishTrigger { user_action, background };
 

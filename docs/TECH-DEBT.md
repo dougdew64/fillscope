@@ -15,10 +15,11 @@ The back end's known issues (the fork of the book's trading system, `backend/`) 
 finds them, each with a test, and lists them there.
 
 ## Not tested, and why
-1. **The anchor's warning when `/proc/self/status` can't be read** has no test: a test can't make
-   that file unreadable to its own process without a container of its own.
-2. **The LLDB driver's guard against a runaway run** ("too many stops", after 1,000) never runs:
-   no test program stops that often.
+1. **The request anchor's warning when `/proc/self/status` can't be read** (the back end's
+   `lockstep_anchor.cpp`) has no test: a test can't make that file unreadable to its own process
+   without a container of its own.
+2. **The replay's LLDB driver's guard against a runaway run** (`tests/backend/replay_lldb_driver.py`,
+   after 1,000 stops) never runs: no test replays that many requests.
 
 ## Left in place deliberately
 3. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
