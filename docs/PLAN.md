@@ -194,8 +194,8 @@ that left during a recovery was said to have left by its last update seen; a rec
 the matcher can't process was replayed into undefined behaviour; the exchange's and the replay's
 command lines accepted values that overflowed or were misread; the mutation check counted a Node
 test name that matched nothing as having run. Each fix has a test, seen to fail first, and a mutant.
-Seven findings needed the owner's decision; the first, live requests the exchange can't process,
-was decided on 2026-10-24, and the rest are in TECH-DEBT.md. CI passes at chunk 3 (`4c3506d`)
+Seven findings needed the owner's decision; the first two, live requests the exchange can't process and
+a recording that can't be written, were decided on 2026-10-24, and the rest are in TECH-DEBT.md. CI passes at chunk 3 (`4c3506d`)
 and the fork's commit (`3a5cc6a`); chunks 1 and 2 failed CI on one mutant that chunk 1's publisher
 fix had made uncatchable as root, which chunk 3 fixed.
 
@@ -215,10 +215,9 @@ shortcut is shown not to skip a test the change affects.
 - **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,
   asking questions, whose answers go into [ARCHITECTURE.md](ARCHITECTURE.md), before the roadmap
   continues.
-- **The third sweep's decisions** ([TECH-DEBT.md](TECH-DEBT.md), items 5 to 10): a recording that
-  can't be written, full queues, market data leaving the
-  machine, CI's runs on main, separate test runs meeting on the network, and recording the passing
-  programs of a failed run. Each has its choices there.
+- **The third sweep's decisions** ([TECH-DEBT.md](TECH-DEBT.md), items 5 to 9): full queues,
+  market data leaving the machine, CI's runs on main, separate test runs meeting on the network,
+  and recording the passing programs of a failed run. Each has its choices there.
 - **Step 10's decisions:** it changes what a commit must pass, so the owner chooses which shortcuts
   to take.
 
