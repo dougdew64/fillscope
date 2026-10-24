@@ -38,6 +38,18 @@ viewer and VS Code write:
                                                                     your questions in the editor
 ```
 
+**Three programs, two roles.** The exchange and the trading client are the book's; the viewer is
+Fillscope's. The exchange is the market: its matcher keeps the order books, its order server
+takes orders over TCP, and its publisher multicasts every change to the books. The trading client
+is a trader: it sends orders and cancels and reads its fills, and it also reads the market data
+and keeps its own copy of the books, which its strategies trade on. Run as
+`trading_main 5 RANDOM`, it is client 5 sending random orders and cancels, which is what gives
+the exchange something to do. The viewer looks like a client, since it reads the same market data
+and rebuilds the same books, but it only watches. It never sends an order, and the exchange
+doesn't know it is there. Without a client, the exchange's books stay empty. Without the viewer,
+the market runs unseen. A replay (§3) needs no client: the recording plays back the requests the
+clients sent.
+
 **Why separate processes:** a debugger stop freezes the whole process it is debugging. With the
 viewer in its own process, it keeps painting while you step through the exchange, so the books on
 screen and the debugger stay in step ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)). The back end
