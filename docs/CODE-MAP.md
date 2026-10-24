@@ -59,7 +59,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The client's trade engine, and its strategies | `trading/strategy/trade_engine.*`, `trading/strategy/feature_engine.h`, `trading/strategy/liquidity_taker.*`, `trading/strategy/market_maker.*` | not yet | |
 | The client's copy of the books | `trading/strategy/market_order*` | not yet | |
 | The client's orders, risk and position | `trading/strategy/om_order.h`, `trading/strategy/order_manager.*`, `trading/strategy/risk_manager.*`, `trading/strategy/position_keeper.h` | not yet | |
-| The lock-free queue between threads | `common/lf_queue*` | not yet | |
+| The lock-free queue between threads | `common/lf_queue*` | §1, *How the exchange's threads hand each other work* | 2026-10-24: how it works, what happens when one is full, and what to do about it |
 | Memory pools | `common/mem_pool*`, `common/opt_mem_pool.h` | §1, *Why the first orders take about half a minute* (in part) | 2026-10-24: why starting takes seconds |
 | Logging | `common/logging*`, `common/opt_logging.h` | not yet | |
 | Sockets: TCP and multicast | `common/socket_*`, `common/mcast_socket.*`, `common/tcp_*` | §1, *Why the viewer listens to multicast* (in part) | |

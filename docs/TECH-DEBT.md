@@ -31,35 +31,32 @@ finds them, each with a test, and lists them there.
 
 ## Waiting on the owner's decision
 Each has a real trade-off; until decided, the code does what is described.
-5. **A full lock-free queue is overwritten** (the fork's README). *Choices:* stop the program when
-   a queue is full (an assertion; the run ends), or block the writer (changes the latency the book
-   measures), or keep overwriting.
-6. **Market data leaves the machine** (the fork's README). Keeping it on loopback means choosing the
+5. **Market data leaves the machine** (the fork's README). Keeping it on loopback means choosing the
    interface in the publisher and every listener, and turning multicast on for the loopback
    interface, which needs root.
-7. **CI on main can skip a commit:** of three pushes while a run is going, the middle one gets no
+6. **CI on main can skip a commit:** of three pushes while a run is going, the middle one gets no
    result of its own (`ci.yml` says why). *Choice:* a concurrency group per commit gives each its
    own run, in parallel, using more runner time.
-8. **Separate runs of the tests can meet on the network.** CTest's lock keeps the tests that start
-    an exchange apart within one run, but the mutation and selection checks, a second `run-tests.sh`
-    and a lockstep session in VS Code run separately, and the groups and ports are fixed, so their
-    datagrams can reach each other; `feed_system_tests` and `backend_system_tests` now fail at once
-    if an exchange is already running. *Choice:* a lock for the whole machine, taken by every
-    network test, which would serialize the checks that run in parallel today.
-9. **A run with a failing test records no program as passed,** so the next run repeats the ones
-    that passed too. *Choice:* record those that passed (reading each program's result from
-    CTest's output), which is fewer re-runs for more logic to get right.
+7. **Separate runs of the tests can meet on the network.** CTest's lock keeps the tests that start
+   an exchange apart within one run, but the mutation and selection checks, a second `run-tests.sh`
+   and a lockstep session in VS Code run separately, and the groups and ports are fixed, so their
+   datagrams can reach each other; `feed_system_tests` and `backend_system_tests` now fail at once
+   if an exchange is already running. *Choice:* a lock for the whole machine, taken by every
+   network test, which would serialize the checks that run in parallel today.
+8. **A run with a failing test records no program as passed,** so the next run repeats the ones
+   that passed too. *Choice:* record those that passed (reading each program's result from
+   CTest's output), which is fewer re-runs for more logic to get right.
 
 ## Left in place deliberately
-10. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
+9. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
    GDB and LLDB use here, that is the whole truth. In non-stop debugging, another thread can still
    be stopped after the published one resumes. *Fix, if non-stop debugging is ever used:* publish
    stops per thread.
-11. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
-   file names its writer's process id, and the documents say to use one window.
-12. **A writer that crashes, or is killed with SIGKILL, leaves its file saying "running".** The
-   viewer handles SIGINT and SIGTERM, and the extension marks its last write; for the rest, both
-   files name their writer's process id and start time, and a reader that must be sure checks
-   that the process is alive.
-13. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
-   so each run records the toolchain's versions instead.
+10. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
+    file names its writer's process id, and the documents say to use one window.
+11. **A writer that crashes, or is killed with SIGKILL, leaves its file saying "running".** The
+    viewer handles SIGINT and SIGTERM, and the extension marks its last write; for the rest, both
+    files name their writer's process id and start time, and a reader that must be sure checks
+    that the process is alive.
+12. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
+    so each run records the toolchain's versions instead.

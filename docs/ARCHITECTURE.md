@@ -54,6 +54,21 @@ doesn't know it is there. Without a client, the exchange's books stay empty. Wit
 the market runs unseen. A replay (§3) needs no client: the recording plays back the requests the
 clients sent.
 
+**How the exchange's threads hand each other work.** Each part of the exchange runs on a thread of
+its own: the order server reads the clients' requests, the matcher processes them, and the
+publisher sends the market data. Between each pair is a queue (`common/lf_queue.h`): a ring of
+262,144 slots, allocated at start, with one thread writing and one reading. The writer fills the
+next slot and moves on, the reader takes the oldest and moves on, and all they share is an atomic
+count of the slots in use, so neither ever waits on a lock; that is what *lock-free* means here.
+A ring has a fixed number of slots, so a reader a whole ring behind leaves the writer nowhere to
+write. The book's queue wrote anyway, over the oldest message not yet read, and nothing noticed:
+the publisher numbers updates as it sends them, so an overwritten update leaves no gap in the
+sequence numbers, and every listener's books would have gone wrong silently. The fork's queue
+stops the program instead ("LFQueue full"), for one comparison per write. Making the writer wait
+for room was the other choice: it changes the latency the book measures, and it can hang, since a
+matcher waiting for room in a full queue of responses, while the order server, the only reader of
+that queue, waits for room in a full queue of requests, waits forever.
+
 **Why the first orders take about half a minute.** The back end's own code is slow to start, in
 two ways. In a run of the debug build started from VS Code (its logs' times):
 
