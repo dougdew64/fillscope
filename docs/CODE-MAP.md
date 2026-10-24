@@ -48,7 +48,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 |---|---|---|---|
 | The exchange program | `exchange/exchange_main.cpp` | §1, *Three programs*, *Why the first orders take about half a minute* (in part) | 2026-10-24: what the exchange is; why the first orders take so long to appear; how to stop it |
 | The matching engine: its thread and queues | `exchange/matcher/matching_engine.*` | §3, *What a replay is* (in part) | |
-| The exchange's order books, and matching | `exchange/matcher/me_order*`, `exchange/matcher/price_level_table.h`, `exchange/matcher/unordered_map_me_order_book.*` | not yet | |
+| The exchange's order books, and matching | `exchange/matcher/me_order*`, `exchange/matcher/price_level_table.h`, `exchange/matcher/unordered_map_me_order_book.*` | not yet; the fork's fixes to its two tables in the back end's README ([backend/README.md](../backend/README.md)) | 2026-10-24: why a table left uninitialized went unnoticed until the sanitizer build (commit `f9633eb`) |
 | The order server: orders over TCP, in arrival order | `exchange/order_server/` | not yet | |
 | The market data publisher and the snapshot synthesizer | `exchange/market_data/` | §3, *Two streams* (in part) | 2026-10-24: whether the exchange sends whole books or only changes |
 | Recording and replaying requests | `exchange/matcher/request_recording.*`, `exchange/matcher/replay.*`, `exchange/exchange_replay.cpp` | §3, *What a replay is*, *Replaying* | |
