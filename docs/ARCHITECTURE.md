@@ -461,20 +461,42 @@ test gets its ports, is in [RUNNING.md](RUNNING.md).
   the check plants deliberate bugs ("mutants"), one at a time, in a scratch copy of the repository:
   for example, the matcher's `price < ask` made `price <= ask`, so a buy no longer trades at the
   ask's price. For each, it rebuilds what the edit affects, runs the tests named for that mutant,
-  and requires one of them to fail; a mutant that survives is a blind spot in the tests. Each of
-  them is a rebuild and a test run, so the whole check takes the longest of all (how long:
-  [RUNNING.md](RUNNING.md)). A mutant names the tests expected to catch it, so a change to one
-  test needs only the mutants that name it (the script runs a subset by mutant name; choosing them
-  from what changed is a later improvement).
+  and requires one of them to fail; a mutant that survives is a blind spot in the tests. A mutant
+  names the tests expected to catch it, so a change to one test needs only the mutants that name
+  it (the script runs a subset by mutant name).
 - **The selection check** (`tests/scripts/selection_check.py`). Between edits, `iterate.py` runs
   only the test programs an edit affects, judged from what the build produced rather than a
   hand-kept list. If it judged wrongly, a test that should run wouldn't, and the tests would look
-  green over a break. So the check makes 24 known edits in a scratch copy and requires
+  green over a break. So the check makes 25 known edits in a scratch copy and requires
   `iterate.py` to choose exactly the right programs for each, no more and no fewer; each edit is a
   rebuild. It matters when the test machinery or the build's structure
   changes (a new test program, a new dependency).
 
 CI runs both on every push to main and every pull request.
+
+**Why a mutation check, and what it costs.** Most of Fillscope's tests are written by an AI, and
+the charter trusts AI output only through a check that doesn't depend on the AI
+([AI-USE.md](AI-USE.md)). Review by the same AI doesn't answer whether a test can fail: the blind
+spot that wrote a test reads it as right. A mutant answers it mechanically. It has earned its
+place: mutants showed that several tests written on 2026-10-19 didn't test what they claimed, and
+both of CI's failures in its first 65 runs were mutants the tests didn't catch.
+
+These mutants aren't the thousands a mutation-testing tool generates. Each is written by hand
+for one claim a test makes, paired with the bug the test says it guards against: "a full queue
+stops the program" with "a full queue is overwritten". So there are about two hundred, and each
+is worth running. Even so the check costs the most of anything here, since every mutant is a
+rebuild and a test run: 39 minutes for 181 (2026-10-24, [RUNNING.md](RUNNING.md)). The cost is
+lopsided. Fillscope's own 128 mutants take under a minute of test time between them; most of the
+rest is the back end's tests, which mostly wait (the book's code sleeps after starting each thread,
+and its client waits ten seconds before trading) rather than compute.
+
+The cost grows with the mutants and with the time their tests take, both of which grow with the
+code, so a very large codebase can't run every mutant on every change. The practice published for
+that scale is incremental: mutate only the lines a change touches, and show the reviewer the
+mutants that survive (Petrović and Ivanković, "State of Mutation Testing at Google", ICSE SEIP
+2018). Step 10 of the [plan](PLAN.md) works on the check's cost here. Nobody needs to wait for it
+meanwhile: locally, the mutants for what changed take seconds to minutes, and the full check runs
+in CI, after a push, while work goes on.
 
 ## 10. A reading order for the code
 1. `src/feed/market_update.h`: what the exchange sends.
