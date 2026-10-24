@@ -19,7 +19,8 @@ fillscope_test_program(backend_system_tests system
           $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>
   RUNTIME_DEPS ${CMAKE_CURRENT_SOURCE_DIR}/backend_system_test.py $<TARGET_FILE:exchange_main>
                $<TARGET_FILE:trading_main> ${Python3_EXECUTABLE})
-# It runs an exchange, whose ports are fixed in its code: one test at a time may (feed_system_tests too).
+# It runs an exchange and a client, on ports of its own; the exchange alone takes about 2 GB of
+# memory, so one test at a time may (feed_system_tests too).
 set_tests_properties(backend_system_tests PROPERTIES RESOURCE_LOCK exchange)
 
 # Debugger lockstep with the matcher, on a replay (replay_debugger_test.cpp): exchange_replay under GDB

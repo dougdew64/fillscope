@@ -55,6 +55,12 @@ REQUEST_ANCHOR = "backend/Chapter12/exchange/matcher/lockstep_anchor.cpp"
 LF_QUEUE = "backend/Chapter12/common/lf_queue.h"
 MACROS = "backend/Chapter12/common/macros.h"
 SOCKET_UTILS = "backend/Chapter12/common/socket_utils.h"
+ENDPOINTS = "backend/Chapter12/common/endpoints.h"
+EXCHANGE_MAIN_SOURCE = "backend/Chapter12/exchange/exchange_main.cpp"
+TRADING_MAIN_SOURCE = "backend/Chapter12/trading/trading_main.cpp"
+TEST_SUPPORT = "tests/support/test_support.h"
+FORK_TEST_SUPPORT = "backend/Chapter12/tests/test_support.cpp"
+BACKEND_SYSTEM_TEST = "tests/backend/backend_system_test.py"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -338,6 +344,25 @@ MUTANTS = [
      [("        case Exchange::ClientResponseType::REJECTED: {\n          order->order_state_ = OMOrderState::DEAD;\n",
        "        case Exchange::ClientResponseType::REJECTED: {\n")],
      "lowlatency_tests"),
+    ("a test claims its slot without locking it", TEST_SUPPORT,
+     [("if (fd >= 0 && ::flock(fd, LOCK_EX | LOCK_NB) == 0) {", "if (fd >= 0) {")],
+     "TestPort.ThisProcessHoldsItsSlot"),
+    ("a back-end test claims its slot without locking it", FORK_TEST_SUPPORT,
+     [("if (fd >= 0 && ::flock(fd, LOCK_EX | LOCK_NB) == 0) {", "if (fd >= 0) {")],
+     "lowlatency_tests"),
+    ("the system test claims its slot without locking it", BACKEND_SYSTEM_TEST,
+     [("            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n            return slot",
+       "            return slot")],
+     "backend_system_tests"),
+    ("a stream's group need not be multicast", ENDPOINTS,
+     [(" || !IN_MULTICAST(ntohl(address.s_addr))", "")],
+     "lowlatency_tests"),
+    ("the exchange publishes its updates on the book's port whatever it is given", EXCHANGE_MAIN_SOURCE,
+     [("inc_pub_port = endpoints.incremental.port;", "inc_pub_port = 20001;")],
+     "backend_system_tests|feed_system_tests"),
+    ("the client looks for the exchange on the book's port whatever it is given", TRADING_MAIN_SOURCE,
+     [("const int order_gw_port = endpoints.order_port;", "const int order_gw_port = 12345;")],
+     "backend_system_tests"),
     ("the exchange's multicast leaves on the default interface", SOCKET_UTILS,
      [("if (socket_cfg.is_udp_ && !socket_cfg.is_listening_) {", "if (false) {")],
      "lowlatency_tests|backend_system_tests"),

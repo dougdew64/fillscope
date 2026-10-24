@@ -69,7 +69,20 @@ each of its tests a label and a timeout, so a test that grows slow fails as slow
 | `ui` | 10 s (the whole program) | `iterate.py`, `run-tests.sh` |
 | `check` | 30 s (a whole run of a checker or a test runner: the type check, the extension's Node tests) | `iterate.py`, `run-tests.sh` |
 | `debugger` | 30 s | `run-tests.sh` |
-| `system` | 120 s (the back end: its tests, and its programs running together; a test that runs the exchange holds a CTest lock, since its ports are fixed) | `run-tests.sh` |
+| `system` | 120 s (the back end: its tests, and its programs running together; a test that runs the exchange holds a CTest lock, since the exchange alone takes about 2 GB of memory) | `run-tests.sh` |
+
+**Ports of their own.** Every test that uses the network does so on ports of its own process, so
+tests running at once never meet: tests in parallel, two runs of the tests (a run and the mutation
+check, say), or a run and a lockstep session in VS Code, which uses the book's ports. A process
+claims a numbered slot, 0 to 999, by locking the first file `slot-N` in `fillscope-test-ports`, in
+the temporary directory, that no other process holds, and keeps it until it exits (the kernel
+releases the lock even if it crashes). Slot N has ports 22000 + 10 N to 22000 + 10 N + 9, clear of
+the book's (12345, 20000 and 20001) and below the range Linux hands out by itself (from 32768).
+The rule has three copies: `test_port()` in `tests/support/test_support.h`, `testPort()` in the
+back end's `tests/test_support.h`, and `claim_slot()` in `tests/backend/backend_system_test.py`;
+each has a test that its process holds its slot. The exchange and the trading client take
+`--order-port PORT`, `--snapshot GROUP:PORT` and `--incremental GROUP:PORT` for the tests to move
+them; without them, they use the book's.
 
 Every passing run prints its five slowest tests. To run one program's tests by hand, select it by
 its label: `ctest --test-dir build/debug -L exe:viewer_tests`. (`-R` matches test names, which in a
@@ -95,8 +108,11 @@ the slower program adds the tier to its name.
   and a random-trading client run together for about half a minute, and the test, joined to the
   exchange's incremental market data feed on the loopback interface, sees orders added and every
   update arrive in sequence, and none of it on the default interface, which leads off the machine
-  (that check is left out on a machine with no network); and an order past the order ids, sent to the exchange directly, is rejected and left out of the
-  recording, and the exchange runs on and accepts the next. The exchange's ports are fixed in its code, so it fails at once if another exchange is running.
+  (that check is left out on a machine with no network); updates sent on the book's own stream
+  meanwhile, as a replay stepped in VS Code would send them, never reach it; an order past the
+  order ids, sent to the exchange directly, is rejected and left out of the recording, and the
+  exchange runs on and accepts the next; and the exchange refuses bad options, its new ones
+  (`--order-port`, `--snapshot`, `--incremental`) among them.
 - **`replay_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** lockstep on a replay: `exchange_replay`, publishing a three-request recording on a
   group of the test's own, under GDB and LLDB, by breakpoint and by self-stop, at `-O0` and `-O2`;
@@ -112,6 +128,7 @@ the slower program adds the tier to its name.
   books built from updates 1 to S equal each of the exchange's snapshots as of S, a reader that
   joins late recovers and ends with the same books, and the exchange's recording of the run,
   replayed by `exchange_replay`, gives every update that arrived, byte for byte. About half a minute.
+  The exchange and the client run on the test's own ports.
 - **`viewer_tests` (GoogleTest, `unit`):** the viewer's core without Dear ImGui: the selection, the
   context built from the books and the selection (an order's place in its queue, a level's orders,
   a followed order's events and gaps), its JSON and bar text, publishing (including failure and

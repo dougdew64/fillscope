@@ -449,7 +449,11 @@ updates that arrived. The viewer's core has unit tests that need no window (`vie
 tests run the whole loop above with real clicks through the Dear ImGui Test Engine, with no window
 or GPU, including reading real multicast streams and moving through a replay (`viewer_ui_tests`).
 Lockstep on a replay is tested under GDB and LLDB (`replay_debugger_tests`). The back end's own
-tests are in the fork. How tests are selected, tiered and run is in [RUNNING.md](RUNNING.md).
+tests are in the fork. A test that uses the network does so on ports of its own, so it can run
+while you step through a replay in VS Code, or while another run of the tests goes on: a market
+data stream is only a group and a port, and a test that listened on the book's own once passed on
+a replay's updates instead of its exchange's. How tests are selected, tiered and run, and how a
+test gets its ports, is in [RUNNING.md](RUNNING.md).
 
 **How the tests are checked.** Two checks ask whether the tests themselves can be trusted:
 - **The mutation check** (`tests/scripts/mutants.py`). A test can pass while testing nothing: an

@@ -448,7 +448,7 @@ std::vector<MarketUpdate> receive(FeedSocket& socket, std::size_t count, std::op
 
 // Test-only groups and ports, one per test (tests run in parallel), none the exchange's.
 TEST(FeedSocket, ReceivesWhatIsSentToItsGroup) {
-    const Stream stream{"233.252.16.1", 22001};
+    const Stream stream{"233.252.16.1", test::test_port(0)};
     auto socket = FeedSocket::join(stream);
     ASSERT_TRUE(socket) << socket.error().message();
     const MarketUpdate update = add(1, 1, Side::buy, 100, 5, 1);
@@ -459,7 +459,7 @@ TEST(FeedSocket, ReceivesWhatIsSentToItsGroup) {
 }
 
 TEST(FeedSocket, IgnoresAnotherGroupOnTheSamePort) {
-    const Stream mine{"233.252.16.2", 22002}, other{"233.252.16.3", 22002};
+    const Stream mine{"233.252.16.2", test::test_port(1)}, other{"233.252.16.3", test::test_port(1)};
     auto socket = FeedSocket::join(mine);
     ASSERT_TRUE(socket) << socket.error().message();
     auto other_socket = FeedSocket::join(other);  // joined on this machine, so the kernel delivers it
@@ -472,7 +472,7 @@ TEST(FeedSocket, IgnoresAnotherGroupOnTheSamePort) {
 }
 
 TEST(FeedSocket, SaysWhyADatagramCouldntBeDecodedAndGoesOn) {
-    const Stream stream{"233.252.16.4", 22004};
+    const Stream stream{"233.252.16.4", test::test_port(2)};
     auto socket = FeedSocket::join(stream);
     ASSERT_TRUE(socket) << socket.error().message();
     const auto bytes = encode_update(add(1, 1, Side::buy, 100, 5, 1));
@@ -486,7 +486,22 @@ TEST(FeedSocket, SaysWhyADatagramCouldntBeDecodedAndGoesOn) {
 }
 
 TEST(FeedSocket, RefusesAGroupThatIsntAnAddress) {
-    EXPECT_FALSE(FeedSocket::join(Stream{"not an address", 22005}));
+    EXPECT_FALSE(FeedSocket::join(Stream{"not an address", test::test_port(3)}));
+}
+
+// The tests' ports (test_support.h): this process holds its slot's file locked, so no other process
+// can claim the slot while it runs. A second lock on the file, from another open of it, is refused.
+TEST(TestPort, ThisProcessHoldsItsSlot) {
+    const int port = test::test_port(0);
+    ASSERT_EQ((port - 22000) % 10, 0);
+    const int slot = (port - 22000) / 10;
+    ASSERT_GE(slot, 0);
+    ASSERT_LT(slot, 1000);
+    const auto path = std::filesystem::temp_directory_path() / "fillscope-test-ports" / ("slot-" + std::to_string(slot));
+    const int fd = ::open(path.c_str(), O_RDWR | O_CLOEXEC);
+    ASSERT_GE(fd, 0) << path;
+    EXPECT_NE(::flock(fd, LOCK_EX | LOCK_NB), 0) << "slot " << slot << " could be claimed again";
+    ::close(fd);
 }
 
 }  // namespace

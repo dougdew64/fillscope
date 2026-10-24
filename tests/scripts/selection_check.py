@@ -50,7 +50,7 @@ CASES = [
     ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"}),
     # The books: Fillscope's reading of the market data, which the viewer and the system test link.
     ("src/feed/book_builder.cpp", CPP_PROBE, {"feed_tests", "feed_system_tests", "viewer_tests", "viewer_ui_tests"}),
-    ("tests/support/test_support.h", CPP_PROBE, {"feed_tests", "viewer_ui_tests", "replay_debugger_tests"}),
+    ("tests/support/test_support.h", CPP_PROBE, {"feed_tests", "feed_system_tests", "viewer_ui_tests", "replay_debugger_tests"}),
     ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
     ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
     ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
@@ -63,9 +63,11 @@ CASES = [
     ("tools/vscode-debug-state/tsconfig.json", JS_PROBE, EXTENSION),
     ("tools/attribution/attribution.py", TEXT_PROBE, ATTRIBUTION),
     ("tools/code_map/code_map.py", TEXT_PROBE, CODE_MAP),
-    # The back end: its own tests link it, and the system test starts its programs.
+    # The back end: its own tests link it (the allocation tests through their shared support, which
+    # makes a matching engine), and the system test starts its programs.
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
-     {"backend_system_tests", "lowlatency_tests", "feed_system_tests", "replay_debugger_tests"}),
+     {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",
+      "replay_debugger_tests"}),
     # The allocation tests are a program of their own, so a change to them affects only it.
     ("backend/Chapter12/tests/allocation_test.cpp", CPP_PROBE, {"lowlatency_allocation_tests"}),
     ("CMakeLists.txt", TEXT_PROBE, ALL),

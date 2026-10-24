@@ -1,8 +1,11 @@
-// Helpers shared by the tests: shell commands, and sending to a multicast group.
+// Helpers shared by the tests: shell commands, ports of a test's own, and sending to a multicast
+// group.
 #pragma once
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -11,8 +14,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace fillscope::test {
 
@@ -48,6 +54,31 @@ inline CommandResult run_command(const std::string& command) {
 
 inline bool command_exists(const std::string& name) {
     return run_command("command -v " + shell_quote(name)).status == 0;
+}
+
+// A port of this process's own, `index` from 0 to 9, for a test's multicast or TCP, by the rule in
+// RUNNING.md (*Ports of their own*): the process claims a numbered slot, 0 to 999, by locking a file
+// of that number in fillscope-test-ports in the temporary directory, and holds it until it exits;
+// slot N has ports 22000 + 10 N to 22000 + 10 N + 9.
+inline std::uint16_t test_port(int index) {
+    static const int slot = [] {
+        const auto directory = std::filesystem::temp_directory_path() / "fillscope-test-ports";
+        std::error_code ignored;
+        std::filesystem::create_directories(directory, ignored);
+        for (int candidate = 0; candidate < 1000; ++candidate) {
+            const auto path = directory / ("slot-" + std::to_string(candidate));
+            const int fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666);
+            if (fd >= 0 && ::flock(fd, LOCK_EX | LOCK_NB) == 0) {
+                return candidate;  // the descriptor stays open, and the lock held, until the process exits
+            }
+            if (fd >= 0) {
+                ::close(fd);
+            }
+        }
+        std::fprintf(stderr, "test_port: every slot in %s is taken\n", directory.c_str());
+        std::abort();
+    }();
+    return static_cast<std::uint16_t>(22000 + 10 * slot + index);
 }
 
 // Sends one datagram to a multicast group as the exchange does: on the loopback interface. Returns

@@ -456,7 +456,8 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
     // feed it joins while running recovers from a snapshot, and a datagram it can't decode is reported.
     viewer_test(engine, "reads_both_market_data_streams", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
-        const fillscope::Stream incremental{"233.252.17.1", 23001}, snapshot{"233.252.17.2", 23002};
+        const fillscope::Stream incremental{"233.252.17.1", fillscope::test::test_port(0)},
+            snapshot{"233.252.17.2", fillscope::test::test_port(1)};
         auto joined_incremental = fillscope::FeedSocket::join(incremental);
         auto joined_snapshot = fillscope::FeedSocket::join(snapshot);
         IM_CHECK(joined_incremental.has_value() && joined_snapshot.has_value());

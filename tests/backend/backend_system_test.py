@@ -5,11 +5,13 @@
 #
 #   python3 -I tests/backend/backend_system_test.py EXCHANGE_MAIN TRADING_MAIN
 #
-# The exchange's addresses are fixed in its code (exchange_main.cpp): orders over TCP on port 12345,
-# incremental updates on UDP multicast 233.252.14.3:20001, sent on the loopback interface, so they
-# never leave the machine. So only one exchange can run on the machine at a time, and the test says so
-# if another is running.
+# The exchange takes orders over TCP and sends its market data by UDP multicast, on the loopback
+# interface. By default on the book's ports (12345, and 233.252.14.3:20001 for the incremental
+# updates); this test gives it and its client ports of the test's own, by the rule in RUNNING.md
+# (*Ports of their own*), so nothing else on the machine using the book's ports (a replay stepped in
+# VS Code, another run of the tests) reaches it, which once let it pass on a replay's market data.
 import contextlib
+import fcntl
 import os
 import signal
 import socket
@@ -17,16 +19,42 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
-ORDER_PORT = 12345
-INCREMENTAL_GROUP, INCREMENTAL_PORT = "233.252.14.3", 20001
+
+
+def claim_slot():
+    """The slot this process holds, 0 to 999, by RUNNING.md's rule: the first of the files
+    fillscope-test-ports/slot-N in the temporary directory it can lock, held until it exits."""
+    directory = os.path.join(tempfile.gettempdir(), "fillscope-test-ports")
+    os.makedirs(directory, exist_ok=True)
+    for slot in range(1000):
+        fd = os.open(os.path.join(directory, f"slot-{slot}"), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o666)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return slot  # the descriptor stays open, and the lock held, until the process exits
+        except BlockingIOError:
+            os.close(fd)
+    raise RuntimeError(f"every slot in {directory} is taken")
+
+
+SLOT = claim_slot()
+ORDER_PORT = 22000 + 10 * SLOT
+INCREMENTAL_GROUP, INCREMENTAL_PORT = "233.252.14.3", 22000 + 10 * SLOT + 1
+SNAPSHOT_GROUP, SNAPSHOT_PORT = "233.252.14.1", 22000 + 10 * SLOT + 2
+# For the exchange and the client both.
+ENDPOINTS = ["--order-port", str(ORDER_PORT), "--incremental", f"{INCREMENTAL_GROUP}:{INCREMENTAL_PORT}",
+             "--snapshot", f"{SNAPSHOT_GROUP}:{SNAPSHOT_PORT}"]
+# The book's own incremental stream, where a replay stepped in VS Code publishes.
+BOOK_INCREMENTAL = ("233.252.14.3", 20001)
 # MDPMarketUpdate, packed (market_update.h): seq_num_ (size_t), then MEMarketUpdate: type_ (uint8),
 # order_id_ (uint64), ticker_id_ (uint32), side_ (int8), price_ (int64), qty_ (uint32),
 # priority_ (uint64). Little-endian, no padding.
 UPDATE = struct.Struct("<QBQIbqIQ")
 ADD, CANCEL, TRADE = 2, 4, 5
+IMPOSTOR_PRICE = 987654321  # BookStreamSender's; the client's prices are a few hundred
 MAX_TICKERS = 8  # ME_MAX_TICKERS, types.h
 MAX_ORDER_IDS = 1024 * 1024  # ME_MAX_ORDER_IDS, types.h
 # On the order port (client_request.h, client_response.h), packed, little-endian: a request is its
@@ -82,6 +110,33 @@ def default_interface_feed():
         return contextlib.nullcontext()
 
 
+class BookStreamSender:
+    """Sends updates on the book's own incremental stream, on the loopback interface, every 5 ms, as
+    a replay stepped in VS Code would, numbered from 1 like a real feed; each has the price
+    IMPOSTOR_PRICE, which no order of the client's has. A `with` starts and stops it."""
+
+    def __init__(self):
+        self.stop = threading.Event()
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton("127.0.0.1"))
+        self.thread = threading.Thread(target=self.send)
+
+    def send(self):
+        seq = 0
+        while not self.stop.wait(0.005):
+            seq += 1
+            self.socket.sendto(UPDATE.pack(seq, ADD, seq, 0, 1, IMPOSTOR_PRICE, 1, seq), BOOK_INCREMENTAL)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_):
+        self.stop.set()
+        self.thread.join()
+        self.socket.close()
+
+
 def decode(datagram):
     """The updates in one datagram: the publisher may send several in one."""
     if len(datagram) % UPDATE.size != 0:
@@ -106,6 +161,19 @@ class Process:
         self.process.wait()
 
 
+class SlotTest(unittest.TestCase):
+    def test_this_process_holds_its_slot(self):
+        """No other process can claim this one's slot while it runs: a second lock on the slot's file,
+        from another open of it, is refused."""
+        path = os.path.join(tempfile.gettempdir(), "fillscope-test-ports", f"slot-{SLOT}")
+        fd = os.open(path, os.O_RDWR | os.O_CLOEXEC)
+        try:
+            with self.assertRaises(BlockingIOError, msg=f"slot {SLOT} could be claimed again"):
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+
+
 class ExchangeCommandLineTest(unittest.TestCase):
     def test_a_bad_command_line_is_refused_and_leaves_the_recording_as_it_was(self):
         """Refused before anything starts, so these need no exchange to be stopped. Each interval was
@@ -117,7 +185,10 @@ class ExchangeCommandLineTest(unittest.TestCase):
             for args in (["--snapshot-interval-seconds", "inf"], ["--snapshot-interval-seconds", "1e10"],
                          ["--snapshot-interval-seconds", "1e-12"], ["--snapshot-interval-seconds", "nan"],
                          ["--snapshot-interval-seconds", "x"], ["--record", recording, "--bogus", "x"],
-                         ["--record", recording, "--snapshot-interval-seconds"]):
+                         ["--record", recording, "--snapshot-interval-seconds"],
+                         ["--record", recording, "--order-port", "0"], ["--record", recording, "--order-port", "65536"],
+                         ["--record", recording, "--incremental", "10.0.0.1:22001"],
+                         ["--record", recording, "--snapshot", "233.252.14.1"], ["--record", recording, "--snapshot"]):
                 result = subprocess.run([EXCHANGE, *args], cwd=directory, capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 2, args)
                 self.assertIn("usage: exchange_main", result.stderr, args)
@@ -127,8 +198,8 @@ class ExchangeCommandLineTest(unittest.TestCase):
 
 def start_exchange(test, args, directory):
     """The exchange, started in `directory`, once its order port is open."""
-    test.assertFalse(order_port_open(), f"something is already listening on port {ORDER_PORT}: is an exchange running?")
-    exchange = Process([EXCHANGE, *args], directory)
+    test.assertFalse(order_port_open(), f"something is already listening on this test's order port, {ORDER_PORT}")
+    exchange = Process([EXCHANGE, *args, *ENDPOINTS], directory)
     deadline = time.monotonic() + EXCHANGE_LIMIT
     while not order_port_open():
         if not exchange.running() or time.monotonic() > deadline:
@@ -177,10 +248,10 @@ class ExchangeRefusesWhatItCantProcessTest(unittest.TestCase):
 
 class ExchangeAndClientTest(unittest.TestCase):
     def test_a_clients_orders_reach_the_exchange_and_its_market_data_leaves_it(self):
-        self.assertFalse(order_port_open(), f"something is already listening on port {ORDER_PORT}: is an exchange running?")
+        self.assertFalse(order_port_open(), f"something is already listening on this test's order port, {ORDER_PORT}")
         with tempfile.TemporaryDirectory() as directory, incremental_feed() as feed, \
-                default_interface_feed() as elsewhere:
-            exchange = Process([EXCHANGE], directory)
+                default_interface_feed() as elsewhere, BookStreamSender():
+            exchange = Process([EXCHANGE, *ENDPOINTS], directory)
             client = None
             try:
                 deadline = time.monotonic() + EXCHANGE_LIMIT
@@ -188,7 +259,7 @@ class ExchangeAndClientTest(unittest.TestCase):
                     self.assertTrue(exchange.running(), f"the exchange exited with code {exchange.process.returncode}")
                     self.assertLess(time.monotonic(), deadline, f"the exchange didn't open port {ORDER_PORT}")
                     time.sleep(0.1)
-                client = Process([TRADING, "5", "RANDOM"], directory)
+                client = Process([TRADING, "5", "RANDOM", *ENDPOINTS], directory)
 
                 updates = []
                 feed.settimeout(1.0)
@@ -220,6 +291,8 @@ class ExchangeAndClientTest(unittest.TestCase):
 
         # The feed's sequence numbers count from 1 with no gap: the test saw every update, in order.
         self.assertEqual([u[0] for u in updates], list(range(1, len(updates) + 1)))
+        impostors = [u for u in updates if u[5] == IMPOSTOR_PRICE]
+        self.assertEqual(impostors, [], "updates sent on the book's own stream reached this test's exchange's")
         kinds = {u[1] for u in updates}
         self.assertIn(ADD, kinds, "no order was added: no order reached the exchange")
         for seq, kind, order_id, ticker, side, price, qty, _ in updates:

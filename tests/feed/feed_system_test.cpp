@@ -14,6 +14,7 @@
 #include "feed/feed_socket.h"
 #include "feed/market_data_file.h"
 #include "feed/market_update.h"
+#include "support/test_support.h"
 
 #include <gtest/gtest.h>
 
@@ -42,13 +43,31 @@ namespace {
 
 std::string g_exchange, g_trading, g_replay;
 
-// The exchange's order port, fixed in its code (exchange_main.cpp): open means an exchange is running.
+// Where this test's exchange meets its client and this test: ports of the test's own (test_port), so
+// nothing else on the machine sending or listening on the exchange's usual ones (a lockstep session
+// in VS Code, another run of the tests) reaches it. The groups are the exchange's own.
+const std::uint16_t kOrderPort = test::test_port(0);
+const Stream kIncremental{kExchangeIncremental.group, test::test_port(1)};
+const Stream kSnapshot{kExchangeSnapshot.group, test::test_port(2)};
+
+std::vector<std::string> endpoint_args() {
+    return {"--order-port", std::to_string(kOrderPort), "--incremental", std::format("{}:{}", kIncremental.group, kIncremental.port),
+            "--snapshot", std::format("{}:{}", kSnapshot.group, kSnapshot.port)};
+}
+
+std::vector<std::string> with_endpoints(std::vector<std::string> args) {
+    const auto endpoints = endpoint_args();
+    args.insert(args.end(), endpoints.begin(), endpoints.end());
+    return args;
+}
+
+// Whether something listens on this test's order port.
 bool order_port_open() {
     const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         return false;
     }
-    const sockaddr_in address{.sin_family = AF_INET, .sin_port = htons(12345), .sin_addr = {htonl(INADDR_LOOPBACK)}, .sin_zero = {}};
+    const sockaddr_in address{.sin_family = AF_INET, .sin_port = htons(kOrderPort), .sin_addr = {htonl(INADDR_LOOPBACK)}, .sin_zero = {}};
     const bool open = ::connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof address) == 0;
     ::close(fd);
     return open;
@@ -148,23 +167,22 @@ std::vector<std::vector<MarketUpdate>> whole_snapshots(const std::vector<Arrival
 }
 
 TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsALateReaderRecoversAndTheRecordingReplays) {
-    // Another exchange's market data, on the same fixed groups, would be taken for this one's.
-    ASSERT_FALSE(order_port_open()) << "something is already listening on port 12345: is an exchange running?";
+    ASSERT_FALSE(order_port_open()) << "something is already listening on this test's order port, " << kOrderPort;
     const TemporaryDirectory temporary;
     const std::filesystem::path& directory = temporary.path;
 
-    auto incremental = FeedSocket::join(kExchangeIncremental);
-    auto snapshots = FeedSocket::join(kExchangeSnapshot);
+    auto incremental = FeedSocket::join(kIncremental);
+    auto snapshots = FeedSocket::join(kSnapshot);
     ASSERT_TRUE(incremental) << incremental.error().message();
     ASSERT_TRUE(snapshots) << snapshots.error().message();
 
     std::vector<Arrival> arrivals;
     {
-        Program exchange({g_exchange, "--snapshot-interval-seconds", "1", "--record", "requests.rec"}, directory);
+        Program exchange(with_endpoints({g_exchange, "--snapshot-interval-seconds", "1", "--record", "requests.rec"}), directory);
         ASSERT_TRUE(exchange.started());
         std::this_thread::sleep_for(std::chrono::seconds{10});  // its parts start a couple of seconds apart
-        ASSERT_TRUE(exchange.running()) << "the exchange exited: is another one running?";
-        Program client({g_trading, "5", "RANDOM"}, directory);
+        ASSERT_TRUE(exchange.running()) << "the exchange exited";
+        Program client(with_endpoints({g_trading, "5", "RANDOM"}), directory);
         ASSERT_TRUE(client.started());
 
         // Until three snapshots taken after trading began have arrived whole, or a minute has passed.

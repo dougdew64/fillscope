@@ -28,7 +28,6 @@
 #include <fstream>
 #include <optional>
 #include <regex>
-#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -212,13 +211,10 @@ protected:
         std::filesystem::remove_all(dir_);
     }
 
-    // A group and port of the test's own, from its name: tests run in parallel, each in a process of
-    // its own. A socket is bound to its group's address, so tests on different groups never meet,
-    // even on one port (AStreamOfItsOwn checks none share both).
-    static std::size_t stream_of(const std::string& test) { return std::hash<std::string>{}(test) % (200 * 800); }
-    std::size_t stream() const { return stream_of(::testing::UnitTest::GetInstance()->current_test_info()->name()); }
-    std::uint16_t port() const { return static_cast<std::uint16_t>(24100 + stream() / 200); }
-    std::string group() const { return std::format("233.252.18.{}", 1 + stream() % 200); }
+    // A port of the test's process's own (test_port): tests run in parallel, each in a process of its
+    // own, and another run of them, or a lockstep session in VS Code, may be running too.
+    std::uint16_t port() const { return test::test_port(0); }
+    std::string group() const { return "233.252.18.1"; }
     std::string publish_args() const { return std::format("three.rec --publish {}:{}", group(), port()); }
 
     std::string gdb_by_name(const std::string& program) const {
@@ -316,14 +312,6 @@ TEST_F(ReplayLockstep, AtO2LldbSelfStopReadsTheArguments) {
 }
 
 // Each test's stream (group and port) is its own.
-TEST_F(ReplayLockstep, AStreamOfItsOwn) {
-    std::set<std::size_t> streams;
-    const ::testing::TestSuite* suite = ::testing::UnitTest::GetInstance()->current_test_suite();
-    for (int i = 0; i < suite->total_test_count(); ++i) {
-        EXPECT_TRUE(streams.insert(stream_of(suite->GetTestInfo(i)->name())).second) << suite->GetTestInfo(i)->name();
-    }
-}
-
 // The replay's command line is read exactly: each of these was once accepted as something else,
 // and each is refused with the usage, while the same line with good values runs to its end.
 TEST_F(ReplayLockstep, ABadCommandLineIsRefused) {

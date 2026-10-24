@@ -31,26 +31,20 @@ finds them, each with a test, and lists them there.
 
 ## Waiting on the owner's decision
 Each has a real trade-off; until decided, the code does what is described.
-5. **Separate runs of the tests can meet on the network.** CTest's lock keeps the tests that start
-   an exchange apart within one run, but the mutation and selection checks, a second `run-tests.sh`
-   and a lockstep session in VS Code run separately, and the groups and ports are fixed, so their
-   datagrams can reach each other; `feed_system_tests` and `backend_system_tests` now fail at once
-   if an exchange is already running. *Choice:* a lock for the whole machine, taken by every
-   network test, which would serialize the checks that run in parallel today.
-6. **A run with a failing test records no program as passed,** so the next run repeats the ones
+5. **A run with a failing test records no program as passed,** so the next run repeats the ones
    that passed too. *Choice:* record those that passed (reading each program's result from
    CTest's output), which is fewer re-runs for more logic to get right.
 
 ## Left in place deliberately
-7. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
+6. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
    GDB and LLDB use here, that is the whole truth. In non-stop debugging, another thread can still
    be stopped after the published one resumes. *Fix, if non-stop debugging is ever used:* publish
    stops per thread.
-8. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
+7. **Two VS Code windows on one Fillscope folder overwrite each other's debug-state file.** The
    file names its writer's process id, and the documents say to use one window.
-9. **A writer that crashes, or is killed with SIGKILL, leaves its file saying "running".** The
+8. **A writer that crashes, or is killed with SIGKILL, leaves its file saying "running".** The
    viewer handles SIGINT and SIGTERM, and the extension marks its last write; for the rest, both
    files name their writer's process id and start time, and a reader that must be sure checks
    that the process is alive.
-10. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
-    so each run records the toolchain's versions instead.
+9. **CI's Fedora packages aren't pinned:** the repositories keep only the newest update of each,
+   so each run records the toolchain's versions instead.

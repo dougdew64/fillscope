@@ -215,8 +215,8 @@ shortcut is shown not to skip a test the change affects.
 - **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,
   asking questions, whose answers go into [ARCHITECTURE.md](ARCHITECTURE.md), before the roadmap
   continues.
-- **The third sweep's decisions** ([TECH-DEBT.md](TECH-DEBT.md), items 5 and 6): separate test
-  runs meeting on the network, and recording the passing programs of a failed run. Each has its choices there.
+- **The third sweep's decisions** ([TECH-DEBT.md](TECH-DEBT.md), item 5): recording the
+  passing programs of a failed run. Its choices are there.
 - **Step 10's decisions:** it changes what a commit must pass, so the owner chooses which shortcuts
   to take.
 

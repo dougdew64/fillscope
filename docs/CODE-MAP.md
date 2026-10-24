@@ -62,7 +62,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The lock-free queue between threads | `common/lf_queue*` | §1, *How the exchange's threads hand each other work* | 2026-10-24: how it works, what happens when one is full, and what to do about it |
 | Memory pools | `common/mem_pool*`, `common/opt_mem_pool.h` | §1, *Why the first orders take about half a minute* (in part) | 2026-10-24: why starting takes seconds |
 | Logging | `common/logging*`, `common/opt_logging.h` | not yet | |
-| Sockets: TCP and multicast | `common/socket_*`, `common/mcast_socket.*`, `common/tcp_*` | §1, *Why the viewer listens to multicast* (in part) | |
+| Sockets: TCP and multicast, and where the programs meet | `common/socket_*`, `common/mcast_socket.*`, `common/tcp_*`, `common/endpoints.h` | §1, *Why the viewer listens to multicast* (in part) | |
 | Threads, time, types, macros, measurement | `common/thread_*`, `common/time_utils.h`, `common/types.h`, `common/macros.h`, `common/perf_utils.h` | §3, *A ticker* (in part); §1, *Why the first orders take about half a minute* (`ASSERT`) | 2026-10-24: what a ticker is; whether `ASSERT` is a macro, and what building its message costs |
 | Benchmarks and performance analysis | `benchmarks/`, `notebooks/`, `perf_analysis.html`, `scripts/run_benchmarks.sh` | not yet | |
 | The build, and the book's run scripts | `CMakeLists.txt`, `common/CMakeLists.txt`, `exchange/CMakeLists.txt`, `trading/CMakeLists.txt`, `scripts/build.sh`, `scripts/no_clean_build.sh`, `scripts/run_clients.sh`, `scripts/run_exchange_and_clients.sh` | not yet | |
