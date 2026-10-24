@@ -154,7 +154,9 @@ its arguments readable and, under LLDB, that the viewer already has every update
 that request. The viewer, live, followed a replay of 505 updates on the exchange's stream with no
 recovery. VS Code: the two "lockstep" compounds. Found on the way: GDB sometimes loses track of the
 replay as it exits with its logger threads running, so the tests check the replay's own closing
-line, not the debugger's report of the exit. **Left:** the owner stepping it in VS Code.
+line, not the debugger's report of the exit. **Done,** 2026-10-24: the owner stepped a recorded run
+in VS Code (breakpoint by name), and at a stop the debugger's published state (request 2, update 2
+sent) and the viewer's (live at update 2) agreed.
 
 ### 7. Attribution in the fork
 The attribution report in the fork, with a third column for upstream lines, tested and checked as
@@ -218,9 +220,6 @@ shortcut is shown not to skip a test the change affects.
   programs of a failed run. Each has its choices there.
 - **Step 10's decisions:** it changes what a commit must pass, so the owner chooses which shortcuts
   to take.
-- **Stepping the matcher in lockstep (step 6's last part):** record a run with **viewer + exchange +
-  client**, then step it with a **lockstep** compound ([RUNNING.md](RUNNING.md), "Debug in
-  lockstep"), watching the viewer follow each request.
 
 ## Later
 The rest of the roadmap becomes changes to the fork, ordered when steps 1 to 10 have landed: ITCH

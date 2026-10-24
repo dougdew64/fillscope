@@ -8,6 +8,7 @@ Newest first.
 
 | Date | Decision |
 |---|---|
+| 2026-10-24 | Step 6 is done: the owner stepped the matcher through a recorded run in VS Code, and at a stop the debugger and the viewer agreed on where the run was. |
 | 2026-10-24 | A code map ([CODE-MAP.md](CODE-MAP.md)): every part of the code, where the architecture documents explain it, and what the owner has asked about it, so the documents' gaps, and what the owner has yet to learn, show. A test keeps every code file in exactly one part; a new file goes into a part in the same commit. |
 | 2026-10-24 | ARCHITECTURE.md is written for a human reader, not as a collection of facts: each answer makes it better, which can mean rewriting or reordering it, not only adding to it. It can link to sub-documents for parts that need more depth, in whatever hierarchy keeps it readable, which Claude decides; it stays the place to start. The owner learns the system by asking questions, first about the viewer, then about the document, then about the code as it runs in the debugger. |
 | 2026-10-23 | Step 8: the stand-ins retire. The frame source, its socket and its anchor, and their tests, are removed, since lockstep's debugger tests now run on the replay. What the rest of Fillscope still used, the descriptor owner `Fd` and the number parser, lives in `src/common/` with tests of its own. |
