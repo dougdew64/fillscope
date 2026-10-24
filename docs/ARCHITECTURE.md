@@ -50,6 +50,25 @@ doesn't know it is there. Without a client, the exchange's books stay empty. Wit
 the market runs unseen. A replay (§3) needs no client: the recording plays back the requests the
 clients sent.
 
+**Why the first orders take about half a minute.** The back end's own code is slow to start, in
+two ways. In a run of the debug build started from VS Code (its logs' times):
+
+| from start | what |
+|---|---|
+| 0 to 2 s | the exchange loads, under the debugger |
+| 2 to 4 s | the matcher builds its books: each ticker's pool of 1,048,576 orders (`ME_MAX_ORDER_IDS`), every one constructed in advance |
+| 4 to 8.5 s | the publisher's snapshot synthesizer builds its own pool of a million updates, and clears a table of a million entries per ticker |
+| 9.6 s | the order server opens port 12345; the "wait for the exchange" task sees it and starts the client |
+| 11.5 to 16 s | the client builds its own books and pools the same way |
+| 16 to 17 s | the client joins the market data |
+| 17 to 28 s | the client sleeps 10 seconds before trading (`usleep(10 * 1000 * 1000)` in `trading_main.cpp`) |
+| 28 s | its first order reaches the exchange, which publishes it, and the viewer shows it |
+
+The pools are built up front so that trading never allocates memory, which is slow and takes an
+unpredictable time; the book's design pays that cost once, at start. The debug build is
+unoptimized, so building them takes seconds. The viewer is ready from the start and waits on
+nothing: it shows the first order as soon as the exchange publishes it.
+
 **Why separate processes:** a debugger stop freezes the whole process it is debugging. With the
 viewer in its own process, it keeps painting while you step through the exchange, so the books on
 screen and the debugger stay in step ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)). The back end
