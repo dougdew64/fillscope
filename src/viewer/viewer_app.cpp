@@ -46,8 +46,10 @@ void ViewerApp::replay_to(std::uint64_t seq) {
         state_.books = BookBuilder{};
     }
     // The replay's updates are numbered 1, 2, 3, ... (read_market_data_file checks), so update n is
-    // updates[n - 1].
-    for (std::uint64_t next = state_.books.last_seq() + 1; next <= seq; ++next) {
+    // updates[n - 1]. An update the books can't apply leaves them recovering, which a replay can't do
+    // (it has no snapshots): they stay where they are.
+    for (std::uint64_t next = state_.books.last_seq() + 1;
+         next <= seq && state_.books.status() != BookBuilder::Status::recovering; ++next) {
         state_.books.on_incremental(updates[next - 1]);
     }
 }

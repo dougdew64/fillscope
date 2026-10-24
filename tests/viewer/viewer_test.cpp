@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -81,14 +82,20 @@ TEST(ParseViewerArgs, DefaultsAndEveryOption) {
     EXPECT_FALSE(defaults->replay);
 
     const std::array args{"--exit-after", "2.5", "--incremental", "239.1.2.3:3001", "--snapshot", "224.0.0.5:3000",
-                          "--context-file", "/tmp/c.json", "--replay", "runs/a.dat"};
+                          "--context-file", "/tmp/c.json"};
     const auto options = parse_viewer_args(args);
     ASSERT_TRUE(options) << options.error();
     EXPECT_EQ(options->exit_after_seconds, 2.5);
     EXPECT_EQ(options->incremental, (Stream{"239.1.2.3", 3001}));
     EXPECT_EQ(options->snapshot, (Stream{"224.0.0.5", 3000}));
     EXPECT_EQ(options->context_file, std::filesystem::path{"/tmp/c.json"});
-    EXPECT_EQ(options->replay, std::filesystem::path{"runs/a.dat"});
+    EXPECT_FALSE(options->replay);
+
+    // A replay instead of the streams.
+    const auto replay = parse_viewer_args(std::array{"--replay", "runs/a.dat", "--context-file", "/tmp/c.json"});
+    ASSERT_TRUE(replay) << replay.error();
+    EXPECT_EQ(replay->replay, std::filesystem::path{"runs/a.dat"});
+    EXPECT_EQ(replay->context_file, std::filesystem::path{"/tmp/c.json"});
 }
 
 TEST(ParseViewerArgs, RefusesWhatIsntAnOptionAStreamOrANumberOfSeconds) {
@@ -100,7 +107,8 @@ TEST(ParseViewerArgs, RefusesWhatIsntAnOptionAStreamOrANumberOfSeconds) {
              {"--incremental", "240.0.0.1:3000"},     // past the multicast range
              {"--incremental", "not.an.address:3000"},
              {"--snapshot", "239.1.2.3:0"}, {"--snapshot", "239.1.2.3:65536"}, {"--snapshot", "239.1.2.3:x"},
-             {"--replay"}, {"--replay", ""}}) {
+             {"--replay"}, {"--replay", ""},
+             {"--replay", "a.dat", "--incremental", "239.1.2.3:3001"}, {"--snapshot", "239.1.2.3:3000", "--replay", "a.dat"}}) {
         EXPECT_FALSE(parse_viewer_args(args)) << args.front() << (args.size() > 1 ? std::string{" "} + args[1] : "");
     }
 }
@@ -154,6 +162,37 @@ TEST(MakeContext, AnOrderNoLongerRestingSaysHowItLeft) {
     ASSERT_TRUE(order.last_event);
     EXPECT_EQ(order.last_event->type, UpdateType::cancel);
     EXPECT_EQ(order.last_event->seq, 4u);
+}
+
+// Order 3 is cancelled in plain sight; then a gap (updates 5 and 6 lost), and the snapshot as of 6
+// no longer has order 1: it left in the gap, so its last update seen (its add) isn't how it left,
+// and the point says so. Order 3 left by its cancel, before the recovery.
+TEST(MakeContext, AnOrderThatLeftDuringARecoverySaysSo) {
+    ViewerState state = three_bids();
+    state.books.on_incremental(cancel(4, 3, Side::buy, 99));
+    state.books.on_incremental(add(7, 4, Side::buy, 98, 1, 1));
+    recover_from_snapshot(state.books, 6, {add(0, 2, Side::buy, 100, 7, 2)});
+    ASSERT_EQ(state.books.status(), BookBuilder::Status::live);
+    Selection selection;
+    selection.point_at(OrderRef{0, 1});
+    const Context context = make_context(state, selection);  // kept: order refers into it
+    const OrderState& order = pointed_order(context);
+    EXPECT_FALSE(order.resting);
+    ASSERT_TRUE(order.last_event);
+    EXPECT_EQ(order.last_event->type, UpdateType::add);
+    ASSERT_TRUE(order.left_during);
+    EXPECT_EQ(order.left_during->after_seq, 4u);
+    EXPECT_EQ(order.left_during->snapshot_seq, 6u);
+    EXPECT_EQ(bar_text(context).point,
+              "Pointing at order 1 of ticker 0: not in the book; it left during a recovery (updates 5 to 6 weren't seen "
+              "one by one), after its last update seen: add at update 1");
+    const auto json = to_json(context, {}, 1, 0);
+    EXPECT_EQ(json["point"]["order"]["leftDuringRecovery"]["snapshotSeq"], 6);
+
+    selection.point_at(OrderRef{0, 3});
+    const Context cancelled = make_context(state, selection);
+    EXPECT_FALSE(pointed_order(cancelled).left_during);
+    EXPECT_EQ(bar_text(cancelled).point, "Pointing at order 3 of ticker 0: not in the book (its last update: cancel at update 4)");
 }
 
 TEST(MakeContext, AnOrderNeverSeenHasNeitherAPlaceNorAHistory) {
@@ -620,7 +659,7 @@ TEST_F(Publisher, AFailedWriteIsRetriedAndRecovers) {
     std::filesystem::create_directories(file() / "blocker");
     publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
     ASSERT_TRUE(publisher.error());
-    EXPECT_EQ(publisher.published(), pointing_at(1)) << "still what was last written successfully";
+    EXPECT_FALSE(publisher.published()) << "a directory holds no context";
     EXPECT_EQ(entries_in(file().parent_path()), 1) << "no temporary file left after the failed rename";
 
     std::filesystem::remove_all(file());
@@ -645,6 +684,36 @@ TEST_F(Publisher, AFailedWriteIsRetriedWhenTheContextReturnsToWhatWasPublished) 
     EXPECT_FALSE(publisher.error());
     EXPECT_EQ(publisher.seq(), 2u);
     EXPECT_TRUE(std::filesystem::exists(file()));
+}
+
+// The file removed by someone else, then a write that fails: no file holds a context.
+TEST_F(Publisher, AFailedWriteWithTheFileGoneClaimsNothing) {
+    ContextPublisher publisher{file()};
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    std::filesystem::remove(file());
+    std::filesystem::create_directories(std::format("{}.{}.tmp", file().string(), ::getpid()));
+    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
+    ASSERT_TRUE(publisher.error());
+    EXPECT_FALSE(publisher.published());
+    EXPECT_FALSE(publisher.published_bar());
+}
+
+// A directory that can't be written: the write fails and the old file can't be removed, so it
+// still holds what was last published, and published() says so. Root writes anywhere, so this
+// can't be arranged as root (CI's container).
+TEST_F(Publisher, AFailedWriteThatCantRemoveTheFileKeepsWhatItHolds) {
+    if (::geteuid() == 0) {
+        GTEST_SKIP() << "root can write to a read-only directory";
+    }
+    ContextPublisher publisher{file()};
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
+    const auto directory = file().parent_path();
+    std::filesystem::permissions(directory, std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec);
+    publisher.update(pointing_at(2), PublishTrigger::user_action, t0_);
+    std::filesystem::permissions(directory, std::filesystem::perms::owner_all);
+    ASSERT_TRUE(publisher.error());
+    EXPECT_EQ(publisher.published(), pointing_at(1));
+    EXPECT_EQ(read_file()["point"]["order"]["orderId"], 1);
 }
 
 TEST_F(Publisher, AFailedWriteRemovesTheOldFileWhenItCan) {
@@ -685,6 +754,28 @@ TEST(StopSignals, SigtermAsksTheLoopToStopInsteadOfEndingTheProcess) {
     EXPECT_FALSE(stop_requested());
     ASSERT_EQ(std::raise(SIGTERM), 0);  // without the handler, this would end the test program
     EXPECT_TRUE(stop_requested());
+}
+
+// A viewer stuck before it reads the flag can still be ended: the second signal gets the default
+// action. Run in a child, which the second signal ends.
+TEST(StopSignals, ASecondSignalEndsTheProcess) {
+    const pid_t child = ::fork();
+    ASSERT_GE(child, 0);
+    if (child == 0) {
+        if (!install_stop_signals()) {
+            ::_exit(2);
+        }
+        std::raise(SIGINT);
+        if (!stop_requested()) {
+            ::_exit(3);
+        }
+        std::raise(SIGINT);
+        ::_exit(0);  // reached only if the second signal was caught too
+    }
+    int status = 0;
+    ASSERT_EQ(::waitpid(child, &status, 0), child);
+    ASSERT_TRUE(WIFSIGNALED(status)) << "the child exited with " << WEXITSTATUS(status);
+    EXPECT_EQ(WTERMSIG(status), SIGINT);
 }
 
 }  // namespace

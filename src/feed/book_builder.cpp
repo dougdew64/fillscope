@@ -71,6 +71,11 @@ void BookBuilder::try_to_sync() {
         return;  // not whole yet
     }
     const std::uint64_t snapshot_seq = queued_snapshot_.begin()->second.order_id;
+    if (queued_snapshot_.rbegin()->second.order_id != snapshot_seq) {
+        // The start of one snapshot and the end of another, joined where updates were lost.
+        queued_snapshot_.clear();
+        return;
+    }
 
     // The queued incremental updates after the snapshot must follow it without a gap; if one is
     // missing, so is what the books need from it: wait for the next snapshot.
@@ -86,7 +91,12 @@ void BookBuilder::try_to_sync() {
         ++next;
     }
 
-    // Rebuild every book from the snapshot (its updates include a clear for each ticker).
+    // Rebuild every book from the snapshot (its updates include a clear for each ticker). If its
+    // orders don't make a consistent book, everything is put back as it was: the books, the trades,
+    // and the events the snapshot added to the histories.
+    auto saved_books = books_;
+    auto saved_trades = last_trades_;
+    std::vector<std::pair<std::uint32_t, std::uint64_t>> added;  // whose history gained an event
     for (std::size_t ticker = 0; ticker < kTickers; ++ticker) {
         books_[ticker].clear();
         last_trades_[ticker].reset();
@@ -97,19 +107,35 @@ void BookBuilder::try_to_sync() {
             continue;
         }
         if (!apply_to_books(update, true, snapshot_seq, problem)) {
+            books_ = std::move(saved_books);
+            last_trades_ = std::move(saved_trades);
+            for (const auto& [ticker, order_id] : added) {
+                auto& events = histories_[ticker][order_id];
+                events.pop_back();
+                if (events.empty()) {
+                    histories_[ticker].erase(order_id);
+                }
+            }
             recovering_because_ = std::format("the snapshot of update {} doesn't make a consistent book: {}", snapshot_seq, problem);
             queued_snapshot_.clear();
             return;
         }
+        if (update.type != UpdateType::clear && update.type != UpdateType::trade) {  // those add no event
+            added.emplace_back(update.ticker, update.order_id);
+        }
     }
     next_seq_ = snapshot_seq + 1;
+    // The books are rebuilt: whatever happens to the queued updates, this is a recovery.
+    recoveries_.push_back(Recovery{.after_seq = recovery_after_, .snapshot_seq = snapshot_seq,
+                                   .reason = recovering_because_.value_or("")});
     for (auto queued = queued_incremental_.begin(); queued != queued_incremental_.end();) {
         if (queued->first < next_seq_) {
             queued = queued_incremental_.erase(queued);
             continue;
         }
         if (!apply_to_books(queued->second, false, queued->first, problem)) {
-            // The books are as of next_seq_ - 1; this update and those after it stay queued.
+            // The books are as of next_seq_ - 1; this update and those after it stay queued, and a
+            // recovery from there begins.
             recovering_because_ = std::move(problem);
             recovery_after_ = last_seq();
             queued_snapshot_.clear();
@@ -118,8 +144,6 @@ void BookBuilder::try_to_sync() {
         ++next_seq_;
         queued = queued_incremental_.erase(queued);
     }
-    recoveries_.push_back(Recovery{.after_seq = recovery_after_, .snapshot_seq = snapshot_seq,
-                                   .reason = recovering_because_.value_or("")});
     status_ = Status::live;
     recovering_because_.reset();
     queued_snapshot_.clear();

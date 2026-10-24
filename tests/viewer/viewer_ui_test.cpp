@@ -540,6 +540,30 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK_EQ(read_context(vars)["background"]["replay"]["updates"].get<int>(), 8);
     });
 
+    // A replay whose update 2 can't be applied (an order it never added): the books stay after update
+    // 1, and the status and the bar say so; going forward again doesn't feed the update again.
+    viewer_test(engine, "a_replay_that_cant_be_followed_says_where_it_stopped", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        fillscope::MarketDataFile replay{
+            .recording = "runs/b.rec",
+            .updates = {add(1, 10, Side::sell, 102, 3, 1),
+                        {.seq = 2, .type = UpdateType::cancel, .order_id = 99, .ticker = 0, .side = Side::sell, .price = 101},
+                        add(3, 11, Side::sell, 101, 2, 1)}};
+        vars.app->open_replay("runs/b.dat", std::move(replay));
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "market data: a replay, the books are as of update 0"));
+        IM_CHECK(!contains(vars.text, "market data: waiting for the exchange"));
+        ctx->ItemClick(std::format("**/{}", fillscope::kReplayEnd).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "market data: a replay, stuck after update 1: "));
+        IM_CHECK(contains(vars.text, "updates received: 2 "));
+        ctx->ItemClick(std::format("**/{}", fillscope::kReplayForward).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "updates received: 2 "));
+        IM_CHECK(contains(vars.text, "at update 1 of 3, stuck: "));
+    });
+
     viewer_test(engine, "finish_publishes_that_the_viewer_has_stopped", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         add_book(vars);

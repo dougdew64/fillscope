@@ -203,7 +203,9 @@ question ("why didn't *this* fill?"), a follow is a lens on it (this order, thro
 
 **An order pointed at** carries what such a question needs: resting, its side, price, quantity and
 priority, and its place in its price's queue (the orders, and their quantity, that fill before it);
-not resting, the last update applied to it (how it left); or never seen. **A level** carries its
+not resting, the last update applied to it, which is how it left if that was a cancel, and if it
+wasn't, the recovery it left during (its updates were never seen one by one, so how it left isn't
+known); or never seen. **A level** carries its
 total and its orders in the order they will fill (up to 100 listed, all counted). **A followed
 order** carries its events (up to 1,000 listed, all counted) and the recoveries since it was first
 seen, whose updates its events may be missing. Everything is as of the last incremental update the

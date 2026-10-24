@@ -104,8 +104,10 @@ void ContextPublisher::write(const Context& context) {
         error_ = std::move(written.error());  // the bar shows this
         // The old file no longer says what the user has assembled. Removing it is often impossible
         // too (when the directory can't be written), and then published_ still says what it holds.
-        // unlink, not std::filesystem::remove, which would also remove an empty directory there.
-        if (::unlink(file_.c_str()) == 0) {
+        // But if there is no file there (ENOENT), or a directory has taken its place (EISDIR),
+        // nothing holds a context. unlink, not std::filesystem::remove, which would also remove an
+        // empty directory there.
+        if (::unlink(file_.c_str()) == 0 || errno == ENOENT || errno == EISDIR) {
             published_.reset();
             published_bar_.reset();
         }

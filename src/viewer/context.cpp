@@ -49,6 +49,16 @@ OrderState order_state(const BookBuilder& books, const OrderRef& ref) {
     const auto history = books.history(ref.ticker, ref.order_id);
     if (!history.empty()) {
         state.last_event = history.back();
+        if (!state.resting && state.last_event->type != UpdateType::cancel) {
+            // It left without a cancel the books saw: in the first recovery covering updates after
+            // its last one.
+            for (const Recovery& recovery : books.recoveries()) {
+                if (recovery.snapshot_seq > state.last_event->seq) {
+                    state.left_during = recovery;
+                    break;
+                }
+            }
+        }
     }
     return state;
 }
@@ -176,7 +186,12 @@ nlohmann::ordered_json order_json(const OrderState& order) {
     if (order.last_event) {
         last_event = event_json(*order.last_event);
     }
-    return {{"ticker", order.ref.ticker}, {"orderId", order.ref.order_id}, {"resting", resting}, {"lastEvent", last_event}};
+    nlohmann::ordered_json left_during = nullptr;
+    if (order.left_during) {
+        left_during = recovery_json(*order.left_during);
+    }
+    return {{"ticker", order.ref.ticker}, {"orderId", order.ref.order_id}, {"resting", resting}, {"lastEvent", last_event},
+            {"leftDuringRecovery", left_during}};
 }
 
 nlohmann::ordered_json level_json(const LevelState& level) {
@@ -281,6 +296,12 @@ std::string order_summary(const OrderState& order) {
         return std::format("{} {} @ {}, {} ({}) ahead of it in its queue", to_string(order.resting->side), order.resting->qty,
                            order.resting->price, plural(order.orders_ahead, "order", "orders"), order.qty_ahead);
     }
+    if (order.left_during) {
+        return std::format("not in the book; it left during a recovery (updates {} to {} weren't seen one by one), after its "
+                           "last update seen: {} at update {}",
+                           order.left_during->after_seq + 1, order.left_during->snapshot_seq, to_string(order.last_event->type),
+                           order.last_event->seq);
+    }
     if (order.last_event) {
         return std::format("not in the book (its last update: {} at update {})", to_string(order.last_event->type),
                            order.last_event->seq);
@@ -296,6 +317,9 @@ ContextBarText bar_text(const Context& context) {
     if (feed.replay) {
         text.background = std::format("replay of {} at update {} of {}", feed.replay->market_data_file, feed.last_seq,
                                       feed.replay->seq);
+        if (feed.status == BookBuilder::Status::recovering) {
+            text.background += std::format(", stuck: {}", feed.recovering_because.value_or("an update can't be applied"));
+        }
     } else {
         switch (feed.status) {
         case BookBuilder::Status::waiting:

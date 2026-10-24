@@ -92,17 +92,27 @@ void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
 void draw_status(const ViewerView& view) {
     const ViewerState& state = view.state;
     const BookBuilder& books = state.books;
-    switch (books.status()) {
-    case BookBuilder::Status::waiting:
-        text("market data: waiting for the exchange");
-        break;
-    case BookBuilder::Status::live:
-        text(std::format("market data: live, the books are as of update {}", books.last_seq()));
-        break;
-    case BookBuilder::Status::recovering:
-        text(std::format("market data: recovering, the books are as of update {}: {}; waiting for a snapshot",
-                         books.last_seq(), books.recovering_because().value_or("updates were missed")));
-        break;
+    if (state.replay) {
+        // A replay is read from a file: not the exchange, and with no snapshots to recover from.
+        if (books.status() == BookBuilder::Status::recovering) {
+            text(std::format("market data: a replay, stuck after update {}: {}; a replay has no snapshots to recover from",
+                             books.last_seq(), books.recovering_because().value_or("an update can't be applied")));
+        } else {
+            text(std::format("market data: a replay, the books are as of update {}", books.last_seq()));
+        }
+    } else {
+        switch (books.status()) {
+        case BookBuilder::Status::waiting:
+            text("market data: waiting for the exchange");
+            break;
+        case BookBuilder::Status::live:
+            text(std::format("market data: live, the books are as of update {}", books.last_seq()));
+            break;
+        case BookBuilder::Status::recovering:
+            text(std::format("market data: recovering, the books are as of update {}: {}; waiting for a snapshot",
+                             books.last_seq(), books.recovering_because().value_or("updates were missed")));
+            break;
+        }
     }
     text(std::format("updates received: {}  recoveries: {}", books.updates_received(), books.recoveries().size()));
     if (state.feed_error) {

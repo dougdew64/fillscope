@@ -306,6 +306,70 @@ TEST(BookBuilder, ASnapshotRebuildsEveryBookAndForgetsItsTrades) {
     EXPECT_FALSE(builder.last_trade(3));
 }
 
+// A snapshot whose orders don't make a consistent book (here, one order twice) is not used, and
+// leaves the books, the trades and the histories exactly as they were before it arrived.
+TEST(BookBuilder, AnInconsistentSnapshotLeavesTheBooksAsTheyWere) {
+    BookBuilder builder;
+    builder.on_incremental(add(1, 1, Side::buy, 100, 5, 1, 0));
+    builder.on_incremental(add(2, 2, Side::sell, 110, 3, 1, 3));
+    builder.on_incremental(trade(3, Side::sell, 100, 1, 5));
+    builder.on_incremental(add(5, 3, Side::buy, 99, 5, 2, 0));  // 4 missing
+    feed_snapshot(builder, snapshot(4, {add(0, 7, Side::buy, 100, 5, 1, 0), add(0, 9, Side::sell, 120, 1, 1, 3),
+                                        add(0, 9, Side::sell, 120, 1, 1, 3)}));
+    EXPECT_EQ(builder.status(), BookBuilder::Status::recovering);
+    EXPECT_NE(builder.recovering_because()->find("doesn't make a consistent book"), std::string::npos);
+    EXPECT_EQ(builder.last_seq(), 3u);
+    EXPECT_EQ(builder.book(0).orders(), (std::vector<Order>{{1, Side::buy, 100, 5, 1}}));
+    EXPECT_EQ(builder.book(3).orders(), (std::vector<Order>{{2, Side::sell, 110, 3, 1}}));
+    ASSERT_TRUE(builder.last_trade(5));
+    EXPECT_EQ(builder.last_trade(5)->seq, 3u);
+    EXPECT_TRUE(builder.history(0, 7).empty());
+    EXPECT_TRUE(builder.history(3, 9).empty());
+    EXPECT_EQ(builder.history(0, 1).size(), 1u);
+    EXPECT_TRUE(builder.recoveries().empty());
+    // The next snapshot, consistent, is used.
+    feed_snapshot(builder, snapshot(4, {add(0, 7, Side::buy, 100, 5, 1, 0)}));
+    EXPECT_EQ(builder.status(), BookBuilder::Status::live);
+    EXPECT_EQ(builder.last_seq(), 5u);
+    EXPECT_EQ(builder.history(0, 7).size(), 1u);
+}
+
+// The start of one snapshot and the end of the next, with what was lost between them at the same
+// place in each, look whole; the start and the end name different updates, so it is not used.
+TEST(BookBuilder, TwoSnapshotsJoinedAtALossAreNotUsed) {
+    BookBuilder builder;
+    builder.on_incremental(add(5, 1, Side::buy, 100, 5, 1));
+    const auto first = snapshot(4, {add(0, 2, Side::sell, 110, 5, 1)});
+    const auto second = snapshot(9, {add(0, 2, Side::sell, 110, 5, 1)});
+    feed_snapshot(builder, std::vector(first.begin(), first.begin() + 3));
+    feed_snapshot(builder, std::vector(second.begin() + 3, second.end()));
+    EXPECT_EQ(builder.status(), BookBuilder::Status::recovering);
+    EXPECT_TRUE(builder.recoveries().empty());
+    feed_snapshot(builder, snapshot(4, {add(0, 2, Side::sell, 110, 5, 1)}));
+    EXPECT_EQ(builder.status(), BookBuilder::Status::live);
+}
+
+// A rebuild from a snapshot is recorded as a recovery even when a queued update after it then
+// can't be applied: the updates the snapshot covered were never seen one by one.
+TEST(BookBuilder, ARebuildIsRecordedEvenWhenAQueuedUpdateAfterItFails) {
+    BookBuilder builder;
+    builder.on_incremental(add(1, 1, Side::buy, 100, 5, 1));
+    builder.on_incremental(add(5, 2, Side::buy, 99, 5, 2));        // 2 to 4 missing
+    builder.on_incremental(cancel(6, 8, Side::buy, 98));           // an order the snapshot doesn't have
+    feed_snapshot(builder, snapshot(4, {add(0, 1, Side::buy, 100, 5, 1)}));
+    EXPECT_EQ(builder.status(), BookBuilder::Status::recovering);
+    EXPECT_EQ(builder.last_seq(), 5u);
+    ASSERT_EQ(builder.recoveries().size(), 1u);
+    EXPECT_EQ(builder.recoveries()[0].after_seq, 1u);
+    EXPECT_EQ(builder.recoveries()[0].snapshot_seq, 4u);
+    feed_snapshot(builder, snapshot(7, {}));
+    builder.on_incremental(add(8, 3, Side::buy, 97, 5, 1));
+    EXPECT_EQ(builder.status(), BookBuilder::Status::live);
+    ASSERT_EQ(builder.recoveries().size(), 2u);
+    EXPECT_EQ(builder.recoveries()[1].after_seq, 5u);
+    EXPECT_EQ(builder.recoveries()[1].snapshot_seq, 7u);
+}
+
 // ---- A replay's market data file ----
 
 // The file as exchange_replay writes it: magic, the recording's path, then the updates' bytes.

@@ -37,7 +37,7 @@ struct OrderEvent {
     friend bool operator==(const OrderEvent&, const OrderEvent&) = default;
 };
 
-// A recovery that completed: the books were rebuilt from a snapshot, so the incremental updates
+// A rebuild from a snapshot, during a recovery: the incremental updates
 // after `after_seq` up to `snapshot_seq` were never applied one by one, and an order's history has
 // no events from them.
 struct Recovery {

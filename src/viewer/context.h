@@ -90,13 +90,17 @@ struct ReplayAddress {
 };
 
 // An order as the books have it now: resting, with its place in its price's queue; or not resting,
-// with the last update applied to it (how it left), or never seen.
+// with the last update applied to it (how it left, if a cancel) or the recovery it left during; or
+// never seen.
 struct OrderState {
     OrderRef ref;
     std::optional<Order> resting;
     std::size_t orders_ahead = 0;     // when resting: the orders before it in its price's queue
     std::uint64_t qty_ahead = 0;      // and their total quantity
     std::optional<OrderEvent> last_event;  // empty if the books never applied an update to it
+    // When it isn't resting and its last update seen isn't a cancel: the recovery it left during,
+    // whose updates were never seen one by one, so how it left isn't known.
+    std::optional<Recovery> left_during;
 
     friend bool operator==(const OrderState&, const OrderState&) = default;
 };

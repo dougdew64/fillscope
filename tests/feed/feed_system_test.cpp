@@ -24,9 +24,12 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <arpa/inet.h>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <spawn.h>
 #include <string>
+#include <sys/socket.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -38,6 +41,27 @@ namespace fillscope {
 namespace {
 
 std::string g_exchange, g_trading, g_replay;
+
+// The exchange's order port, fixed in its code (exchange_main.cpp): open means an exchange is running.
+bool order_port_open() {
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return false;
+    }
+    const sockaddr_in address{.sin_family = AF_INET, .sin_port = htons(12345), .sin_addr = {htonl(INADDR_LOOPBACK)}, .sin_zero = {}};
+    const bool open = ::connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof address) == 0;
+    ::close(fd);
+    return open;
+}
+
+// A directory of the test's own, removed however the test ends.
+struct TemporaryDirectory {
+    TemporaryDirectory() { std::filesystem::create_directories(path); }
+    ~TemporaryDirectory() { std::filesystem::remove_all(path); }
+    TemporaryDirectory(const TemporaryDirectory&) = delete;
+    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / std::format("fillscope-feed-{}", ::getpid());
+};
 
 // A back-end program, started in `directory` (it writes its logs there) and killed at the end: how
 // it shuts down isn't the subject here, and takes a minute.
@@ -124,8 +148,10 @@ std::vector<std::vector<MarketUpdate>> whole_snapshots(const std::vector<Arrival
 }
 
 TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsALateReaderRecoversAndTheRecordingReplays) {
-    const auto directory = std::filesystem::temp_directory_path() / std::format("fillscope-feed-{}", ::getpid());
-    std::filesystem::create_directories(directory);
+    // Another exchange's market data, on the same fixed groups, would be taken for this one's.
+    ASSERT_FALSE(order_port_open()) << "something is already listening on port 12345: is an exchange running?";
+    const TemporaryDirectory temporary;
+    const std::filesystem::path& directory = temporary.path;
 
     auto incremental = FeedSocket::join(kExchangeIncremental);
     auto snapshots = FeedSocket::join(kExchangeSnapshot);
@@ -175,7 +201,6 @@ TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsALateReaderRecoversA
     // longer, and must match everything that arrived.
     ASSERT_EQ(run_to_exit({g_replay, "requests.rec", "market.dat"}, directory), 0);
     const auto replayed = read_market_data_file(directory / "market.dat");
-    std::filesystem::remove_all(directory);
     ASSERT_TRUE(replayed) << replayed.error();
 
     // Every incremental update arrived, numbered from 1 without a gap: nothing was lost.

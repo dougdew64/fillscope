@@ -35,6 +35,7 @@ std::expected<Stream, std::string> parse_stream(std::string_view option, std::st
 
 std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char* const> args) {
     ViewerOptions options;
+    bool stream_given = false;
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string_view option{args[i]};
         if (option != "--exit-after" && option != "--incremental" && option != "--snapshot" && option != "--replay" &&
@@ -51,6 +52,7 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
                 return std::unexpected{std::move(stream.error())};
             }
             (option == "--incremental" ? options.incremental : options.snapshot) = std::move(*stream);
+            stream_given = true;
         } else if (option == "--replay") {
             if (value.empty()) {
                 return std::unexpected{"--replay needs a file"};
@@ -73,6 +75,10 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
             }
             options.exit_after_seconds = *seconds;
         }
+    }
+    if (options.replay && stream_given) {
+        // A replay reads no stream, so a stream given with it would be silently ignored.
+        return std::unexpected{"--replay reads a file, not the exchange's streams: give it without --incremental or --snapshot"};
     }
     return options;
 }
