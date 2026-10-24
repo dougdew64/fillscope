@@ -83,13 +83,14 @@ the slower program adds the tier to its name.
 - **`lowlatency_tests` (GoogleTest, `system`, the whole program as one test):** the back end's own
   tests, in the fork (`backend/Chapter12/tests/`): the market data's layout on the wire, the
   matching (price-time priority, partial fills, sweeps, cancels), the incremental feed's sequence
-  numbers, a snapshot's content and its interval, and recording and replaying requests. One process
-  for them all, about 15 s and 4.3 GB (about 40 s in the sanitizer build alongside the other tests):
+  numbers, a snapshot's content and its interval, recording and replaying requests, and the order
+  server refusing what the matcher can't process. One process for them all, about 17 s and 4.3 GB (about 40 s in the sanitizer build alongside the other tests):
   the exchange's objects take seconds and gigabytes to make. The fork's own CI runs them too.
 - **`backend_system_tests` (Python, `system`):** the back end as Fillscope builds it: the exchange
   and a random-trading client run together for about half a minute, and the test, joined to the
-  exchange's incremental market data feed, sees orders added and every update arrive in sequence.
-  The exchange's ports are fixed in its code, so it fails at once if another exchange is running.
+  exchange's incremental market data feed, sees orders added and every update arrive in sequence;
+  and an order past the order ids, sent to the exchange directly, is rejected and left out of the
+  recording, and the exchange runs on and accepts the next. The exchange's ports are fixed in its code, so it fails at once if another exchange is running.
 - **`replay_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** lockstep on a replay: `exchange_replay`, publishing a three-request recording on a
   group of the test's own, under GDB and LLDB, by breakpoint and by self-stop, at `-O0` and `-O2`;
@@ -172,8 +173,9 @@ From a terminal, start the viewer, then the back end as its README says (from
 `--snapshot-interval-seconds S` shortens the exchange's minute between snapshots). The viewer can
 start before the exchange or after: started after, it waits for the next snapshot to rebuild the
 books (it says "recovering" until then). To stop them from a terminal:
-`pkill -INT -x exchange_main` (it shuts down in about 20 seconds, as the book's code waits 10 seconds
-before and after), `pkill -x trading_main`, `pkill -x viewer` (or close its window).
+`pkill -INT -x exchange_main` (it shuts down in about 45 seconds, measured in the back end's
+README: its code waits 10 seconds before and after deleting its parts, and each book takes seconds
+to delete), `pkill -x trading_main`, `pkill -x viewer` (or close its window).
 
 **A replay.** The exchange started from VS Code records its requests
 (`build/debug/backend/Chapter12/requests.rec`, each run replacing the last). **viewer (replay)**

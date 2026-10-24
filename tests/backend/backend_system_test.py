@@ -27,6 +27,17 @@ INCREMENTAL_GROUP, INCREMENTAL_PORT = "233.252.14.3", 20001
 UPDATE = struct.Struct("<QBQIbqIQ")
 ADD, CANCEL, TRADE = 2, 4, 5
 MAX_TICKERS = 8  # ME_MAX_TICKERS, types.h
+MAX_ORDER_IDS = 1024 * 1024  # ME_MAX_ORDER_IDS, types.h
+# On the order port (client_request.h, client_response.h), packed, little-endian: a request is its
+# sequence number (size_t), then MEClientRequest: type_ (uint8), client_id_ (uint32), ticker_id_
+# (uint32), order_id_ (uint64), side_ (int8), price_ (int64), qty_ (uint32); a response is its
+# sequence number, then MEClientResponse: type_, client_id_, ticker_id_, client_order_id_ (uint64),
+# market_order_id_ (uint64), side_, price_, exec_qty_ (uint32), leaves_qty_ (uint32). A recording is
+# its 8-byte header, then each MEClientRequest.
+REQUEST = struct.Struct("<QBIIQbqI")
+RESPONSE = struct.Struct("<QBIIQQbqII")
+RECORDED = struct.Struct("<BIIQbqI")
+NEW, BUY, ACCEPTED, REJECTED = 1, 1, 1, 5
 # The exchange starts its parts a couple of seconds apart, so it takes about 10 s to open its port;
 # the client takes about 15 s more to start and send its first order (orders then follow every
 # 20 ms). The limits allow for the sanitizer build, which is slower.
@@ -94,6 +105,56 @@ class ExchangeCommandLineTest(unittest.TestCase):
                 self.assertIn("usage: exchange_main", result.stderr, args)
             with open(recording) as file:
                 self.assertEqual(file.read(), "an earlier run", "a refused command line left the recording alone")
+
+
+def start_exchange(test, args, directory):
+    """The exchange, started in `directory`, once its order port is open."""
+    test.assertFalse(order_port_open(), f"something is already listening on port {ORDER_PORT}: is an exchange running?")
+    exchange = Process([EXCHANGE, *args], directory)
+    deadline = time.monotonic() + EXCHANGE_LIMIT
+    while not order_port_open():
+        if not exchange.running() or time.monotonic() > deadline:
+            exchange.kill()
+            test.fail(f"the exchange didn't open port {ORDER_PORT} (exit code {exchange.process.returncode})")
+        time.sleep(0.1)
+    return exchange
+
+
+def receive_response(connection):
+    """The next response on the order port, as (seq, type, client, ticker, client_order_id, ...)."""
+    data = b""
+    while len(data) < RESPONSE.size:
+        chunk = connection.recv(RESPONSE.size - len(data))
+        if not chunk:
+            raise AssertionError("the exchange closed the connection")
+        data += chunk
+    return RESPONSE.unpack(data)
+
+
+class ExchangeRefusesWhatItCantProcessTest(unittest.TestCase):
+    def test_an_order_past_the_order_ids_is_rejected_unrecorded_and_the_exchange_runs_on(self):
+        """An order id past the matcher's table once ended the exchange (an exception in a noexcept
+        function); the order server now rejects it before the matcher sees it."""
+        with tempfile.TemporaryDirectory() as directory:
+            exchange = start_exchange(self, ["--record", "live.rec"], directory)
+            try:
+                with socket.create_connection(("127.0.0.1", ORDER_PORT), timeout=10) as connection:
+                    connection.sendall(REQUEST.pack(1, NEW, 9, 0, MAX_ORDER_IDS, BUY, 100, 10))
+                    seq, kind, client, ticker, order, *_ = receive_response(connection)
+                    self.assertEqual((seq, kind, client, ticker, order), (1, REJECTED, 9, 0, MAX_ORDER_IDS))
+                    connection.sendall(REQUEST.pack(2, NEW, 9, 0, 1, BUY, 100, 10))
+                    seq, kind, client, ticker, order, *_ = receive_response(connection)
+                    self.assertEqual((seq, kind, client, ticker, order), (2, ACCEPTED, 9, 0, 1))
+                self.assertTrue(exchange.running(), f"the exchange exited with code {exchange.process.returncode}")
+            finally:
+                exchange.kill()
+            # Each request is written as the matcher processes it, so the recording is whole though the
+            # exchange was killed; the rejected order isn't in it.
+            with open(os.path.join(directory, "live.rec"), "rb") as file:
+                recording = file.read()
+        self.assertEqual(recording[:8], b"LLREQ001")
+        requests = [RECORDED.unpack_from(recording, offset) for offset in range(8, len(recording), RECORDED.size)]
+        self.assertEqual(requests, [(NEW, 9, 0, 1, BUY, 100, 10)])
 
 
 class ExchangeAndClientTest(unittest.TestCase):

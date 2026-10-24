@@ -46,6 +46,9 @@ FEED_SOCKET = "src/feed/feed_socket.cpp"
 VIEWER_OPTIONS = "src/viewer/viewer_options.cpp"
 REPLAY = "backend/Chapter12/exchange/matcher/replay.cpp"
 RECORDING = "backend/Chapter12/exchange/matcher/request_recording.cpp"
+CLIENT_REQUEST = "backend/Chapter12/exchange/order_server/client_request.h"
+ORDER_SERVER = "backend/Chapter12/exchange/order_server/order_server.h"
+ORDER_MANAGER = "backend/Chapter12/trading/strategy/order_manager.h"
 MATCHING_ENGINE = "backend/Chapter12/exchange/matcher/matching_engine.h"
 REPLAY_MAIN = "backend/Chapter12/exchange/exchange_replay.cpp"
 REQUEST_ANCHOR = "backend/Chapter12/exchange/matcher/lockstep_anchor.cpp"
@@ -310,8 +313,27 @@ MUTANTS = [
      [("      if (const auto why = unprocessable(recording.requests[i])) {",
        "      if (const auto why = unprocessable(recording.requests[i]); why && false) {")],
      "lowlatency_tests"),
-    ("a recording's tickers aren't checked", RECORDING,
-     [("      if (ticker >= Common::ME_MAX_TICKERS) {", "      if (false) {")],
+    ("a request's ticker isn't checked", CLIENT_REQUEST,
+     [("    if (ticker >= Common::ME_MAX_TICKERS) {", "    if (false) {")],
+     "lowlatency_tests"),
+    ("a request's order id isn't checked", CLIENT_REQUEST,
+     [("    if (order >= Common::ME_MAX_ORDER_IDS) {", "    if (false) {")],
+     "lowlatency_tests|backend_system_tests"),
+    # The order server refuses what the matcher can't process.
+    ("the order server passes on what the matcher can't process", ORDER_SERVER,
+     [("            refuse(socket, request->me_client_request_, *why);\n            continue;\n", "")],
+     "lowlatency_tests|backend_system_tests"),
+    ("a refused cancel is answered as a rejected order", ORDER_SERVER,
+     [("request.type_ == ClientRequestType::CANCEL ? ClientResponseType::CANCEL_REJECTED : ClientResponseType::REJECTED",
+       "ClientResponseType::REJECTED")],
+     "lowlatency_tests"),
+    ("a refusal takes no response number", ORDER_SERVER,
+     [("      socket->send(&response, sizeof(MEClientResponse));\n      ++next_outgoing_seq_num;\n",
+       "      socket->send(&response, sizeof(MEClientResponse));\n")],
+     "lowlatency_tests"),
+    ("the trading client ignores a rejection", ORDER_MANAGER,
+     [("        case Exchange::ClientResponseType::REJECTED: {\n          order->order_state_ = OMOrderState::DEAD;\n",
+       "        case Exchange::ClientResponseType::REJECTED: {\n")],
      "lowlatency_tests"),
     ("a failed recording write says nothing of where it stopped", RECORDING,
      [("    ++recorded_;\n", "")],
