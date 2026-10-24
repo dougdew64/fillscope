@@ -12,6 +12,7 @@ procedure. **Read when:** building, running or changing it.
 | `src/common/` | helpers the others share: `fd.h`, a file descriptor's owner; `parse.h`, strict parsing of a number from text |
 | `tools/vscode-debug-state/` | the VS Code extension that publishes the debugger's state ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `tools/attribution/` | `attribution.py`, which writes [ATTRIBUTION.md](ATTRIBUTION.md): per file, the owner's lines and the lines co-authored with Claude (`python3 -I tools/attribution/attribution.py`; `--check` checks the committed report). The back end keeps a copy, which writes its own report with upstream's lines too (`--upstream`; its `CLAUDE.md` gives the command) |
+| `tools/code_map/` | `code_map.py`, which checks that [CODE-MAP.md](CODE-MAP.md) puts every code file in exactly one part (`python3 -I tools/code_map/code_map.py --check`) |
 | `tests/<area>/` | the tests of one area, mirroring `src/` and `tools/` (`tests/feed/` tests `src/feed/`), with the area's `CMakeLists.txt` |
 | `tests/support/` | helpers several areas' tests share (running a command, sending to a multicast group) |
 | `tests/scripts/` | the commands that run the tests and check them (below) |
@@ -128,6 +129,10 @@ the slower program adds the tier to its name.
   own, a fork's included; that the committed [ATTRIBUTION.md](ATTRIBUTION.md) is exactly what its
   named commit gives; and that the back end's copy of the script is this one. The report's numbers
   depend on the repository's history, so `iterate.py` runs the check every time.
+- **`code_map_tests` and `code_map_check` (Python, `unit`):** the code map's check, on small
+  repositories of its own; and that [CODE-MAP.md](CODE-MAP.md) puts every code file in exactly one
+  part. Which files the repository has is no single file, so `iterate.py` runs the check every
+  time.
 - **`vscode_debug_state_tests` (Node's test runner, `check`) and `vscode_debug_state_typecheck`
   (the TypeScript compiler, `check`):** the debug-state extension's logic, driven by fake debug
   sessions; its VS Code side, run against a fake `vscode` module; and its JavaScript checked

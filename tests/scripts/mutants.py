@@ -32,6 +32,7 @@ DOC_LINKS = "tests/docs/doc_links_test.cpp"
 DEBUG_STATE = "tools/vscode-debug-state/src/debug_state.js"
 EXTENSION = "tools/vscode-debug-state/src/extension.js"
 ATTRIBUTION = "tools/attribution/attribution.py"
+CODE_MAP = "tools/code_map/code_map.py"
 BOOK = "backend/Chapter12/exchange/matcher/me_order_book.cpp"
 BOOK_HEADER = "backend/Chapter12/exchange/matcher/me_order_book.h"
 MD_PUBLISHER = "backend/Chapter12/exchange/market_data/market_data_publisher.cpp"
@@ -119,6 +120,36 @@ MUTANTS = [
     ("a submodule's entry is counted as a file", ATTRIBUTION,
      [('            if mode in ("100644", "100755"):', '            if True:')],
      "attribution_tests"),
+    ("the code map's check leaves out a submodule's files", CODE_MAP,
+     [('            files.extend(f"{name}/{inner}" for inner in listed(path) if (path / inner).is_file())', '            pass')],
+     "code_map_tests"),
+    ("the code map's check leaves out untracked files", CODE_MAP,
+     [('"ls-files", "--cached", "--others", "--exclude-standard", "-z"', '"ls-files", "--cached", "--exclude-standard", "-z"')],
+     "code_map_tests"),
+    ("the code map counts documents as code", CODE_MAP,
+     [('NOT_CODE = ("*.md", "LICENSE")', 'NOT_CODE = ("LICENSE",)')],
+     "code_map_tests"),
+    ("the code map counts the back end's other chapters as code", CODE_MAP,
+     [("    return not path.startswith(BACKEND) or path.startswith(BACKEND_IN_USE)", "    return True")],
+     "code_map_tests"),
+    ("the code map ignores a heading's directory", CODE_MAP,
+     [("        patterns = [base + pattern for pattern", "        patterns = [pattern for pattern")],
+     "code_map_tests"),
+    ("a directory in the code map matches files beside it", CODE_MAP,
+     [("        return path.startswith(pattern)", '        return path.startswith(pattern.rstrip("/"))')],
+     "code_map_tests"),
+    ("the code map's check passes a pattern that names no file", CODE_MAP,
+     [("            if not any(matches(pattern, path) for path in code):", "            if False:")],
+     "code_map_tests"),
+    ("the code map's check counts documents as files a pattern names", CODE_MAP,
+     [("            if not any(matches(pattern, path) for path in code):", "            if not any(matches(pattern, path) for path in files):")],
+     "code_map_tests"),
+    ("the code map's check passes a file in two parts", CODE_MAP,
+     [("        elif len(owners) > 1:", "        elif False:")],
+     "code_map_tests"),
+    ("the code map's check passes whatever it finds", CODE_MAP,
+     [("    if found:\n        print(f\"{MAP}:", "    if False:\n        print(f\"{MAP}:")],
+     "code_map_tests"),
     # The system tier's timeout must reach its test: at one second, the test (half a minute) fails.
     ("the system tier's timeout is one second", "tests/CMakeLists.txt",
      [("set(FILLSCOPE_TIMEOUT_system 120)", "set(FILLSCOPE_TIMEOUT_system 1)")],

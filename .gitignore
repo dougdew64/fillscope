@@ -21,6 +21,7 @@ recordings/
 
 # Local, per-machine Claude instructions
 CLAUDE.local.md
+.claude/skills/quiz
 
 # Secrets: never committed
 .env

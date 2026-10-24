@@ -103,6 +103,7 @@ target_compile_definitions(imgui_te PUBLIC IMGUI_USER_CONFIG="imconfig_test_engi
 target_link_libraries(imgui_te PUBLIC Threads::Threads)
 
 add_subdirectory(attribution)
+add_subdirectory(code_map)
 add_subdirectory(common)
 add_subdirectory(backend)
 add_subdirectory(docs)

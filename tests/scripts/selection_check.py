@@ -22,11 +22,12 @@ sys.dont_write_bytecode = True
 
 EXTENSION = {"vscode_debug_state_tests", "vscode_debug_state_typecheck"}
 ATTRIBUTION = {"attribution_tests", "attribution_report_check", "attribution_copy_check"}
+CODE_MAP = {"code_map_tests", "code_map_check"}
 ALL = {"common_tests", "docs_tests",
        "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests", "feed_tests",
-       "feed_system_tests", "replay_debugger_tests"} | EXTENSION | ATTRIBUTION
+       "feed_system_tests", "replay_debugger_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP
 # The programs iterate.py runs every time, affected or not.
-ALWAYS = {"docs_tests", "attribution_report_check"}
+ALWAYS = {"docs_tests", "attribution_report_check", "code_map_check"}
 
 # A change that reaches the binary: an extra string in the .comment section. (A comment in the
 # source would change nothing the build produces, which is the point of building from the output.)
@@ -60,6 +61,7 @@ CASES = [
      {"feed_system_tests", "replay_debugger_tests"}),
     ("tools/vscode-debug-state/tsconfig.json", JS_PROBE, EXTENSION),
     ("tools/attribution/attribution.py", TEXT_PROBE, ATTRIBUTION),
+    ("tools/code_map/code_map.py", TEXT_PROBE, CODE_MAP),
     # The back end: its own tests link it, and the system test starts its programs.
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "feed_system_tests", "replay_debugger_tests"}),
@@ -69,7 +71,8 @@ CASES = [
     # Nothing tests the viewer's window yet, so changing it affects no test program.
     ("src/viewer/main.cpp", CPP_PROBE, set()),
     # A file no program lists. docs_tests may still link to it, which is why it always runs (below);
-    # the attribution check always runs because the history its report describes is no file.
+    # the attribution check always runs because the history its report describes is no file, and
+    # the code map's because which files the repository has is no file either.
     ("LICENSE", TEXT_PROBE, set()),
 ]
 

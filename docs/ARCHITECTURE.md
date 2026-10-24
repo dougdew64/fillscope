@@ -9,7 +9,8 @@ This document grows from questions. When the owner asks how or why the code does
 answer is written here, where the next reader will look, and not left in a conversation. It is
 meant to be read, not searched: each answer is worked into the explanation, rewriting or
 reordering it as needed, and a part that needs more depth gets a document of its own, linked
-from here.
+from here. [CODE-MAP.md](CODE-MAP.md) lists every part of the code, where it is explained here,
+and what the owner has asked about it, so what is not yet explained shows.
 
 Facts owned elsewhere are linked, not repeated: the debugger's rules in
 [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md), commands and tests in [RUNNING.md](RUNNING.md), why
@@ -104,6 +105,7 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 | `src/common/` | Helpers the others share: `Fd`, a file descriptor's owner, and `parse_number`, strict parsing of a number from text | headers only |
 | `tools/vscode-debug-state/` | The VS Code extension that publishes the debugger's state | JavaScript, run by VS Code |
 | `tools/attribution/` | The report of who wrote each file's lines ([AI-USE.md](AI-USE.md)), Fillscope's and, with upstream's lines too, the back end's (a copy) | Python script |
+| `tools/code_map/` | The check that [CODE-MAP.md](CODE-MAP.md) puts every code file in one part | Python script |
 | `tests/` | One directory per area, mirroring the above | test programs per area, each in one cost tier |
 
 Dependencies point one way: the viewer depends on the feed, and both use `src/common/`. Nothing in
@@ -442,7 +444,7 @@ tests are in the fork. How tests are selected, tiered and run is in [RUNNING.md]
 - **The selection check** (`tests/scripts/selection_check.py`). Between edits, `iterate.py` runs
   only the test programs an edit affects, judged from what the build produced rather than a
   hand-kept list. If it judged wrongly, a test that should run wouldn't, and the tests would look
-  green over a break. So the check makes 23 known edits in a scratch copy and requires
+  green over a break. So the check makes 24 known edits in a scratch copy and requires
   `iterate.py` to choose exactly the right programs for each, no more and no fewer; each edit is a
   rebuild. It matters when the test machinery or the build's structure
   changes (a new test program, a new dependency).
