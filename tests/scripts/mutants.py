@@ -62,7 +62,8 @@ TEST_SUPPORT = "tests/support/test_support.h"
 FORK_TEST_SUPPORT = "backend/Chapter12/tests/test_support.cpp"
 BACKEND_SYSTEM_TEST = "tests/backend/backend_system_test.py"
 
-# (name, file, [(old, new), ...], CTest regex of tests that must fail)
+# (name, file, [(old, new), ...], the tests that must catch it: a CTest regex, or one of the other
+# forms Runner names, such as "lowlatency:FILTER")
 MUTANTS = [
     ("a number is read from only part of the text", PARSE,
      [("if (error != std::errc{} || stopped_at != last) {", "if (error != std::errc{}) {")],
