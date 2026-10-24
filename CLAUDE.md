@@ -41,8 +41,10 @@ Every document opens with three lines: Purpose, Status, Read when. Status is one
 for the record, not a new rule; when uncertain, ask the owner.
 
 When the owner asks how or why the code does something, answer, then write the answer into
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) in the same session, rewriting what is there rather
-than appending; move the fact there if another document owned it.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), or a sub-document it links to, in the same session;
+move the fact there if another document owned it. The document is written for a human reader,
+not as a collection of facts: rewrite or reorder what is there so it reads well, rather than
+appending. A question shows where it falls short.
 
 ## Craft
 - **Verify, never recite:** build and run anything claimed to work; name the compiler version.

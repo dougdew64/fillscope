@@ -6,7 +6,10 @@ kept true to the code (a change that moves structure or data flow updates this i
 commit). **Read when:** learning the code, or before changing how its parts connect.
 
 This document grows from questions. When the owner asks how or why the code does something, the
-answer is written here, where the next reader will look, and not left in a conversation.
+answer is written here, where the next reader will look, and not left in a conversation. It is
+meant to be read, not searched: each answer is worked into the explanation, rewriting or
+reordering it as needed, and a part that needs more depth gets a document of its own, linked
+from here.
 
 Facts owned elsewhere are linked, not repeated: the debugger's rules in
 [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md), commands and tests in [RUNNING.md](RUNNING.md), why
