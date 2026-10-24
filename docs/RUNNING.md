@@ -93,8 +93,9 @@ the slower program adds the tier to its name.
   it making the snapshot synthesizer.
 - **`backend_system_tests` (Python, `system`):** the back end as Fillscope builds it: the exchange
   and a random-trading client run together for about half a minute, and the test, joined to the
-  exchange's incremental market data feed, sees orders added and every update arrive in sequence;
-  and an order past the order ids, sent to the exchange directly, is rejected and left out of the
+  exchange's incremental market data feed on the loopback interface, sees orders added and every
+  update arrive in sequence, and none of it on the default interface, which leads off the machine
+  (that check is left out on a machine with no network); and an order past the order ids, sent to the exchange directly, is rejected and left out of the
   recording, and the exchange runs on and accepts the next. The exchange's ports are fixed in its code, so it fails at once if another exchange is running.
 - **`replay_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** lockstep on a replay: `exchange_replay`, publishing a three-request recording on a

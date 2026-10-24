@@ -26,20 +26,21 @@ UPDATE_SIZE = 42  # one MDPMarketUpdate's bytes
 
 
 class Viewer:
-    """A member of the group, as the viewer joins it: bound to the group's address and port."""
+    """A member of the group, as the viewer joins it: bound to the group's address and port, on the
+    loopback interface."""
 
     def __init__(self, group, port):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind((group, port))
-        membership = struct.pack("4s4s", socket.inet_aton(group), socket.inet_aton("0.0.0.0"))
+        membership = struct.pack("4s4s", socket.inet_aton(group), socket.inet_aton("127.0.0.1"))
         self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
         self.socket.setblocking(False)
         self.received = 0
 
     def count(self, expected):
         """Takes what has arrived and returns how many updates have arrived in all. At a stop the
-        replay is frozen, but multicast looped back to this machine is delivered asynchronously, so
+        replay is frozen, but multicast, even on the loopback interface, is delivered asynchronously, so
         it waits up to two seconds for `expected` (generous, for a loaded machine and the sanitizer
         build). A replay that sent nothing before the stop falls short however long it waits."""
         deadline = time.monotonic() + 2.0

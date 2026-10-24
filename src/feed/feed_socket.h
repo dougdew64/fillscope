@@ -15,9 +15,8 @@
 
 namespace fillscope {
 
-// Where a stream is sent. The exchange's are fixed in its code (exchange_main.cpp there). It names the
-// loopback interface, but its sockets don't use the name: it sends on the interface the system routes
-// the group to, and the system loops a copy back to listeners on this machine.
+// Where a stream is sent. The exchange's are fixed in its code (exchange_main.cpp there), and it sends
+// them on the loopback interface, so they never leave this machine.
 struct Stream {
     std::string group;
     std::uint16_t port = 0;
@@ -30,8 +29,8 @@ inline const Stream kExchangeSnapshot{"233.252.14.1", 20000};
 
 class FeedSocket {
 public:
-    // A member of the stream's group on the default interface, as the trading clients join, so it
-    // receives what the exchange sends. Bound to the group's address and port, so it receives only that
+    // A member of the stream's group on the loopback interface, as the trading clients join, so it
+    // receives what the exchange sends there (and nothing sent to the group on another interface). Bound to the group's address and port, so it receives only that
     // group's datagrams; other programs (the trading clients) can listen too. Non-blocking.
     [[nodiscard]] static std::expected<FeedSocket, std::error_code> join(const Stream& stream);
 

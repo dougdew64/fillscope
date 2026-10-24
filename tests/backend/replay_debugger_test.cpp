@@ -151,7 +151,7 @@ public:
         sockaddr_in address{.sin_family = AF_INET, .sin_port = htons(port), .sin_addr = {}, .sin_zero = {}};
         ::inet_pton(AF_INET, group.c_str(), &address.sin_addr);
         EXPECT_EQ(::bind(fd_, reinterpret_cast<const sockaddr*>(&address), sizeof address), 0) << std::strerror(errno);
-        ip_mreq membership{.imr_multiaddr = address.sin_addr, .imr_interface = {htonl(INADDR_ANY)}};
+        ip_mreq membership{.imr_multiaddr = address.sin_addr, .imr_interface = {htonl(INADDR_LOOPBACK)}};
         EXPECT_EQ(::setsockopt(fd_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof membership), 0);
         const timeval timeout{0, 50'000};
         ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);

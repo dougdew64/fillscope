@@ -6,9 +6,10 @@
 #   python3 -I tests/backend/backend_system_test.py EXCHANGE_MAIN TRADING_MAIN
 #
 # The exchange's addresses are fixed in its code (exchange_main.cpp): orders over TCP on port 12345,
-# incremental updates on UDP multicast 233.252.14.3:20001, sent on the interface the system routes
-# the group to and looped back to this machine. So only one exchange can run on the machine at a
-# time, and the test says so if another is running.
+# incremental updates on UDP multicast 233.252.14.3:20001, sent on the loopback interface, so they
+# never leave the machine. So only one exchange can run on the machine at a time, and the test says so
+# if another is running.
+import contextlib
 import os
 import signal
 import socket
@@ -53,15 +54,32 @@ def order_port_open():
         return probe.connect_ex(("127.0.0.1", ORDER_PORT)) == 0
 
 
-def incremental_feed():
+def incremental_feed(interface="127.0.0.1"):
     """A socket that receives the incremental feed, joined as the book's own consumer joins it
-    (socket_utils.h): bound to the port on any address, a member of the group on any interface."""
+    (socket_utils.h): bound to the port on any address, a member of the group on the loopback
+    interface. Joined on 0.0.0.0, the default interface (where the book's exchange sent it), it
+    receives only what arrives there: IP_MULTICAST_ALL off keeps it from receiving the group from
+    another interface because another socket joined it there."""
     feed = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    feed.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    feed.bind(("", INCREMENTAL_PORT))
-    membership = struct.pack("4s4s", socket.inet_aton(INCREMENTAL_GROUP), socket.inet_aton("0.0.0.0"))
-    feed.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
+    try:
+        feed.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        feed.setsockopt(socket.IPPROTO_IP, getattr(socket, "IP_MULTICAST_ALL", 49), 0)
+        feed.bind(("", INCREMENTAL_PORT))
+        membership = struct.pack("4s4s", socket.inet_aton(INCREMENTAL_GROUP), socket.inet_aton(interface))
+        feed.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership)
+    except OSError:
+        feed.close()
+        raise
     return feed
+
+
+def default_interface_feed():
+    """The feed as joined on the default interface; on a machine with none (no network), nothing to
+    receive, which a `with` closes as it would a socket."""
+    try:
+        return incremental_feed("0.0.0.0")
+    except OSError:
+        return contextlib.nullcontext()
 
 
 def decode(datagram):
@@ -160,7 +178,8 @@ class ExchangeRefusesWhatItCantProcessTest(unittest.TestCase):
 class ExchangeAndClientTest(unittest.TestCase):
     def test_a_clients_orders_reach_the_exchange_and_its_market_data_leaves_it(self):
         self.assertFalse(order_port_open(), f"something is already listening on port {ORDER_PORT}: is an exchange running?")
-        with tempfile.TemporaryDirectory() as directory, incremental_feed() as feed:
+        with tempfile.TemporaryDirectory() as directory, incremental_feed() as feed, \
+                default_interface_feed() as elsewhere:
             exchange = Process([EXCHANGE], directory)
             client = None
             try:
@@ -187,6 +206,17 @@ class ExchangeAndClientTest(unittest.TestCase):
                 if client is not None:
                     client.kill()
                 exchange.kill()
+
+            # On loopback only: none of it reached the default interface, which leads off the machine.
+            if elsewhere is not None:
+                elsewhere.setblocking(False)
+                arrived = 0
+                try:
+                    while elsewhere.recv(65536):
+                        arrived += 1
+                except BlockingIOError:
+                    pass
+                self.assertEqual(arrived, 0, "the exchange's market data reached the default interface, off the machine")
 
         # The feed's sequence numbers count from 1 with no gap: the test saw every update, in order.
         self.assertEqual([u[0] for u in updates], list(range(1, len(updates) + 1)))

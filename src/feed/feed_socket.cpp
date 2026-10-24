@@ -34,7 +34,8 @@ std::expected<FeedSocket, std::error_code> FeedSocket::join(const Stream& stream
     if (::bind(fd.get(), reinterpret_cast<const sockaddr*>(&address), sizeof address) != 0) {
         return std::unexpected{last_socket_error()};
     }
-    const ip_mreq membership{.imr_multiaddr = group, .imr_interface = {htonl(INADDR_ANY)}};
+    // On the loopback interface, which the exchange sends on (feed_socket.h).
+    const ip_mreq membership{.imr_multiaddr = group, .imr_interface = {htonl(INADDR_LOOPBACK)}};
     if (::setsockopt(fd.get(), IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof membership) != 0) {
         return std::unexpected{last_socket_error()};
     }

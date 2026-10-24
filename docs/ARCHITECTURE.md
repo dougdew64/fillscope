@@ -100,10 +100,12 @@ is already several processes talking over sockets, as trading systems do (charte
 **Why the viewer listens to multicast:** an exchange publishes its market data to whoever listens,
 by multicast: one datagram reaches every member of a group. So the viewer reads exactly what the
 trading clients read, needs nothing from the back end that a client doesn't, and changes nothing
-about it. The exchange's code names the loopback interface, but its sockets don't use the name:
-it sends on the interface the system routes the groups to (on a machine with Wi-Fi, onto the local
-network), and the system loops a copy back to listeners on the machine (a known issue in the back
-end's README).
+about it. Everything here runs on one machine, so the exchange sends on the loopback interface,
+and every listener, the viewer included, joins the groups there. Nothing leaves the machine, and it
+works with no network at all. Both sides must agree: a listener joined on another interface
+receives nothing. (The book's sockets ignored the interface they were given, so the exchange sent on
+the one the system routes the groups to, on a machine with Wi-Fi onto the local network, and with
+no network couldn't send at all. The fork fixed it.)
 
 **The assistant** is today Claude, in Claude Code beside the debugger in VS Code: when you ask
 about what you have pointed at or where a program is stopped, it reads the two files and answers.
