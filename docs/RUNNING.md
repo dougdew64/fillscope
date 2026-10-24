@@ -82,7 +82,7 @@ the slower program adds the tier to its name.
 - **`lowlatency_tests` (GoogleTest, `system`, the whole program as one test):** the back end's own
   tests, in the fork (`backend/Chapter12/tests/`): the market data's layout on the wire, the
   matching (price-time priority, partial fills, sweeps, cancels), the incremental feed's sequence
-  numbers, a snapshot's content and its interval, and recording and replaying requests. One process for them all, about 12 s and 4.3 GB (about 40 s in
+  numbers, a snapshot's content and its interval, and recording and replaying requests. One process for them all, about 15 s and 4.3 GB (about 40 s in
   the sanitizer build alongside the other tests): the exchange's objects take seconds and
   gigabytes to make. The fork's own CI runs them too.
 - **`backend_system_tests` (Python, `system`):** the back end as Fillscope builds it: the exchange

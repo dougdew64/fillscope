@@ -77,6 +77,25 @@ class Process:
         self.process.wait()
 
 
+class ExchangeCommandLineTest(unittest.TestCase):
+    def test_a_bad_command_line_is_refused_and_leaves_the_recording_as_it_was(self):
+        """Refused before anything starts, so these need no exchange to be stopped. Each interval was
+        once accepted: inf and 1e10 overflowed the nanoseconds, 1e-12 made them 0."""
+        with tempfile.TemporaryDirectory() as directory:
+            recording = os.path.join(directory, "live.rec")
+            with open(recording, "w") as file:
+                file.write("an earlier run")
+            for args in (["--snapshot-interval-seconds", "inf"], ["--snapshot-interval-seconds", "1e10"],
+                         ["--snapshot-interval-seconds", "1e-12"], ["--snapshot-interval-seconds", "nan"],
+                         ["--snapshot-interval-seconds", "x"], ["--record", recording, "--bogus", "x"],
+                         ["--record", recording, "--snapshot-interval-seconds"]):
+                result = subprocess.run([EXCHANGE, *args], cwd=directory, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 2, args)
+                self.assertIn("usage: exchange_main", result.stderr, args)
+            with open(recording) as file:
+                self.assertEqual(file.read(), "an earlier run", "a refused command line left the recording alone")
+
+
 class ExchangeAndClientTest(unittest.TestCase):
     def test_a_clients_orders_reach_the_exchange_and_its_market_data_leaves_it(self):
         self.assertFalse(order_port_open(), f"something is already listening on port {ORDER_PORT}: is an exchange running?")

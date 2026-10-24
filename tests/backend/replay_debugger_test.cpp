@@ -324,6 +324,29 @@ TEST_F(ReplayLockstep, AStreamOfItsOwn) {
     }
 }
 
+// The replay's command line is read exactly: each of these was once accepted as something else,
+// and each is refused with the usage, while the same line with good values runs to its end.
+TEST_F(ReplayLockstep, ABadCommandLineIsRefused) {
+    const std::string stream = std::format("{}:{}", group(), port());
+    const std::vector<std::string> bad_lines = {
+        std::format("--publish {} --interval-ms ''", stream),
+        std::format("--publish {} --interval-ms 99999999999999999999", stream),
+        std::format("--publish {} --interval-ms -5", stream),
+        std::format("--publish {}:' 99'", group()),
+        std::format("--publish {}:+99", group()),
+        std::format("--publish {}:0", group()),
+        "--publish not.an.address:24000",
+        "--publish 233.252.18.1"};
+    for (const std::string& bad : bad_lines) {
+        const auto result = test::run_command(kReplay + " three.rec " + bad);
+        EXPECT_EQ(result.status, 2) << bad << "\n" << result.output;
+        EXPECT_NE(result.output.find("usage: exchange_replay"), std::string::npos) << bad << "\n" << result.output;
+    }
+    const auto good = test::run_command(kReplay + " three.rec --publish " + stream + " --interval-ms 0");
+    EXPECT_EQ(good.status, 0) << good.output;
+    EXPECT_NE(good.output.find(kFinished), std::string::npos) << good.output;
+}
+
 // Without --self-stop or a breakpoint, a replay under a debugger runs straight through.
 TEST_F(ReplayLockstep, WithoutSelfStopNoStop) {
     REQUIRE_DEBUGGER("lldb");
