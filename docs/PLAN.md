@@ -192,7 +192,9 @@ that left during a recovery was said to have left by its last update seen; a rec
 the matcher can't process was replayed into undefined behaviour; the exchange's and the replay's
 command lines accepted values that overflowed or were misread; the mutation check counted a Node
 test name that matched nothing as having run. Each fix has a test, seen to fail first, and a mutant.
-What needs the owner's decision is TECH-DEBT.md's items 5 to 11.
+What needs the owner's decision is TECH-DEBT.md's items 5 to 11. CI passes at chunk 3 (`4c3506d`)
+and the fork's commit (`3a5cc6a`); chunks 1 and 2 failed CI on one mutant that chunk 1's publisher
+fix had made uncatchable as root, which chunk 3 fixed.
 
 ### 10. Faster tests between changes
 After steps 1 to 9 (the owner, 2026-10-23), before rapid work on the UI begins. Today `iterate.py`
