@@ -22,11 +22,18 @@ HERE = pathlib.Path(__file__).resolve().parent
 def load_iterate(state=None):
     """A fresh copy of iterate.py as a module (python3 -I puts no script directory on the import
     path, so it is loaded by its path), with its pass record at `state` if given."""
+    previous = os.environ.get("FILLSCOPE_ITERATE_STATE")
     if state is not None:
         os.environ["FILLSCOPE_ITERATE_STATE"] = str(state)
-    spec = importlib.util.spec_from_file_location("iterate", HERE / "iterate.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec = importlib.util.spec_from_file_location("iterate", HERE / "iterate.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:  # read when the module loads; restored, so it doesn't leak into later tests
+        if previous is None:
+            os.environ.pop("FILLSCOPE_ITERATE_STATE", None)
+        else:
+            os.environ["FILLSCOPE_ITERATE_STATE"] = previous
     return module
 
 
@@ -44,20 +51,20 @@ def test_entry(name, program, command):
 
 class ManifestTest(unittest.TestCase):
     def test_a_line_names_the_program_its_tier_flags_and_run_time_files_even_with_spaces(self):
-        [program] = iterate.programs(manifest_line("viewer_ui_tests", "ui", "/a b/viewer_ui_tests", "/a b/frame source",
+        [program] = iterate.programs(manifest_line("viewer_ui_tests", "ui", "/a b/viewer_ui_tests", "/a b/exchange replay",
                                                    always=True) + "\n")
         self.assertEqual(program.name, "viewer_ui_tests")
         self.assertEqual(program.tier, "ui")
         self.assertTrue(program.always)
         self.assertEqual(program.binary, "/a b/viewer_ui_tests")
-        self.assertEqual(program.files, ["/a b/viewer_ui_tests", "/a b/frame source"])
+        self.assertEqual(program.files, ["/a b/viewer_ui_tests", "/a b/exchange replay"])
 
     def test_a_command_has_no_binary(self):
         [program] = iterate.programs(manifest_line("vscode_debug_state_tests", "check", "-", "/x/a.js"))
         self.assertIsNone(program.binary)
         self.assertEqual(program.files, ["/x/a.js"])
         self.assertTrue(program.fast)
-        [slow] = iterate.programs(manifest_line("lockstep_debugger_tests", "debugger", "/b"))
+        [slow] = iterate.programs(manifest_line("replay_debugger_tests", "debugger", "/b"))
         self.assertFalse(slow.fast)
 
 
@@ -122,7 +129,7 @@ class SanitizerTest(unittest.TestCase):
 class FingerprintTest(unittest.TestCase):
     def test_a_missing_file_is_a_change_not_an_error(self):
         with tempfile.TemporaryDirectory() as scratch:
-            path = pathlib.Path(scratch) / "lldb_driver.py"
+            path = pathlib.Path(scratch) / "replay_lldb_driver.py"
             path.write_text("x")
             present = iterate.file_digest(str(path))
             path.unlink()

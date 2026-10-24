@@ -70,7 +70,7 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 | `src/common/` | Helpers the others share: `Fd`, a file descriptor's owner, and `parse_number`, strict parsing of a number from text | headers only |
 | `tools/vscode-debug-state/` | The VS Code extension that publishes the debugger's state | JavaScript, run by VS Code |
 | `tools/attribution/` | The report of who wrote each file's lines ([AI-USE.md](AI-USE.md)), Fillscope's and, with upstream's lines too, the back end's (a copy) | Python script |
-| `tests/` | One directory per area, mirroring the above | one test program per area and cost tier |
+| `tests/` | One directory per area, mirroring the above | test programs per area, each in one cost tier |
 
 Dependencies point one way: the viewer depends on the feed, and both use `src/common/`. Nothing in
 Fillscope links the back end: it is read only through its market data. (Tests run its programs.)
@@ -138,10 +138,10 @@ requests in the same order give the same updates: the file is the live stream, b
 (`feed_system_tests` checks it against a live run). `read_market_data_file` reads it, checking its
 updates are numbered 1, 2, 3, ...
 
-**Lockstep on a replay** ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)): with `--publish
-GROUP:PORT`, `exchange_replay` sends each request's updates on a multicast group, as the exchange's
-publisher would, and then calls the back end's lockstep anchor,
-`fillscope_request_anchor(request_number, updates_published)`, where a debugger stops. The replay is
+**Lockstep on a replay** ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)): after each request,
+`exchange_replay` calls the back end's lockstep anchor, `fillscope_request_anchor(request_number,
+updates_published)`, where a debugger stops; with `--publish GROUP:PORT`, it first sends that
+request's updates on a multicast group, as the exchange's publisher would. The replay is
 one thread, so when the debugger stops after request N, the viewer, listening to the group, already
 shows the books after it; the live exchange's publisher is a thread of its own, which a stop would
 freeze mid-way. How the anchor stops a program is §6.
@@ -258,11 +258,11 @@ each session's file by its workspace folder, and its tests run it against a fake
 per request. Each stop must come after that request's market data has been sent, be in our own code
 rather than a library's, and have the request's number readable.
 
-`fillscope_request_anchor(request_number, updates_published)`, in the back end's
-`exchange/matcher/lockstep_anchor.cpp`, is where it stops. `exchange_replay` calls it after each
-request, once that request's updates have gone out on the group (§3), so at the stop for request N
-a viewer listening has every update up to N's. The launch configuration picks one of two ways to stop
-there:
+`fillscope_request_anchor(request_number, updates_published)`, in
+`backend/Chapter12/exchange/matcher/lockstep_anchor.cpp`, is where it stops. `exchange_replay` calls
+it after each request, once that request's updates have gone out on the group (§3), so at the stop
+for request N a viewer listening has every update up to N's. The launch configuration picks one of
+two ways to stop there:
 - **Self-stop:** the program stops itself. Nobody sets a breakpoint; the program *is* the
   breakpoint.
 - **Breakpoint by name:** the debugger sets a breakpoint on the function, as on any other.
@@ -345,8 +345,8 @@ These rules, and the tests that guard them (`replay_debugger_tests`, under GDB a
    possibly in one datagram.
 3. On its next paint, the viewer's `FeedSocket::receive` takes the datagram, and `decode_updates`
    turns its bytes into two `MarketUpdate`s.
-4. `BookBuilder::on_incremental` applies 812 (a trade: the ticker's last trade) and 813 (the modify:
-   the resting order's quantity) to the ticker's `Book`, adds an `OrderEvent` to the order's
+4. `BookBuilder::on_incremental` keeps 812 (a trade) as the ticker's last trade, applies 813 (the
+   modify: the resting order's quantity) to the ticker's `Book`, adds an `OrderEvent` to the order's
    history, and expects 814 next.
 5. `draw_viewer` shows the smaller quantity in the order's row; `make_context` puts the books'
    update number, 813, in the background, and the new quantity in the point if that order is
@@ -368,16 +368,15 @@ These rules, and the tests that guard them (`replay_debugger_tests`, under GDB a
 6. You ask the assistant about it; it reads `.fillscope/context.json`.
 
 ## 9. Where the tests fit
-Each area's tests are in the matching `tests/` directory. The feed's unit tests check decoding,
-the books and recovery against hand-made updates (`feed_tests`); its system test runs the real
-exchange and a client and checks Fillscope's books against the exchange's snapshots, and a late
-reader's recovery (`feed_system_tests`), and that the exchange's recording of that run replays to the very updates
-that arrived. The viewer's core has unit tests that need no window
-(`viewer_tests`); the UI tests run the whole loop above with real clicks through the Dear ImGui Test
-Engine, with no window or GPU, including reading real multicast streams and moving through a replay
-(`viewer_ui_tests`). Lockstep on a replay is tested under GDB and LLDB (`replay_debugger_tests`). The back
-end's own tests are in the fork. How tests are selected, tiered and run is in
-[RUNNING.md](RUNNING.md).
+Each area's tests are in the matching `tests/` directory. The feed's unit tests check decoding, the
+books and recovery against hand-made updates (`feed_tests`); its system test runs the real exchange
+and a client and checks Fillscope's books against the exchange's snapshots, and a late reader's
+recovery (`feed_system_tests`), and that the exchange's recording of that run replays to the very
+updates that arrived. The viewer's core has unit tests that need no window (`viewer_tests`); the UI
+tests run the whole loop above with real clicks through the Dear ImGui Test Engine, with no window
+or GPU, including reading real multicast streams and moving through a replay (`viewer_ui_tests`).
+Lockstep on a replay is tested under GDB and LLDB (`replay_debugger_tests`). The back end's own
+tests are in the fork. How tests are selected, tiered and run is in [RUNNING.md](RUNNING.md).
 
 **How the tests are checked.** Two checks ask whether the tests themselves can be trusted:
 - **The mutation check** (`tests/scripts/mutants.py`). A test can pass while testing nothing: an
@@ -386,18 +385,19 @@ end's own tests are in the fork. How tests are selected, tiered and run is in
   for example, the matcher's `price < ask` made `price <= ask`, so a buy no longer trades at the
   ask's price. For each, it rebuilds what the edit affects, runs the tests named for that mutant,
   and requires one of them to fail; a mutant that survives is a blind spot in the tests. Each of
-  the 131 is a rebuild and a test run, so the whole check takes about 15 minutes. A mutant names
-  the tests expected to catch it, so a change to one test needs only the mutants that name it (the
-  script runs a subset by mutant name; choosing them from what changed is a later improvement).
+  them is a rebuild and a test run, so the whole check takes the longest of all (how long:
+  [RUNNING.md](RUNNING.md)). A mutant names the tests expected to catch it, so a change to one
+  test needs only the mutants that name it (the script runs a subset by mutant name; choosing them
+  from what changed is a later improvement).
 - **The selection check** (`tests/scripts/selection_check.py`). Between edits, `iterate.py` runs
   only the test programs an edit affects, judged from what the build produced rather than a
   hand-kept list. If it judged wrongly, a test that should run wouldn't, and the tests would look
   green over a break. So the check makes 23 known edits in a scratch copy and requires
   `iterate.py` to choose exactly the right programs for each, no more and no fewer; each edit is a
-  rebuild, about 4 minutes in all. It matters when the test machinery or the build's structure
+  rebuild. It matters when the test machinery or the build's structure
   changes (a new test program, a new dependency).
 
-CI runs both on every push.
+CI runs both on every push to main and every pull request.
 
 ## 10. A reading order for the code
 1. `src/feed/market_update.h`: what the exchange sends.

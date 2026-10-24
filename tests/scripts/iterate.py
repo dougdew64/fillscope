@@ -98,12 +98,19 @@ def programs(manifest=None):
 
 
 def build_files():
-    """Every CMakeLists.txt of ours, tracked or new: a change to any can change how a test is run.
-    Asking git leaves out every build directory and installed package, whatever its name."""
-    listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "--cached", "--others", "--exclude-standard",
-                             "-z", "--", "CMakeLists.txt", "*/CMakeLists.txt"],
-                            stdout=subprocess.PIPE, check=True).stdout.decode()
-    return sorted(str(ROOT / name) for name in set(listed.split("\0")) if name and (ROOT / name).exists())
+    """Every CMakeLists.txt of ours and of the back end's, tracked or new: a change to any can change
+    how a test is run. Asking git leaves out every build directory and installed package, whatever
+    its name. The back end is a submodule, whose files the top level's listing doesn't include, so
+    it is asked too (in a copy without the submodule's own repository, git answers for the copy)."""
+    found = set()
+    for directory, patterns in ((ROOT, ["CMakeLists.txt", "*/CMakeLists.txt"]),
+                                (ROOT / "backend", ["Chapter12/CMakeLists.txt", "Chapter12/*/CMakeLists.txt"])):
+        if not directory.is_dir():
+            continue
+        listed = subprocess.run(["git", "-C", str(directory), "ls-files", "--cached", "--others", "--exclude-standard",
+                                 "-z", "--", *patterns], stdout=subprocess.PIPE, check=True).stdout.decode()
+        found |= {str(directory / name) for name in listed.split("\0") if name and (directory / name).exists()}
+    return sorted(found)
 
 
 def environment():

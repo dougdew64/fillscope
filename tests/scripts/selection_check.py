@@ -1,8 +1,9 @@
 # Checks that iterate.py selects the right test programs: changes one file at a time and compares
 # the programs it reports affected with the ones that should be. A wrong selection would be silent
 # (a test that should have run doesn't), which is why this check exists. It also runs iterate.py
-# for a few changes, and checks what it ran and what it then recorded: a program that passed is
-# recorded, one that failed is not, and the slow tier is left for run-tests.sh.
+# for a few changes, and checks what it ran and what it then recorded: a run that passed records
+# its programs, one with a failing test records none of them, and the slow tier is left for
+# run-tests.sh.
 #
 #   python3 -I tests/scripts/selection_check.py
 #
@@ -13,7 +14,6 @@ import importlib.util
 import os
 import pathlib
 import signal
-import subprocess
 import sys
 import tempfile
 
@@ -95,6 +95,9 @@ def load_scratch_tree():
     return module
 
 
+SCRATCH_TREE = load_scratch_tree()
+
+
 class Copy:
     """The scratch copy and how to run its iterate.py."""
 
@@ -103,8 +106,8 @@ class Copy:
         self.env = {**os.environ, "FILLSCOPE_ITERATE_BUILD": str(build), "FILLSCOPE_ITERATE_STATE": str(state)}
 
     def iterate(self, *args, may_fail=False):
-        result = subprocess.run([sys.executable, "-I", str(self.root / "tests" / "scripts" / "iterate.py"), *args],
-                                env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        result = SCRATCH_TREE.run([sys.executable, "-I", str(self.root / "tests" / "scripts" / "iterate.py"), *args],
+                                  env=self.env)
         if result.returncode != 0 and not may_fail:
             raise RuntimeError(f"iterate.py {' '.join(args)} failed:\n{result.stdout[-3000:]}")
         return result.stdout
@@ -159,7 +162,8 @@ def run_case(copy, file, probe, expected):
 
 
 def failing_case(copy):
-    """A failing test's program is not recorded as passed, though the rest of the run's are."""
+    """A run with a failing test records nothing (iterate.py records only a run that passed), so
+    the failing test's program is still affected afterwards."""
     copy.iterate("--list")
     copy.iterate("--record-all")
     with copy.changed("tests/viewer/viewer_test.cpp", FAILING_TEST):
@@ -174,7 +178,7 @@ def failing_case(copy):
 def main():
     for signum in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, stop_on_signal)
-    scratch_tree = load_scratch_tree()
+    scratch_tree = SCRATCH_TREE
     root = pathlib.Path(__file__).resolve().parents[2]
     copy_root = scratch_tree.make(root)
     failures = []

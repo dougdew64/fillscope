@@ -13,7 +13,7 @@ procedure. **Read when:** building, running or changing it.
 | `tools/vscode-debug-state/` | the VS Code extension that publishes the debugger's state ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `tools/attribution/` | `attribution.py`, which writes [ATTRIBUTION.md](ATTRIBUTION.md): per file, the owner's lines and the lines co-authored with Claude (`python3 -I tools/attribution/attribution.py`; `--check` checks the committed report). The back end keeps a copy, which writes its own report with upstream's lines too (`--upstream`; its `CLAUDE.md` gives the command) |
 | `tests/<area>/` | the tests of one area, mirroring `src/` and `tools/` (`tests/feed/` tests `src/feed/`), with the area's `CMakeLists.txt` |
-| `tests/support/` | helpers shared by every area's tests |
+| `tests/support/` | helpers several areas' tests share (running a command, sending to a multicast group) |
 | `tests/scripts/` | the commands that run the tests and check them (below) |
 
 ## Build
@@ -82,9 +82,9 @@ the slower program adds the tier to its name.
 - **`lowlatency_tests` (GoogleTest, `system`, the whole program as one test):** the back end's own
   tests, in the fork (`backend/Chapter12/tests/`): the market data's layout on the wire, the
   matching (price-time priority, partial fills, sweeps, cancels), the incremental feed's sequence
-  numbers, a snapshot's content and its interval, and recording and replaying requests. One process for them all, about 15 s and 4.3 GB (about 40 s in
-  the sanitizer build alongside the other tests): the exchange's objects take seconds and
-  gigabytes to make. The fork's own CI runs them too.
+  numbers, a snapshot's content and its interval, and recording and replaying requests. One process
+  for them all, about 15 s and 4.3 GB (about 40 s in the sanitizer build alongside the other tests):
+  the exchange's objects take seconds and gigabytes to make. The fork's own CI runs them too.
 - **`backend_system_tests` (Python, `system`):** the back end as Fillscope builds it: the exchange
   and a random-trading client run together for about half a minute, and the test, joined to the
   exchange's incremental market data feed, sees orders added and every update arrive in sequence.
@@ -140,9 +140,14 @@ debugger tests instead of skipping them.
 
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh
-python3 -I tests/scripts/mutants.py [NAME]   # deliberate bugs, each must fail the tests it names (~10 min)
-python3 -I tests/scripts/selection_check.py  # iterate.py selects, runs and records the right programs (~2 min)
+python3 -I tests/scripts/mutants.py [NAME]   # deliberate bugs, each must fail the tests it names
+python3 -I tests/scripts/selection_check.py  # iterate.py selects, runs and records the right programs
 ```
+**How long each takes** (measured 2026-10-23 on the development machine, with both builds already
+current): `run-tests.sh` about 2 minutes; the selection check about 2; the mutation check about 19,
+for 152 mutants, each a rebuild and a test run. A cold build adds several minutes to the first.
+Run as root (CI's container), the mutation check skips, and names, the mutants whose test needs a
+directory it can't write to, which root always can.
 Both work in a scratch copy of the working tree, with a build of their own, so the files being
 edited, the build in use and the real pass record are never touched, whatever stops them; the copy
 is deleted afterwards. A mutant names the tests meant to catch it: CTest names, single Test Engine
@@ -182,14 +187,16 @@ context bar at the top says what the assistant has been given; `x` clears a line
 published at once to `.fillscope/context.json` in the viewer's working directory (the repository,
 when started from VS Code; `--context-file` chooses another path).
 
-The file says what the books hold as of the last update applied (`asOfSeq`): for an order pointed at,
-its place in its queue (the orders and quantity ahead of it), or how it left; for a level, its
+The file says what the books hold as of the last update applied (`asOfSeq`): for an order pointed
+at, its place in its queue (the orders and quantity ahead of it), or how it left (or, if it left
+unseen, the recovery it left during, `leftDuringRecovery`); for a level, its
 orders in the order they will fill; for an order followed, its events, and any recoveries whose
 updates they may be missing. In a replay, what is pointed at and followed carries a replay address
-(the market data file, its recording, and the update the books are after), which rebuilds that
-exact state; live, the file says there is none. It names its writer (the viewer's process id, when it started, and whether it is
-still running), so a file left by a viewer that has exited says so. If a write fails, the bar says
-so in red, keeps showing what the file actually holds, and the viewer keeps retrying.
+(the market data file, its recording, and the update the books are after), which rebuilds that exact
+state; live, the file says there is none. It names its writer (the viewer's process id, when it
+started, and whether it is still running), so a file left by a viewer that has exited says so. If a
+write fails, the bar says so in red, keeps showing what the file actually holds, and the viewer
+keeps retrying.
 
 ## Debug in lockstep
 Stepping the matcher one request at a time, while the viewer's books follow, runs on a replay of a

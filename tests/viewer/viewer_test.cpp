@@ -714,6 +714,12 @@ TEST_F(Publisher, AFailedWriteThatCantRemoveTheFileKeepsWhatItHolds) {
     ASSERT_TRUE(publisher.error());
     EXPECT_EQ(publisher.published(), pointing_at(1));
     EXPECT_EQ(read_file()["point"]["order"]["orderId"], 1);
+
+    // The user goes back to what the file holds. The context equals published(), but the last write
+    // failed, so it is written again; otherwise the error would stay on screen for good.
+    publisher.update(pointing_at(1), PublishTrigger::user_action, t0_ + 1s);
+    EXPECT_FALSE(publisher.error());
+    EXPECT_EQ(publisher.seq(), 2u);
 }
 
 TEST_F(Publisher, AFailedWriteRemovesTheOldFileWhenItCan) {

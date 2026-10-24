@@ -64,8 +64,9 @@ orders reach the exchange and market data leave it; CI runs it.
 **Status:** done, 2026-10-23: Fillscope `a7ca207`, pinning the fork at `941ef50` (which raised
 CMake's minimum to 3.10, to silence CMake 4.3's deprecation warning). `backend_system_tests`, in a
 new `system` tier, passes in both builds locally and in CI (about 31 s each), with the back end
-under the sanitizers in the sanitizer build; the exchange's multicast reaches the test in CI's container. The
-test machinery covers the back end (the sanitizer check, scratch copies, test selection).
+under the sanitizers in the sanitizer build; the exchange's multicast reaches the test in CI's
+container. The test machinery covers the back end (the sanitizer check, scratch copies, test
+selection).
 
 ### 3. Tests of what Fillscope relies on
 Tests in the fork, run by its own CI and by Fillscope's: the market data messages' layout and
@@ -78,15 +79,16 @@ runs them normally and under the sanitizers, and Fillscope runs them as `lowlate
 are caught.
 **Status:** done, 2026-10-23: fork `73b4ef3`, Fillscope `ef3da5c`; both CIs pass. 17 tests: the
 market data's layout, the matching (price-time priority, partial fills, sweeps, cancels), sequence
-numbers, a snapshot's content. Nine mutants, all caught. Bugs found and fixed in the fork, each by
-a test that failed first: `MEOrderBook`'s table of client orders and its table of price levels
-were never initialized; `createSocket()` leaked `getaddrinfo()`'s list. The build file's
+numbers, a snapshot's content. Nine mutants, all caught. Bugs found and fixed in the fork, each by a
+test that failed first: `MEOrderBook`'s table of client orders and its table of price levels were
+never initialized; `createSocket()` leaked `getaddrinfo()`'s list. The build file's
 `CMAKE_CXX_COMPILER` after `project()` also had to go. Then, at the owner's request (fork
 `c7f9b35`), a fourth: prices 256 or more ticks apart shared a price level and could leave a book
 crossed; levels are now found by exact price, in a fixed-size hash table (`PriceLevelTable`), so
 real prices such as ITCH's work. Known, not fixed (the fork's README): a book holds at most 255
-price levels at once; threads are never joined; shutdown clears 2 GB per book. The tests take about 8 s and 3 GB, since the exchange's
-objects preallocate their pools, so they run in the `system` tier.
+price levels at once; threads are never joined; shutdown clears 2 GB per book. The tests take about
+8 s and 3 GB, since the exchange's objects preallocate their pools, so they run in the `system`
+tier.
 
 ### 4. The viewer shows the live book
 The viewer joins the multicast feed as one more listener, with no change to the back end: it
@@ -99,16 +101,16 @@ exchange's own book at the same sequence number; the UI tests click through it; 
 live.
 **Decided while building it (2026-10-23):** the viewer becomes a viewer of the books: frames leave it
 now rather than in step 8, since keeping both would have doubled every part of it only for step 8 to
-remove one. The frame source, its socket and the anchor stay, for the debugger tests, until step 6.
+remove one. The frame source, its socket and the anchor stayed, for the debugger tests, until step 8.
 The VS Code configurations now run the viewer, the exchange and a client; lockstep returns in step
 6. The exchange gained an option, `--snapshot-interval-seconds`, so tests needn't wait a minute for a
 snapshot.
-**Status:** done, 2026-10-23: Fillscope `2cc015d`, fork `2b9a550`; both CIs pass; the owner has seen it live. Fillscope's books (`src/feed/`) follow the trading
-client's protocol; `feed_system_tests` checks them against the exchange's snapshots, and a late
-reader's recovery. Found and fixed on the way: the viewer stopped painting, and so stopped reading
-market data and answering SIGTERM, while its window couldn't be seen (vsync); it now paces itself.
-Found, recorded in the fork's README: the exchange's multicast goes out on the default interface,
-not loopback.
+**Status:** done, 2026-10-23: Fillscope `2cc015d`, fork `2b9a550`; both CIs pass; the owner has seen
+it live. Fillscope's books (`src/feed/`) follow the trading client's protocol; `feed_system_tests`
+checks them against the exchange's snapshots, and a late reader's recovery. Found and fixed on the
+way: the viewer stopped painting, and so stopped reading market data and answering SIGTERM, while
+its window couldn't be seen (vsync); it now paces itself. Found, recorded in the fork's README: the
+exchange's multicast goes out on the default interface, not loopback.
 
 ### 5. Deterministic replay
 In the fork: the exchange records the client requests in the order its sequencer releases them to
@@ -123,11 +125,12 @@ them (its single-threaded loop: the order is final there); replay is a program o
 `exchange_replay`, which writes the market data a recording gives to a file, rather than a mode of
 `exchange_main`; and the viewer opens that file (`--replay`), not the recording, so Fillscope never
 runs the back end's code. A replay address is (market data file, its recording, update N).
-**Status:** done, 2026-10-23: Fillscope `09f1df6`, fork `fb01a88`; both CIs pass. The live run that `feed_system_tests` checks is
-recorded, replayed, and matches, byte for byte, every update that arrived. The viewer's replay mode
-moves to any update; a point or follow carries the address of the state it describes. Seven mutants,
-from the matcher's recording hook to the viewer's backward step, are caught. VS Code: the exchange
-records every run; **viewer (replay)** replays the last one and opens it.
+**Status:** done, 2026-10-23: Fillscope `09f1df6`, fork `fb01a88`; both CIs pass. The live run that
+`feed_system_tests` checks is recorded, replayed, and matches, byte for byte, every update that
+arrived. The viewer's replay mode moves to any update; a point or follow carries the address of the
+state it describes. Seven mutants, from the matcher's recording hook to the viewer's backward step,
+are caught. VS Code: the exchange records every run; **viewer (replay)** replays the last one and
+opens it.
 
 ### 6. Debugger lockstep with the matcher
 The anchor goes into the fork's matcher, called once per request matched, and launch
@@ -157,12 +160,12 @@ line, not the debugger's report of the exit. **Left:** the owner stepping it in 
 The attribution report in the fork, with a third column for upstream lines, tested and checked as
 Fillscope's is.
 **Done when:** the fork publishes its report, and its check runs in its CI.
-**Status:** done, 2026-10-23: Fillscope `64e885b`, fork `5caa519`; both CIs pass. Fillscope's script gained `--upstream` (the commit forked
-from: its history's lines are upstream's) and `--report`; files unchanged since upstream are summed
-without blaming them, so the fork's 456 files take a fifth of a second. The fork keeps a copy
-(`tools/attribution/`), which `attribution_copy_check` keeps identical, and its report,
-`ATTRIBUTION.md`, which its CI checks against its history. Three mutants of the upstream mode are
-caught.
+**Status:** done, 2026-10-23: Fillscope `64e885b`, fork `5caa519`; both CIs pass. Fillscope's script
+gained `--upstream` (the commit forked from: its history's lines are upstream's) and `--report`;
+files unchanged since upstream are summed without blaming them, so the fork's 456 files take a fifth
+of a second. The fork keeps a copy (`tools/attribution/`), which `attribution_copy_check` keeps
+identical, and its report, `ATTRIBUTION.md`, which its CI checks against its history. Three mutants
+of the upstream mode are caught.
 
 ### 8. The stand-ins retire
 The frame source, its socket messages and the stand-in frames go once the viewer runs on the back
@@ -181,15 +184,23 @@ Once steps 1 to 8 have landed (the owner, 2026-10-23): a sweep of Fillscope and 
 defects and test gaps, and fixing them, as the earlier sweeps did ([TECH-DEBT.md](TECH-DEBT.md)
 keeps what remains).
 **Done when:** every item found is fixed or recorded in TECH-DEBT.md with why it waits.
-**Status:** not started.
+**Status:** done, 2026-10-23: four independent reviews (Fillscope's code, the fork's changes, the
+test machinery, the documents), each finding confirmed in the code or by running it. Fixed in the
+"Third sweep, chunk 1" to "chunk 3" commits and the fork's "Third sweep" commit: among them, a
+snapshot that failed to apply left the books half rebuilt; a recovery could go unrecorded; an order
+that left during a recovery was said to have left by its last update seen; a recording of a request
+the matcher can't process was replayed into undefined behaviour; the exchange's and the replay's
+command lines accepted values that overflowed or were misread; the mutation check counted a Node
+test name that matched nothing as having run. Each fix has a test, seen to fail first, and a mutant.
+What needs the owner's decision is TECH-DEBT.md's items 5 to 11.
 
 ### 10. Faster tests between changes
 After steps 1 to 9 (the owner, 2026-10-23), before rapid work on the UI begins. Today `iterate.py`
-runs only the affected fast tests, in seconds, but a commit's gate, `run-tests.sh`, takes about 5
-minutes (both builds, and the back end's system tests), and the checks of the tests about 20 (the
-mutation check about 15). Candidates: a mutation run of only the mutants that name the tests or
-code changed (each mutant names the tests that must catch it), itself checked to choose every
-mutant a change needs; those checks only in CI, or only when tests change; the sanitizer build only
+runs only the affected fast tests, in seconds, but a commit's gate, `run-tests.sh` (both builds,
+and the back end's system tests), and the checks of the tests take minutes, the mutation check the
+most ([RUNNING.md](RUNNING.md) has the times). Candidates: a mutation run of only the mutants
+that name the tests or code changed (each mutant names the tests that must catch it), itself
+checked to choose every mutant a change needs; those checks only in CI, or only when tests change; the sanitizer build only
 before a push; the system tests only when the back end or the feed changes.
 **Done when:** the time from a change to its tests' result is measured before and after, and each
 shortcut is shown not to skip a test the change affects.
@@ -199,6 +210,12 @@ shortcut is shown not to skip a test the change affects.
 - **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,
   asking questions, whose answers go into [ARCHITECTURE.md](ARCHITECTURE.md), before the roadmap
   continues.
+- **The third sweep's decisions** ([TECH-DEBT.md](TECH-DEBT.md), items 5 to 11): live requests the
+  exchange can't process, a recording that can't be written, full queues, market data leaving the
+  machine, CI's runs on main, separate test runs meeting on the network, and recording the passing
+  programs of a failed run. Each has its choices there.
+- **Step 10's decisions:** it changes what a commit must pass, so the owner chooses which shortcuts
+  to take.
 - **Stepping the matcher in lockstep (step 6's last part):** record a run with **viewer + exchange +
   client**, then step it with a **lockstep** compound ([RUNNING.md](RUNNING.md), "Debug in
   lockstep"), watching the viewer follow each request.

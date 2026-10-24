@@ -7,11 +7,13 @@
 # would track (untracked files that aren't ignored), the back end's (a submodule's) files likewise,
 # plus the extension's installed development tools. It is made a git repository of its own, since iterate.py asks git which build files exist,
 # with the real repository's history (below).
-# Its build reuses the dependencies the real debug build has already fetched, when it has, rather
-# than fetching them again.
+# Its build reuses the dependencies the real debug build has already fetched, when it has the same
+# release (checked by its SHA-256), rather than fetching them again.
 import os
 import pathlib
+import re
 import shutil
+import signal
 import subprocess
 import tempfile
 
@@ -42,8 +44,18 @@ def copy_file(source, target):
 
 def make(root):
     """Copies the working tree at `root` into a new temporary directory, and returns its path.
-    Modification times are kept, so the copy's build sees the files as they are."""
+    Modification times are kept, so the copy's build sees the files as they are. If copying fails
+    or is interrupted, the partial copy is removed."""
     copy = pathlib.Path(tempfile.mkdtemp(prefix="fillscope-check-"))
+    try:
+        fill(root, copy)
+    except BaseException:  # KeyboardInterrupt and SystemExit (a signal) too
+        remove(copy)
+        raise
+    return copy
+
+
+def fill(root, copy):
     for name in tracked_files(root):
         source = root / name
         if source.is_dir() and not source.is_symlink():
@@ -68,7 +80,19 @@ def make(root):
         (copy / ".git" / "objects" / "info" / "alternates").write_text(f"{objects}/objects\n")
         subprocess.run(["git", "-C", str(copy), "update-ref", "HEAD", head], **quiet)
     subprocess.run(["git", "-C", str(copy), "add", "-A"], **quiet)
-    return copy
+
+
+def declared_hashes(copy):
+    """The SHA-256 of every release the copy's build files declare (FetchContent_Declare)."""
+    return {match for path in (copy / "CMakeLists.txt", copy / "tests" / "CMakeLists.txt") if path.exists()
+            for match in re.findall(r"URL_HASH SHA256=([0-9a-f]{64})", path.read_text())}
+
+
+def fetched_hash(root, directory):
+    """The SHA-256 the real build fetched `directory` (e.g. imgui-src) with, from its sub-build."""
+    subbuild = root / "build" / "debug" / "_deps" / directory.replace("-src", "-subbuild") / "CMakeLists.txt"
+    found = re.search(r"SHA256=([0-9a-f]{64})", subbuild.read_text()) if subbuild.exists() else None
+    return found.group(1) if found else None
 
 
 def configure(copy, root):
@@ -78,12 +102,33 @@ def configure(copy, root):
     build = copy / "build" / "debug"
     command = ["cmake", "-S", str(copy), "-B", str(build), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug",
                "-DFILLSCOPE_WERROR=OFF"]
+    wanted = declared_hashes(copy)
     for name, directory in DEPENDENCIES.items():
         fetched = root / "build" / "debug" / "_deps" / directory
-        if fetched.is_dir():
+        # Only the release the copy declares: after a dependency is bumped, and before the real
+        # build is rebuilt, its directory holds the old one, which the copy then fetches afresh.
+        if fetched.is_dir() and fetched_hash(root, directory) in wanted:
             command.append(f"-DFETCHCONTENT_SOURCE_DIR_{name}={fetched}")
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     return build if result.returncode == 0 else None
+
+
+def run(args, **options):
+    """subprocess.run, with the command and everything it starts in a process group of their own,
+    killed if the check is stopped: a test's exchange, started by ctest, would otherwise outlive it
+    and keep its fixed ports."""
+    process = subprocess.Popen(args, start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               text=True, **options)
+    try:
+        output, _ = process.communicate()
+    except BaseException:  # KeyboardInterrupt and SystemExit (a signal) too
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        raise
+    return subprocess.CompletedProcess(args, process.returncode, output)
 
 
 def remove(copy):

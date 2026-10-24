@@ -12,11 +12,11 @@ publishes its market data from a thread of its own, in the matcher's process, an
 freezes every thread, so a viewer could lag a stop there. A replay of a recorded run
 ([ARCHITECTURE.md](ARCHITECTURE.md), §3) is one thread: `exchange_replay --publish GROUP:PORT`
 processes a request, sends that request's market updates on the group, then calls the anchor,
-`fillscope_request_anchor(request_number, updates_published)` (the back end's
-`exchange/matcher/lockstep_anchor.h`), where a debugger stops. A stop freezes only the replay, so the
-viewer, a process of its own listening to the group, keeps painting the books after that request.
-Each Continue advances them by exactly one request. A replayed run is the same every time it is
-stepped.
+`fillscope_request_anchor(request_number, updates_published)`
+(`backend/Chapter12/exchange/matcher/lockstep_anchor.h`), where a debugger stops. A stop freezes
+only the replay, so the viewer, a process of its own listening to the group, keeps painting the
+books after that request. Each Continue advances them by exactly one request. A replayed run is the
+same every time it is stepped.
 
 **The producer and the viewer are separate processes**, for the same reason: a stop freezes the
 process it is in. Before the back end, the producer was a stand-in frame source, which sent each
@@ -96,7 +96,8 @@ is deterministic. So the two needs can coexist:
 - **Live mode:** the exchange, a trading client and the UI as separate processes, over TCP (order
   entry) and UDP multicast (market data).
 - **Replay and backtest mode:** the recorded sequenced stream fed back in; the same stream gives the
-  same result, checked by a checksum. Latency in a backtest is simulated, not network latency.
+  same result, checked byte for byte against the live run (`feed_system_tests`). Latency in a
+  backtest is simulated, not network latency.
 
 The process split, the threads in each, and whether backtesting runs over sockets are open
 decisions for the owner.
@@ -153,7 +154,7 @@ fail a test when broken):
 It is activated by any debug session, since VS Code extensions are installed per user, but writes
 only for a session in a workspace folder that contains its own source (a session with no folder of
 its own, as from a multi-root workspace's own launch configuration, goes to the first such folder);
-each such folder has its own file, and two folders that reach one directory share it. Open each Fillscope folder in one VS Code window only: two windows would overwrite each
-other's file (the writer's process id tells them apart). Its JavaScript is type-checked by the
-TypeScript compiler in the tests; it runs from its source, so there is no compiled copy to fall
-out of date.
+each such folder has its own file, and two folders that reach one directory share it. Open each
+Fillscope folder in one VS Code window only: two windows would overwrite each other's file (the
+writer's process id tells them apart). Its JavaScript is type-checked by the TypeScript compiler in
+the tests; it runs from its source, so there is no compiled copy to fall out of date.

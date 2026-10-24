@@ -8,11 +8,11 @@
 # A mutant whose text no longer matches the source is an error, not a pass: the check must not go
 # silently stale when the code changes.
 import importlib.util
+import os
 import pathlib
 import re
 import shutil
 import signal
-import subprocess
 import sys
 
 # Loading the scripts beside this one by path would otherwise leave __pycache__ files in the tree.
@@ -414,7 +414,7 @@ MUTANTS = [
      "Publisher.AFailedWriteRemovesTheOldFile + node:a failed write removes the old file, is logged, and the next write works again"),
     ("a failed write is retried only when the context changes", PUBLISHER,
      [("    if (published_ == context && !error_) {", "    if (published_ == context) {")],
-     "Publisher.AFailedWriteIsRetriedWhenTheContextReturns"),
+     "Publisher.AFailedWriteThatCantRemoveTheFileKeepsWhatItHolds"),
     ("a file gone before a failed write is still claimed", PUBLISHER,
      [("        if (::unlink(file_.c_str()) == 0 || errno == ENOENT || errno == EISDIR) {",
        "        if (::unlink(file_.c_str()) == 0 || errno == EISDIR) {")],
@@ -575,8 +575,13 @@ MUTANTS = [
 ]
 
 
+# Mutants only a user who isn't root can catch: their test needs a directory it can't write to,
+# which root writes to anyway (CI's container runs as root). Under root they are skipped, and said so.
+NEEDS_A_USER_NOT_ROOT = {"a failed write is retried only when the context changes"}
+
+
 def run(args, cwd=None):
-    return subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=cwd)
+    return SCRATCH_TREE.run(args, cwd=cwd)
 
 
 def load_scratch_tree():
@@ -586,6 +591,9 @@ def load_scratch_tree():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+SCRATCH_TREE = load_scratch_tree()
 
 
 class Runner:
@@ -613,7 +621,10 @@ class Runner:
             ran = re.search(r"passed of ([1-9]\d*) run", result.stdout) is not None
             return result.returncode == 0, ran
         if spec.startswith("node:"):
-            result = run([self.node, "--test", f"--test-name-pattern={spec[len('node:'):]}", *self.node_tests])
+            # All files in one process: isolated, each file counts as a test of its own, so a pattern
+            # that matches nothing still reports "# tests 3" (Node 22.23.1) and would count as having run.
+            result = run([self.node, "--test", "--experimental-test-isolation=none",
+                          f"--test-name-pattern={spec[len('node:'):]}", *self.node_tests])
             tests = re.search(r"^# tests (\d+)", result.stdout, re.MULTILINE)
             failed = re.search(r"^# fail (\d+)", result.stdout, re.MULTILINE)
             ran = tests is not None and int(tests.group(1)) > 0
@@ -632,7 +643,11 @@ def main():
         signal.signal(signum, stop_on_signal)
     only = sys.argv[1] if len(sys.argv) > 1 else None
     mutants = [m for m in MUTANTS if only is None or only in m[0]]
-    scratch_tree = load_scratch_tree()
+    if os.geteuid() == 0:
+        for name in sorted(m[0] for m in mutants if m[0] in NEEDS_A_USER_NOT_ROOT):
+            print(f"skipped: {name} (its test can't be arranged as root; run the check as another user)")
+        mutants = [m for m in mutants if m[0] not in NEEDS_A_USER_NOT_ROOT]
+    scratch_tree = SCRATCH_TREE
     copy = scratch_tree.make(ROOT)
     try:
         build = scratch_tree.configure(copy, ROOT)

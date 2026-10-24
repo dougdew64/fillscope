@@ -32,9 +32,11 @@ inspectable.
 ## How it's built
 - **The code that shows modern C++ design is hand-written,** readable and tested. Which code that
   is gets decided stage by stage.
-- **The rest is built with AI assistance (Claude):** so far the Dear ImGui viewer, the test
-  infrastructure, and tests of all the code, the hand-written code included; later, the replay
-  command-line tool.
+- **The rest is built with AI assistance (Claude):** so far the market data reader and the Dear
+  ImGui viewer of the books, the debug-state extension, the attribution report, the test
+  infrastructure and tests of all the code, the hand-written code included, and the changes to the
+  back end (deterministic replay, the lockstep anchor, its bug fixes and tests).
+  [AI-USE.md](docs/AI-USE.md) lists each part and what checks it.
 - **No AI runs inside the app.** The app makes its state exactly observable and writes the context
   of whatever you point at to a file, `.fillscope/context.json`, replaced on every change; an
   assistant working beside it in the editor reads that context and the source, and will run
