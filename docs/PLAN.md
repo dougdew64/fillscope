@@ -206,7 +206,15 @@ and the back end's system tests), and the checks of the tests take minutes, the 
 most ([RUNNING.md](RUNNING.md) has the times). Candidates: a mutation run of only the mutants
 that name the tests or code changed (each mutant names the tests that must catch it), itself
 checked to choose every mutant a change needs; those checks only in CI, or only when tests change; the sanitizer build only
-before a push; the system tests only when the back end or the feed changes.
+before a push; the system tests only when the back end or the feed changes. Added 2026-10-24,
+once tests had ports of their own (RUNNING.md): the mutation check in parallel workers locally,
+each with its own copy and build, limited by memory rather than the network; the mutation check
+split across CI runners, a matrix of jobs on separate machines (free for a public repository);
+the local builds with CI's warnings as errors, so a warning fails here first; and CI as a
+backstop rather than a gate, a change counted done when the local gate passes and CI checked
+once afterwards. Compared like for like, CI takes about twice as long as the development machine
+(the mutation check about 35 to 40 minutes against about 20); its two failures in 65 runs were
+both mutants the local run hadn't run. The owner discusses the options again when step 10 begins.
 **Done when:** the time from a change to its tests' result is measured before and after, and each
 shortcut is shown not to skip a test the change affects.
 **Status:** not started.
