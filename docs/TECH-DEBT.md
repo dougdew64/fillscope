@@ -29,13 +29,12 @@ finds them, each with a test, and lists them there.
 4. **The selection check can't see the back end's build files go unnoticed:** its copy flattens the
    submodule into plain files, which git lists either way. `iterate.py` now asks the submodule too.
 
-## Waiting on the owner's decision
-Each has a real trade-off; until decided, the code does what is described.
-5. **A run with a failing test records no program as passed,** so the next run repeats the ones
-   that passed too. *Choice:* record those that passed (reading each program's result from
-   CTest's output), which is fewer re-runs for more logic to get right.
-
 ## Left in place deliberately
+5. **A run with a failing test records no program as passed,** so the next run repeats the ones
+   that passed too. That costs at most a run of every fast test program, about 2.3 seconds
+   (measured 2026-10-24); recording the ones that passed would mean reading each program's result
+   out of CTest's output, in the code that decides which tests to skip, where a mistake would skip
+   a test silently. The owner chose simplicity and confidence in the results (DECISIONS.md).
 6. **The debug-state file shows one stop per session: the latest.** In all-stop debugging, which
    GDB and LLDB use here, that is the whole truth. In non-stop debugging, another thread can still
    be stopped after the published one resumes. *Fix, if non-stop debugging is ever used:* publish

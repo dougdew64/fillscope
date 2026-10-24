@@ -214,7 +214,9 @@ the local builds with CI's warnings as errors, so a warning fails here first; an
 backstop rather than a gate, a change counted done when the local gate passes and CI checked
 once afterwards. Compared like for like, CI takes about twice as long as the development machine
 (the mutation check about 35 to 40 minutes against about 20); its two failures in 65 runs were
-both mutants the local run hadn't run. The owner discusses the options again when step 10 begins.
+both mutants the local run hadn't run. The owner discusses the options again when step 10 begins. The owner's direction
+(2026-10-24, DECISIONS.md): favor simplicity and confidence in the results; where tests are quick,
+don't skip programs to save time; the cost to work on is the mutation check's.
 **Done when:** the time from a change to its tests' result is measured before and after, and each
 shortcut is shown not to skip a test the change affects.
 **Status:** not started.
@@ -223,8 +225,6 @@ shortcut is shown not to skip a test the change affects.
 - **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,
   asking questions, whose answers go into [ARCHITECTURE.md](ARCHITECTURE.md), before the roadmap
   continues.
-- **The third sweep's decisions** ([TECH-DEBT.md](TECH-DEBT.md), item 5): recording the
-  passing programs of a failed run. Its choices are there.
 - **Step 10's decisions:** it changes what a commit must pass, so the owner chooses which shortcuts
   to take.
 
