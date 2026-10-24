@@ -166,7 +166,9 @@ From a terminal, start the viewer, then the back end as its README says (from
 `build/debug/backend/Chapter12/`: `./exchange_main &`, ten seconds, then `./trading_main 5 RANDOM &`;
 `--snapshot-interval-seconds S` shortens the exchange's minute between snapshots). The viewer can
 start before the exchange or after: started after, it waits for the next snapshot to rebuild the
-books (it says "recovering" until then).
+books (it says "recovering" until then). To stop them from a terminal:
+`pkill -INT -x exchange_main` (it shuts down in about 20 seconds, as the book's code waits 10 seconds
+before and after), `pkill -x trading_main`, `pkill -x viewer` (or close its window).
 
 **A replay.** The exchange started from VS Code records its requests
 (`build/debug/backend/Chapter12/requests.rec`, each run replacing the last). **viewer (replay)**
