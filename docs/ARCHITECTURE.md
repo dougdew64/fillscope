@@ -120,7 +120,15 @@ known types.
 **Two streams.** Incremental updates (add, modify, cancel, trade) are numbered 1, 2, 3, ... Every
 so often the exchange's snapshot synthesizer also sends a snapshot of every book: a start, a clear
 for each of the 8 tickers followed by its resting orders, an end, numbered from 0; the start and
-end name the last incremental update the snapshot includes.
+end name the last incremental update the snapshot includes. The two streams go to two multicast
+groups, incremental updates to 233.252.14.3:20001 and snapshots to 233.252.14.1:20000. The
+synthesizer keeps its own copy of every book, built from the incremental updates the matcher
+publishes, and sends that copy. The book's exchange sends a snapshot every 60 seconds; the exchange
+started from VS Code sends one every 5 (`--snapshot-interval-seconds`).
+
+Changes alone are enough to keep a book current, and they are small and sent as they happen. But a
+listener that starts late, or misses a datagram (multicast never resends one), can't rebuild a book
+from changes alone, since it lacks what came before. A snapshot lets it start over.
 
 **A ticker** is one instrument the exchange trades, as a stock symbol names a company's shares.
 The book's exchange trades 8 of them (`ME_MAX_TICKERS`), each with its own order book. They have no
