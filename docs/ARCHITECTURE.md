@@ -15,9 +15,10 @@ its README (`backend/README.md`).
 
 Today the viewer shows the live order books of the back end, a fork of the trading system in
 Ghosh's book ([PLAN.md](PLAN.md)), rebuilt from the exchange's market data, and lets you point at
-and follow orders. The stand-ins that came first (a frame source, the socket it sends on, and the
-debugger anchor it calls) remain only for the debugger tests, until step 6 of the plan brings
-lockstep to the exchange's matcher.
+and follow orders, and a debugger steps the exchange's matcher through a recorded run, one request at
+a time, while the viewer follows. The stand-ins that came first (a frame source, the socket it sends
+on, and the debugger anchor it calls) remain only for their debugger tests, until step 8 of the plan
+retires them.
 
 ## 1. The big picture
 The back end's programs run, the viewer listens to the exchange, and an assistant reads what the
@@ -140,6 +141,14 @@ requests in the same order give the same updates: the file is the live stream, b
 (`feed_system_tests` checks it against a live run). `read_market_data_file` reads it, checking its
 updates are numbered 1, 2, 3, ...
 
+**Lockstep on a replay** ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)): with `--publish
+GROUP:PORT`, `exchange_replay` sends each request's updates on a multicast group, as the exchange's
+publisher would, and then calls the back end's lockstep anchor,
+`fillscope_request_anchor(request_number, updates_published)`, where a debugger stops. The replay is
+one thread, so when the debugger stops after request N, the viewer, listening to the group, already
+shows the books after it; the live exchange's publisher is a thread of its own, which a stop would
+freeze mid-way. The anchor follows the same rules as the frame source's anchor (§6).
+
 ## 4. The viewer (`src/viewer/`)
 **The problem:** show the books as the market data describes them, let you point at and follow
 orders, and publish exactly what you've assembled for the assistant, without ever claiming more
@@ -247,9 +256,11 @@ each session's file by its workspace folder, and its tests run it against a fake
 
 ## 6. The stand-ins the debugger tests use (`src/channel/`, `tools/frame_source/`, `src/lockstep/`)
 Before the back end, a frame source made up frames and sent them to the viewer, and a debugger
-stopped it once per frame. The viewer no longer reads frames; the frame source, its socket and the
-anchor remain because the debugger tests (`lockstep_debugger_tests`) check, under GDB and LLDB,
-the ways of stopping a producer once per item that step 6 will use for the exchange's matcher.
+stopped it once per frame. The viewer no longer reads frames, and lockstep now runs on a replay
+(§3), through the back end's own anchor, built to the same rules as the one below. The frame source,
+its socket and its anchor remain, with their debugger tests (`lockstep_debugger_tests`), until step
+8 of the plan retires them. What follows explains how such an anchor stops a program, which holds
+for both.
 
 **The channel** (`message.h`, `net.h`): a frame source sends a `SourceHello { seed, frame_count }`,
 then `Frame`s, held as `std::variant<SourceHello, Frame>`, each one datagram on a Unix
@@ -370,7 +381,7 @@ reader's recovery (`feed_system_tests`), and that the exchange's recording of th
 that arrived. The viewer's core has unit tests that need no window
 (`viewer_tests`); the UI tests run the whole loop above with real clicks through the Dear ImGui Test
 Engine, with no window or GPU, including reading real multicast streams and moving through a replay
-(`viewer_ui_tests`). The back
+(`viewer_ui_tests`). Lockstep on a replay is tested under GDB and LLDB (`replay_debugger_tests`). The back
 end's own tests are in the fork. How tests are selected, tiered and run is in
 [RUNNING.md](RUNNING.md).
 

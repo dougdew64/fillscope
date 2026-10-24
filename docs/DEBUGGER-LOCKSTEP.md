@@ -1,34 +1,36 @@
 # Debugger lockstep
 
-**Purpose:** how a debugger steps the code that produces frames while the viewer's animation
-follows, frame by frame, and the rules that keep it working. **Status:** reference. **Read when:**
-designing the animation, the frame interface between the core and the UI, the process split, or
-the debugger integration.
+**Purpose:** how a debugger steps the matcher, one request at a time, while the viewer's books
+follow, and the rules that keep it working. **Status:** reference. **Read when:** changing the
+replay, the anchors, the process split, or the debugger integration.
 
-The code is in `src/lockstep/` (the anchor), `src/channel/` (the socket) and `tools/frame_source/`
-(a stand-in producer); how to run it is in [RUNNING.md](RUNNING.md).
-
-**Where it stands (2026-10-23):** the producer is still the stand-in frame source, and the
-debugger tests check every rule below with it, its receiver played by the LLDB tests' driver. The
-viewer no longer reads frames: it shows the back end's books, rebuilt from the exchange's market
-data ([ARCHITECTURE.md](ARCHITECTURE.md), §4), and the VS Code configurations that paired it with
-the frame source are gone. Lockstep with the exchange's matcher is step 6 of [PLAN.md](PLAN.md),
-built on what this document records.
+How to run it is in [RUNNING.md](RUNNING.md), "Debug in lockstep".
 
 ## How it works
-**The producer and the viewer are separate processes.** The producer sends each frame over a Unix
-socket, then calls the anchor, `fillscope_frame_anchor(frame_index)`, where a debugger stops. A
-stop freezes only the process being debugged, so the viewer keeps painting from the frames it has
-received. Each Continue delivers exactly one more frame. Step Over from a self-stop returns to the
-producer's loop (from a breakpoint by name, it first steps through the rest of the anchor), and
-the next frame appears in the viewer when `send` runs.
+**Lockstep runs on a replay** (decided 2026-10-23, [DECISIONS.md](DECISIONS.md)). The live exchange
+publishes its market data from a thread of its own, in the matcher's process, and a debugger stop
+freezes every thread, so a viewer could lag a stop there. A replay of a recorded run
+([ARCHITECTURE.md](ARCHITECTURE.md), §3) is one thread: `exchange_replay --publish GROUP:PORT`
+processes a request, sends that request's market updates on the group, then calls the anchor,
+`fillscope_request_anchor(request_number, updates_published)` (the back end's
+`exchange/matcher/lockstep_anchor.h`), where a debugger stops. A stop freezes only the replay, so the
+viewer, a process of its own listening to the group, keeps painting the books after that request.
+Each Continue advances them by exactly one request. A replayed run is the same every time it is
+stepped.
+
+**The producer and the viewer are separate processes**, for the same reason: a stop freezes the
+process it is in. Before the back end, the producer was a stand-in frame source, which sends each
+frame and then calls its own anchor, `fillscope_frame_anchor(frame_index)` (`src/lockstep/`); its
+debugger tests remain until step 8 retires it. The rules below hold for both anchors, and the
+debugger tests check them for both.
 
 **Two ways to stop at the anchor**, both binding on the first run, with nothing to arm:
 - **Self-stop:** when the process is traced, the anchor executes a breakpoint instruction (`int3`
   on x86-64); untraced, it does nothing. How it works, and why it is written as it is, are in
   [ARCHITECTURE.md](ARCHITECTURE.md), §6.
-- **Breakpoint by name**, set from the launch configuration: `break fillscope_frame_anchor` in GDB,
-  `breakpoint set -n fillscope_frame_anchor` in LLDB.
+- **Breakpoint by name**, set from the launch configuration: `break fillscope_request_anchor` in GDB,
+  `breakpoint set -n fillscope_request_anchor` in LLDB (`fillscope_frame_anchor` for the frame
+  source).
 
 ## Rules for the anchor
 1. **Its body must survive optimization.** GCC merges identical functions at `-O2` (`-fipa-icf`,
@@ -36,24 +38,41 @@ the next frame appears in the viewer when `send` runs.
    function, and a breakpoint on it would fire from unrelated code. An inlined anchor would execute
    its self-stop inside its caller. Today neither can happen: the one caller is in another file,
    and the build doesn't use link-time optimization. The measures keep that true if either changes:
-   the anchor is `noinline`, its store has a reader (`last_anchored_frame`), an `asm volatile`
-   memory clobber keeps the store, and the self-stop's `asm` takes `frame_index` as an input, so a
-   debugger can read it in an optimized build too. Checked by the `LockstepDebugger.AtO2` tests,
-   which run a frame source built at `-O2` (without the sanitizers, whose own code changes what an
-   optimized build can show a debugger) under GDB and LLDB.
+   the anchor is `noinline`, its store has a reader (`lastAnchoredRequest`, `last_anchored_frame`),
+   an `asm volatile` memory clobber keeps the store, and the self-stop's `asm` takes the arguments
+   as inputs, so a debugger can read them in an optimized build too. Checked by the
+   `ReplayLockstep.AtO2` and `LockstepDebugger.AtO2` tests, which run the replay and the frame source
+   built at `-O2` (without the sanitizers, whose own code changes what an optimized build can show a
+   debugger) under GDB and LLDB.
 2. **Its first statement must be plain code of our own source.** GDB puts a breakpoint by name
-   on the first statement; LLDB puts it after the anchor's stores, at the `if`. When that was an `std::atomic` store, which libstdc++ inlines even at `-O0`,
-   LLDB's breakpoint opened `atomic_base.h` (GDB's stayed in our file). When it was an
+   on the first statement; LLDB puts it after the anchor's stores, at the `if`. When that was an
+   `std::atomic` store, which libstdc++ inlines even at `-O0`, LLDB's breakpoint opened
+   `atomic_base.h` (GDB's stayed in our file). When it was an
    `std::optional` assignment, GDB's breakpoint in the sanitizer build stopped before the argument
    was stored, and every stop read `frame_index` as 0. So the anchor stores to plain variables.
-   Guarded by the `LockstepDebugger` tests, which run in both builds, and a mutant of the atomic
-   version.
+   Guarded by the `ReplayLockstep` and `LockstepDebugger` tests, which run in both builds, and a
+   mutant of the atomic version.
 3. **The code under study builds at `-O0`**, the default build type. At higher levels, line-table
    entries are dropped, and a breakpoint can bind and never fire.
 
 ## What is confirmed
-On 2026-10-19, with GCC 16.2.1, GDB 17.2, LLDB, and VS Code with CodeLLDB, and the viewer as it was
-then (it read the frame source's frames):
+On 2026-10-23, with GCC 16.2.1, GDB 17.2 and LLDB 22.1.8, by the `replay_debugger_tests` on every
+full test run:
+- both stop methods stop inside the request anchor, in `lockstep_anchor.cpp`, with the request's
+  number and the updates published readable, under GDB and LLDB, at `-O0` and at `-O2`: GDB's
+  breakpoint by name at the anchor's first statement, LLDB's at its `if`, and a self-stop at the
+  breakpoint instruction;
+- at the stop after request N, a viewer listening to the group has every update the replay
+  published through request N: the LLDB tests' driver (`tests/backend/replay_lldb_driver.py`) is the
+  viewer, and counts them at each stop;
+- self-stop does nothing without a tracer (`LockstepAnchor.SelfStopWithoutATracerDoesNotStop`, in
+  the back end's tests).
+
+And by hand: the viewer, live, followed a replay of 502 requests publishing on the exchange's
+stream, every one of its 505 updates, with no recovery.
+
+On 2026-10-19, with the frame source, and the viewer as it was then (it read the frame source's
+frames):
 - the viewer keeps painting at 60 frames a second while the producer is stopped, through pauses of
   several minutes;
 - each Continue adds one frame to the viewer, and Step Over behaves as described above;

@@ -90,6 +90,12 @@ the slower program adds the tier to its name.
   and a random-trading client run together for about half a minute, and the test, joined to the
   exchange's incremental market data feed, sees orders added and every update arrive in sequence.
   The exchange's ports are fixed in its code, so it fails at once if another exchange is running.
+- **`replay_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
+  installed):** lockstep on a replay: `exchange_replay`, publishing a three-request recording on a
+  group of the test's own, under GDB and LLDB, by breakpoint and by self-stop, at `-O0` and `-O2`;
+  every stop is in the request anchor, in `lockstep_anchor.cpp`, at the right line, with the
+  request's number and the updates published, and (through the LLDB driver, which is the viewer)
+  with every update published through that request already arrived.
 - **`lockstep_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** the anchor under GDB and LLDB, driven through the frame source, by breakpoint and
   by self-stop, at `-O0` and `-O2`; every stop is in the anchor, in `anchor.cpp`, at the right
@@ -191,9 +197,20 @@ still running), so a file left by a viewer that has exited says so. If a write f
 so in red, keeps showing what the file actually holds, and the viewer keeps retrying.
 
 ## Debug in lockstep
-Not yet with the exchange: stepping its matcher while the viewer's books follow is step 6 of
-[PLAN.md](PLAN.md). The rules it will rest on, and what the debugger tests check with the stand-in
-frame source, are in [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md).
+Stepping the matcher one request at a time, while the viewer's books follow, runs on a replay of a
+recorded run ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)). First record one: run **viewer +
+exchange + client** for a while, then stop it. Then Run and Debug, one of the two compounds (each
+builds first, and replays `build/debug/backend/Chapter12/requests.rec`):
+- **lockstep: viewer + replay (self-stop):** the replay stops itself in the anchor after each
+  request when it is traced.
+- **lockstep: viewer + replay (breakpoint by name):** LLDB sets a breakpoint on the anchor at launch.
+
+The replay stops after request 1, with the viewer already showing the books after it. Each Continue
+(F5) advances them by one request; the anchor's `request_number` and `updates_published` say where
+the replay is. The viewer, live, must start before the replay publishes (the compounds start both;
+the replay takes a couple of seconds to begin), and no exchange may be running, since the replay
+publishes on the exchange's own stream. From a terminal: `exchange_replay RECORDING --publish
+233.252.14.3:20001 [--self-stop] [--interval-ms MS]`, with the viewer started first.
 
 ## The debug-state extension
 Installed by linking its folder into VS Code's extensions directory, so it runs straight from the

@@ -49,6 +49,8 @@ VIEWER_OPTIONS = "src/viewer/viewer_options.cpp"
 REPLAY = "backend/Chapter12/exchange/matcher/replay.cpp"
 RECORDING = "backend/Chapter12/exchange/matcher/request_recording.cpp"
 MATCHING_ENGINE = "backend/Chapter12/exchange/matcher/matching_engine.h"
+REPLAY_MAIN = "backend/Chapter12/exchange/exchange_replay.cpp"
+REQUEST_ANCHOR = "backend/Chapter12/exchange/matcher/lockstep_anchor.cpp"
 
 # (name, file, [(old, new), ...], CTest regex of tests that must fail)
 MUTANTS = [
@@ -385,6 +387,30 @@ MUTANTS = [
     ("live, the context claims a replay address", CONTEXT,
      [("    if (state.replay) {\n        feed.replay = ReplayAddress{", "    if (true) {\n        feed.replay = ReplayAddress{")],
      "MakeContext.LiveThereIsNoReplayAddress|ContextJson.AReplaySaysWhich"),
+    # Lockstep on a replay: the replay sends each request's updates, then calls the anchor.
+    ("the replay calls the anchor before it publishes", REPLAY_MAIN,
+     [("    if (socket) {\n      // As the exchange's publisher sends them:",
+       "    fillscope_request_anchor(request_number, sent + made.size());\n    if (socket) {\n      // As the exchange's publisher sends them:"),
+      ("    fillscope_request_anchor(request_number, sent);\n", "")],
+     "ReplayLockstep.Lldb"),
+    ("the replay's updates are still buffered at the anchor", REPLAY_MAIN,
+     [("      socket->sendAndRecv();\n", "")],
+     "ReplayLockstep.Lldb"),
+    ("the request anchor's self-stop skips the tracer check", REQUEST_ANCHOR,
+     [("  } else if (*traced) {\n", "  } else {\n")],
+     "lowlatency_tests"),
+    ("the request anchor reads TracerPid anywhere in a line", REQUEST_ANCHOR,
+     [("      if (line.starts_with(key)) {", "      if (line.find(key) != std::string_view::npos) {"),
+      ("        auto value = line.substr(key.size());", "        auto value = line.substr(line.find(key) + key.size());")],
+     "lowlatency_tests"),
+    ("the request anchor's self-stop is reported past its own line", REQUEST_ANCHOR,
+     [('    asm volatile("int3\\n\\tnop" ::"r"(request_number), "r"(updates_published));',
+       '    asm volatile("int3" ::"r"(request_number), "r"(updates_published));\n    Exchange::g_anchored = false;')],
+     "ReplayLockstep.GdbSelfStop|ReplayLockstep.LldbSelfStop"),
+    ("at -O2 the request anchor's arguments can't be read", REQUEST_ANCHOR,
+     [('    asm volatile("int3\\n\\tnop" ::"r"(request_number), "r"(updates_published));',
+       '    asm volatile("int3\\n\\tnop");\n    (void)updates_published;')],
+     "ReplayLockstep.AtO2GdbSelfStop|ReplayLockstep.AtO2LldbSelfStop"),
     ("a drain takes everything waiting", CHANNEL,
      [("while (sender_ && result.received < max_per_drain_) {", "while (sender_) {")],
      "Channel.ADrainTakesAtMostItsBound"),

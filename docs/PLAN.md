@@ -103,12 +103,12 @@ remove one. The frame source, its socket and the anchor stay, for the debugger t
 The VS Code configurations now run the viewer, the exchange and a client; lockstep returns in step
 6. The exchange gained an option, `--snapshot-interval-seconds`, so tests needn't wait a minute for a
 snapshot.
-**Status:** built and tested, 2026-10-23: Fillscope `2cc015d`, fork `2b9a550`; both CIs pass. Fillscope's books (`src/feed/`) follow the trading
+**Status:** done, 2026-10-23: Fillscope `2cc015d`, fork `2b9a550`; both CIs pass; the owner has seen it live. Fillscope's books (`src/feed/`) follow the trading
 client's protocol; `feed_system_tests` checks them against the exchange's snapshots, and a late
 reader's recovery. Found and fixed on the way: the viewer stopped painting, and so stopped reading
 market data and answering SIGTERM, while its window couldn't be seen (vsync); it now paces itself.
 Found, recorded in the fork's README: the exchange's multicast goes out on the default interface,
-not loopback. **Left:** the owner seeing it live (below).
+not loopback.
 
 ### 5. Deterministic replay
 In the fork: the exchange records the client requests in the order its sequencer releases them to
@@ -143,7 +143,14 @@ Rejected: lockstep live, the matcher waiting before each stop until the publishe
 everything, which changes how the live system runs, and can't be repeated.
 **Done when:** stepping the matcher in VS Code, each Continue moves the viewer's book by exactly one
 request; the debugger tests check it under GDB and LLDB, as they do the frame source today.
-**Status:** not started.
+**Status:** built and tested, CI pending. `exchange_replay --publish` sends each request's updates,
+then calls the back end's anchor (`fillscope_request_anchor`); `replay_debugger_tests` check, under
+GDB and LLDB, by breakpoint and self-stop, at `-O0` and `-O2`, that every stop is in the anchor with
+its arguments readable and, under LLDB, that the viewer already has every update published through
+that request. The viewer, live, followed a replay of 505 updates on the exchange's stream with no
+recovery. VS Code: the two "lockstep" compounds. Found on the way: GDB sometimes loses track of the
+replay as it exits with its logger threads running, so the tests check the replay's own closing
+line, not the debugger's report of the exit. **Left:** the owner stepping it in VS Code.
 
 ### 7. Attribution in the fork
 The attribution report in the fork, with a third column for upstream lines, tested and checked as
@@ -157,8 +164,8 @@ end; ARCHITECTURE.md, RUNNING.md and DEBUGGER-LOCKSTEP.md describe the new syste
 **Done when:** nothing in Fillscope refers to stand-in frames, and every document is true of the
 code.
 **Status:** partly done in step 4: the viewer no longer reads frames, and the documents describe the
-new system. Left: the frame source, the channel and the anchor, which the debugger tests use until
-step 6 moves lockstep to the matcher.
+new system. Left: the frame source, the channel and the anchor, with their debugger tests; since step
+6, lockstep's debugger tests run on the replay, so these can go.
 
 ### 9. A comprehensive tech-debt sweep
 Once steps 1 to 8 have landed (the owner, 2026-10-23): a sweep of Fillscope and the fork, finding
@@ -183,9 +190,9 @@ shortcut is shown not to skip a test the change affects.
 - **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,
   asking questions, whose answers go into [ARCHITECTURE.md](ARCHITECTURE.md), before the roadmap
   continues.
-- **Seeing the book live (step 4's last part):** run **viewer + exchange + client** in VS Code,
-  point at and follow orders, and ask the assistant about them ([RUNNING.md](RUNNING.md), "Run" and
-  "Pointing and following"). This replaces the viewer shell's test, whose frames are gone.
+- **Stepping the matcher in lockstep (step 6's last part):** record a run with **viewer + exchange +
+  client**, then step it with a **lockstep** compound ([RUNNING.md](RUNNING.md), "Debug in
+  lockstep"), watching the viewer follow each request.
 
 ## Later
 The rest of the roadmap becomes changes to the fork, ordered when steps 1 to 10 have landed: ITCH
