@@ -123,7 +123,7 @@ them (its single-threaded loop: the order is final there); replay is a program o
 `exchange_replay`, which writes the market data a recording gives to a file, rather than a mode of
 `exchange_main`; and the viewer opens that file (`--replay`), not the recording, so Fillscope never
 runs the back end's code. A replay address is (market data file, its recording, update N).
-**Status:** built and tested, CI pending. The live run that `feed_system_tests` checks is
+**Status:** done, 2026-10-23: Fillscope `09f1df6`, fork `fb01a88`; both CIs pass. The live run that `feed_system_tests` checks is
 recorded, replayed, and matches, byte for byte, every update that arrived. The viewer's replay mode
 moves to any update; a point or follow carries the address of the state it describes. Seven mutants,
 from the matcher's recording hook to the viewer's backward step, are caught. VS Code: the exchange
