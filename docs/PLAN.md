@@ -212,9 +212,13 @@ each with its own copy and build, limited by memory rather than the network; the
 split across CI runners, a matrix of jobs on separate machines (free for a public repository);
 the local builds with CI's warnings as errors, so a warning fails here first; and CI as a
 backstop rather than a gate, a change counted done when the local gate passes and CI checked
-once afterwards. Compared like for like, CI takes about twice as long as the development machine
-(the mutation check about 35 to 40 minutes against about 20); its two failures in 65 runs were
-both mutants the local run hadn't run. The owner discusses the options again when step 10 begins. The owner's direction
+once afterwards. Measured 2026-10-24, the mutation check takes about as long on the development
+machine as in CI, 39 minutes for 181 mutants against 34 to 39: most of it is the back end's tests
+waiting (on its threads' start-up sleeps, the client's ten seconds, the exchange starting), not
+computing. 28.5 of the 39 minutes are test runs, and the 47 mutants that name the back end's
+programs take about 26 of them: each of 33 mutants naming `lowlatency_tests` runs the whole
+program, about 21 seconds, and a mutant naming two programs runs them one after the other. CI's
+two failures in 65 runs were both mutants the local run hadn't run. The owner discusses the options again when step 10 begins. The owner's direction
 (2026-10-24, DECISIONS.md): favor simplicity and confidence in the results; where tests are quick,
 don't skip programs to save time; the cost to work on is the mutation check's.
 **Done when:** the time from a change to its tests' result is measured before and after, and each
