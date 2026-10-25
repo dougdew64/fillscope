@@ -250,6 +250,5 @@ rather than code: a change is done when the local gate passes, and CI is checked
   continues.
 
 ## Later
-The rest of the roadmap becomes changes to the fork, ordered when steps 1 to 10 have landed: ITCH
-5.0 replay into the exchange, backtesting on simulated time, fill simulation (queue position,
-latency, fees), validation, and measured throughput.
+The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are
+ordered and broken into steps here after the pause.

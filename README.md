@@ -19,15 +19,10 @@ much latency it had, what traded and cancelled ahead of it. Fillscope makes thos
 inspectable.
 
 ## What it will do
-- **Fill explanations grounded in exact state.** Click an order and ask "why didn't this fill?". The
-  answer comes from the simulator's exact state at that moment: the book on arrival, the queue
-  ahead, the trades and cancels that followed, the latency applied.
-- **Per-order counterfactuals, made exact by deterministic replay.** "What if this order had arrived
-  50 µs earlier?" is answered by replaying from a snapshot with one thing changed, not by estimating.
-- **How much of the profit is an assumption.** The same strategy with and without its queue and
-  latency models, and how far the results move.
-- **An animated replay of the book,** and the matching engine stepped in a debugger while the book
-  view updates with each line.
+Fill explanations grounded in exact state, per-order counterfactuals made exact by deterministic
+replay, how much of the profit is an assumption, and an animated replay of the book. Each is
+described in the feature backlog, [docs/FEATURES.md](docs/FEATURES.md). The matching engine
+stepped in a debugger while the book view updates with each line is already built.
 
 ## How it's built
 - **The code that shows modern C++ design is hand-written,** readable and tested. Which code that
@@ -42,7 +37,7 @@ inspectable.
   assistant working beside it in the editor reads that context and the source, and will run
   counterfactual replays from the command line.
 - **Every feature is demonstrable:** scripted UI tests drive the viewer with real clicks; they are
-  planned to record the demo videos too.
+  planned to record the demo videos too ([docs/FEATURES.md](docs/FEATURES.md)).
 
 ## Roadmap
 The back end, an exchange with its matching engine and trading clients, is a fork of the system
@@ -53,11 +48,9 @@ MIT). Fillscope is its front end, and the fork is changed where Fillscope needs 
 3. Deterministic replay: the exchange's sequenced input recorded and replayed, giving the same
    output.
 4. The matching engine stepped in a debugger while the book view follows.
-5. Replay of Nasdaq TotalView-ITCH 5.0 data into the exchange.
-6. Backtesting on simulated time, with recovery from a snapshot.
-7. Fill simulation: queue position, latency, fees.
-8. Validation: how far the results can be trusted, and a written report.
-9. Throughput: measured messages per second.
+
+These four are built. The rest, from ITCH 5.0 replay to measured throughput, is in the feature
+backlog, [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Data
 Market data is never committed. Tests use small hand-made message files; real days come from
@@ -66,7 +59,8 @@ Nasdaq's public ITCH samples, downloaded locally.
 ## Documents
 [docs/CHARTER.md](docs/CHARTER.md) (purpose, priorities, decisions) ·
 [docs/DECISIONS.md](docs/DECISIONS.md) (the record) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (how the code works) ·
-[docs/PLAN.md](docs/PLAN.md) (next steps) · [docs/TECH-DEBT.md](docs/TECH-DEBT.md) (known debt) · [docs/RUNNING.md](docs/RUNNING.md) (build, run, test) ·
+[docs/PLAN.md](docs/PLAN.md) (next steps) · [docs/FEATURES.md](docs/FEATURES.md) (features to build) ·
+[docs/TECH-DEBT.md](docs/TECH-DEBT.md) (known debt) · [docs/RUNNING.md](docs/RUNNING.md) (build, run, test) ·
 [docs/WORKING-WITH-GIT.md](docs/WORKING-WITH-GIT.md) (git and the back end, step by step) ·
 [docs/AI-USE.md](docs/AI-USE.md) (how AI is used here, and what checks it) ·
 [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md) (who wrote each file's lines) ·
