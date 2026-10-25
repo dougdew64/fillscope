@@ -26,9 +26,11 @@
 # "Affected" comes from the build, not from a hand-kept map: each test program, and each file it
 # uses at run time, is listed in build/debug/test-manifest.txt (written by tests/CMakeLists.txt). A
 # program is affected when its binary, one of those files (for the extension's tests, the Node.js
-# that runs them among them), a shared library it loads, a FILLSCOPE_ environment variable, or any
-# CMakeLists.txt differs from its last passing run. A change the build doesn't propagate into a
-# program can't change its result.
+# that runs them among them), a shared library it loads, a FILLSCOPE_ environment variable, or how
+# CTest runs its tests (command, environment, timeout: what the build files decide, as CTest lists
+# it) differs from its last passing run. A change the build doesn't propagate into a program can't
+# change its result: a build file edited without changing what it builds or how it runs a test,
+# such as a comment, affects nothing.
 #
 # A program marked "always" in the manifest runs on every iteration: its result depends on files
 # it can't list (docs_tests follows links to any file in the repository), and it is fast.
@@ -98,20 +100,19 @@ def programs(manifest=None):
     return [Program(line) for line in text.splitlines() if line.strip()]
 
 
-def build_files():
-    """Every CMakeLists.txt of ours and of the back end's, tracked or new: a change to any can change
-    how a test is run. Asking git leaves out every build directory and installed package, whatever
-    its name. The back end is a submodule, whose files the top level's listing doesn't include, so
-    it is asked too (in a copy without the submodule's own repository, git answers for the copy)."""
-    found = set()
-    for directory, patterns in ((ROOT, ["CMakeLists.txt", "*/CMakeLists.txt"]),
-                                (ROOT / "backend", ["Chapter12/CMakeLists.txt", "Chapter12/*/CMakeLists.txt"])):
-        if not directory.is_dir():
-            continue
-        listed = subprocess.run(["git", "-C", str(directory), "ls-files", "--cached", "--others", "--exclude-standard",
-                                 "-z", "--", *patterns], stdout=subprocess.PIPE, check=True).stdout.decode()
-        found |= {str(directory / name) for name in listed.split("\0") if name and (directory / name).exists()}
-    return sorted(found)
+def test_runs(listing):
+    """{program name: how CTest runs its tests, as text}: each test's name, command and properties
+    (its arguments, environment, timeout, working directory, labels), which is all a build file
+    decides about running a test that the program's binary and run-time files don't already show.
+    The backtrace is left out: it says which line of a build file registered the test, and moves
+    when that file is edited above it."""
+    runs = {}
+    for test in sorted(listing, key=lambda t: t["name"]):
+        described = json.dumps({key: value for key, value in test.items() if key != "backtrace"}, sort_keys=True)
+        for label in labels_of(test):
+            if label.startswith("exe:"):
+                runs.setdefault(label[len("exe:"):], []).append(described)
+    return {name: "\n".join(lines) for name, lines in runs.items()}
 
 
 def environment():
@@ -146,9 +147,10 @@ def shared_libraries(binary):
     return [stat_of(p) for p in paths if os.path.exists(p)]
 
 
-def fingerprint(program, common):
-    """`common` is what every program depends on: the build files and the environment."""
-    digest = hashlib.sha256(common.encode())
+def fingerprint(program, how_run):
+    """`how_run` is what the program's result depends on besides its files: how CTest runs its
+    tests, and the environment."""
+    digest = hashlib.sha256(how_run.encode())
     for path in program.files:
         digest.update(path.encode())
         digest.update(file_digest(path, whole=path == program.binary))
@@ -158,14 +160,12 @@ def fingerprint(program, common):
     return digest.hexdigest()
 
 
-def fingerprints(selected):
-    """{name: fingerprint} for each program in `selected`, as the files are now."""
-    build_digest = hashlib.sha256()
-    for path in build_files():
-        build_digest.update(path.encode())
-        build_digest.update(file_digest(path))
-    common = build_digest.hexdigest() + environment()
-    return {p.name: fingerprint(p, common) for p in selected}
+def fingerprints(selected, listing=None):
+    """{name: fingerprint} for each program in `selected`, as the files and the build's
+    registration of the tests (`listing`, CTest's, if given) are now."""
+    runs = test_runs(ctest_listing() if listing is None else listing)
+    environment_now = environment()
+    return {p.name: fingerprint(p, runs.get(p.name, "") + "\n" + environment_now) for p in selected}
 
 
 def load_state():

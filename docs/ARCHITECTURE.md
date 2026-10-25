@@ -513,7 +513,11 @@ Several tools stack up, each handing over to the next:
   "affects" means comes from the build, not a hand-kept list: each program has a *fingerprint*, a
   hash of its binary's contents, of the files it uses at run time (for a file of 8 MiB or more, such
   as Node.js's binary, its size and time instead), of the shared libraries it loads (by path, size
-  and time), of the `FILLSCOPE_` environment variables, and of every `CMakeLists.txt`. The record of
+  and time), of the `FILLSCOPE_` environment variables, and of how CTest runs the program's tests
+  (each test's command, environment, timeout and working directory, as `ctest --show-only=json-v1`
+  lists them). That last is all a `CMakeLists.txt` decides that the binary doesn't already show, so
+  a build file counts only through it: a new timeout reruns that tier's programs, while a comment,
+  or a compile option that changes no binary (`-Werror`), reruns nothing. The record of
   passing runs, `build/debug/last-pass.json`, holds each program's fingerprint as of its last
   passing run; a program whose fingerprint differs is affected, and runs. A fingerprint is taken
   before the tests run, so a file edited meanwhile counts as changed, and recorded only if the whole
@@ -581,13 +585,19 @@ the back end's one-test program (`lowlatency:LFQueue.WritingToAFullQueueStopsThe
   the viewer's drawing code changes only `viewer_ui_tests`, and runs only the 18 of 192
   mutants that run it. `--all` runs every mutant; CI keeps no record, so it always does.
 - *A mutant's life.* A mutant is born with its test, as that test's proof, or from a bug once fixed,
-  to keep it found; it changes when its code or test does, since the check forces that; and it is
+  to keep it found, but only for a rule whose breaking could go unnoticed: a display that says
+  something false, data lost, a wrong book, test machinery that answers wrongly. A rule anyone
+  sees broken the first time they look, such as where a line is drawn or how it is worded, gets a
+  test but no mutant; showing once, by hand, that the test fails without the change is enough.
+  Every mutant runs on each change its program sees, for as long as it exists, so this is what
+  keeps them from piling up. It changes when its code or test does, since the check forces that; and it is
   deleted when the claim it guards no longer exists (76 had been by 2026-10-24, most when the
   stand-ins retired with the code they tested).
 
-**The selection check** (`tests/scripts/selection_check.py`) makes known edits in a scratch copy and
-requires the right choice for each, no more and no fewer: for 25, the programs `iterate.py` reports
-affected, what it runs and what it then records; for 7, the mutants the mutation check would run,
+**The selection check** (`tests/scripts/selection_check.py`) chooses nothing itself: it tests the
+choices `iterate.py` and the mutation check make, since a test wrongly left out says nothing. It
+makes known edits in a scratch copy and requires the right choice for each, no more and no fewer: for 26, the programs `iterate.py` reports
+affected, what it runs and what it then records; for 8, the mutants the mutation check would run,
 with every mutant first recorded as caught. It works out the right mutants its own way (from CTest's
 listing of every test, where the mutation check asks CTest about each name), so a mistake in one
 doesn't hide in the other. Among its cases: a change to nothing any program uses runs none, a test

@@ -41,6 +41,11 @@ TEXT_PROBE = "\n# selection probe\n"
 JS_PROBE = "\n// selection probe\n"
 DELETE = None  # the file is removed rather than changed
 
+def ui_timeout_changed(text):
+    """A change to how one tier's tests run: the ui tier's timeout."""
+    return text.replace("set(FILLSCOPE_TIMEOUT_ui 10)", "set(FILLSCOPE_TIMEOUT_ui 11)", 1)
+
+
 # (file changed, probe, the programs that must be reported affected, and no others)
 CASES = [
     ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"}),
@@ -74,9 +79,12 @@ CASES = [
       "replay_debugger_tests"}),
     # The allocation tests are a program of their own, so a change to them affects only it.
     ("backend/Chapter12/tests/allocation_test.cpp", CPP_PROBE, {"lowlatency_allocation_tests"}),
-    ("CMakeLists.txt", TEXT_PROBE, ALL),
-    # Any build file can change how a test runs (a timeout, a label), so each one counts for all.
-    ("tests/viewer/CMakeLists.txt", TEXT_PROBE, ALL),
+    # A build file counts only through what it decides: what is built, and how CTest runs each
+    # test. A comment decides neither, so it affects nothing; a tier's timeout changes how that
+    # tier's tests run, so it affects that tier's programs and no others.
+    ("CMakeLists.txt", TEXT_PROBE, set()),
+    ("tests/viewer/CMakeLists.txt", TEXT_PROBE, set()),
+    ("tests/CMakeLists.txt", ui_timeout_changed, {"viewer_ui_tests"}),
     # Nothing tests the viewer's window yet, so changing it affects no test program.
     ("src/viewer/main.cpp", CPP_PROBE, set()),
     # A file no program lists. docs_tests may still link to it, which is why it always runs (below);
@@ -105,6 +113,8 @@ def unique_queue_mutant(text):
                         '[("ASSERT(num_elements_ != store_.size(),", "ASSERT(true ,")]', 1)
 MUTANT_CASES = [
     ("LICENSE", TEXT_PROBE, set()),
+    # A build file's comment changes nothing a mutant's result depends on.
+    ("CMakeLists.txt", TEXT_PROBE, set()),
     ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"}),
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",

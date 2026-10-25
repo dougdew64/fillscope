@@ -156,6 +156,41 @@ class FingerprintTest(unittest.TestCase):
             os.environ.update(saved)
 
 
+def listed_test(name, program, timeout=2.0, backtrace=1):
+    """One test as CTest's --show-only=json-v1 lists it."""
+    return {"backtrace": backtrace, "command": [f"/build/{program}", f"--gtest_filter={name}"], "name": name,
+            "properties": [{"name": "LABELS", "value": [f"exe:{program}", "unit"]},
+                           {"name": "TIMEOUT", "value": timeout}]}
+
+
+class HowTestsRunTest(unittest.TestCase):
+    """A build file counts only through what it decides: how CTest runs each program's tests."""
+
+    def fingerprints(self, listing):
+        programs = [iterate.Program(manifest_line(name, "unit", "-")) for name in ("viewer_tests", "feed_tests")]
+        return iterate.fingerprints(programs, listing)
+
+    def test_a_tests_registration_changes_only_its_programs_fingerprint(self):
+        before = self.fingerprints([listed_test("A.One", "viewer_tests"), listed_test("B.One", "feed_tests")])
+        after = self.fingerprints([listed_test("A.One", "viewer_tests", timeout=10.0), listed_test("B.One", "feed_tests")])
+        self.assertNotEqual(after["viewer_tests"], before["viewer_tests"])
+        self.assertEqual(after["feed_tests"], before["feed_tests"])
+
+    def test_a_test_added_changes_its_programs_fingerprint(self):
+        before = self.fingerprints([listed_test("A.One", "viewer_tests")])
+        after = self.fingerprints([listed_test("A.One", "viewer_tests"), listed_test("A.Two", "viewer_tests")])
+        self.assertNotEqual(after["viewer_tests"], before["viewer_tests"])
+
+    def test_where_a_build_file_registered_a_test_doesnt_count(self):
+        before = self.fingerprints([listed_test("A.One", "viewer_tests", backtrace=1)])
+        after = self.fingerprints([listed_test("A.One", "viewer_tests", backtrace=7)])
+        self.assertEqual(after, before)
+
+    def test_the_order_ctest_lists_tests_in_doesnt_count(self):
+        tests = [listed_test("A.One", "viewer_tests"), listed_test("A.Two", "viewer_tests")]
+        self.assertEqual(self.fingerprints(tests), self.fingerprints(tests[::-1]))
+
+
 class BinaryFingerprintTest(unittest.TestCase):
     def test_a_large_binary_is_hashed_by_its_contents(self):
         with tempfile.TemporaryDirectory() as scratch:
