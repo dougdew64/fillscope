@@ -32,7 +32,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The viewer's loop and state | `src/viewer/viewer_app.*`, `src/viewer/viewer_state.h` | §4, *The loop*, *The pieces* | |
 | Drawing, and clicks | `src/viewer/viewer_view.*` | §4, *What it draws*; §8 | 2026-10-24: what the ticker buttons choose |
 | The context: what is published | `src/viewer/context.*` | §4, *What it draws*, *The pieces*, *An order pointed at* | 2026-10-24: what "showing ticker 0" in the bar means; 2026-10-25: whether "exchange live at update N" is part of the context |
-| Publishing the context | `src/viewer/context_publisher.*` | §4, *Publishing* | |
+| Publishing the context | `src/viewer/context_publisher.*` | §4, *Publishing* | 2026-10-25: where the context bar is defined |
 | Shared helpers: a descriptor's owner, number parsing | `src/common/` | §2 (in part) | |
 | The debug-state extension | `tools/vscode-debug-state/` | §5; [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md) | |
 | The attribution report | `tools/attribution/` | [AI-USE.md](AI-USE.md) (in part) | |

@@ -322,7 +322,13 @@ file says why and how to record a run.
   still running.
 
 The context bar, and the book's highlights, are drawn from `publisher.published()`, the last
-context **written successfully**, never from the live selection. If a write fails, the bar keeps
+context **written successfully**, never from the live selection. The bar takes three steps. On
+each successful write, the publisher turns the context into the bar's lines, as text
+(`bar_text`, in `context.cpp`, gives a `ContextBarText`: the background, and the point and follow
+if there are any), and keeps them (`published_bar()`). `ViewerApp::paint` hands them to the
+drawing in `ViewerView`, and `draw_context_bar`, in `viewer_view.cpp`, the first thing
+`draw_viewer` draws, puts them on screen with a clear button beside the point and the follow. The
+text is made apart from the drawing so tests can check what the bar says without drawing it. If a write fails, the bar keeps
 showing what the file actually holds and adds the error in red, and the tooltips say a click won't
 reach the assistant. So nothing on screen claims the assistant has something it doesn't.
 
