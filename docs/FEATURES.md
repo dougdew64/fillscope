@@ -61,9 +61,16 @@ The stages of the roadmap, each a change to the fork.
       small change to the fork: replaying a recording also writes each order id with its client,
       and each trade with its aggressor's client, which the matcher's responses to the clients
       carry. The score is defined before the detector is written: for each trade, flagged as part
-      of a slice or not, against whether the slicer sent it, which gives hits, misses and false
-      alarms exactly. The display's horizontal axis is the update number, since the data has no
-      time.
+      of a slice or not, against whether a target client sent it, which gives hits, misses and
+      false alarms exactly. The display's horizontal axis is the update number, since the data has
+      no time.
+    - **The target (the owner, 2026-10-25): any client that trades repeatedly at one side and
+      size,** which is what counting side and quantity finds. That is the planted slicer, and also
+      every liquidity-taking client of the book's: it always trades one fixed size (its "clip"),
+      at the best price, so it repeats one side and size too. Which clients are targets is known
+      from how each was started, and the truth marks their trades. Telling a deliberate slicer from
+      a taker's routine clip (the taker trades when the book's state triggers it, a slicer on a
+      schedule) is a later step, with its own scene.
     - **Who writes what (the owner, 2026-10-25).** The owner writes the detector and designs its
       interface (what goes in, what comes out), and may write some of its tests. Claude writes the
       fork's ground-truth output, the planted strategy, the scorer (the detector's check, so not
@@ -80,18 +87,22 @@ The stages of the roadmap, each a change to the fork.
       gives the same guesses every run.
     - **The planted trader.** A new strategy in the fork's trading client that slices a large order,
       run among the book's market-making, liquidity-taking and random clients, whose orders are the
-      background it must be found in.
+      background it must be found in. Only the random client has run under Fillscope so far (as
+      client 5); the market-making and liquidity-taking ones are run and tested first, like the
+      rest of the fork.
     - **The score.** What the detector caught, what it missed, and what it flagged wrongly, against
-      the recording. A guess is shown as a guess, never as a fact about who placed an order (charter
+      the recording, so only a replay is scored; live, the viewer shows the detector's flags and
+      says there is no truth to score them against. A guess is shown as a guess, never as a fact about who placed an order (charter
       §2, priority 1).
-    - **The display.** Each order a dot, update number across and price up, gray at first; in the
-      first version, the trades flagged as a slice take a color, and with the later patterns the
-      orders the detector groups take one color per inferred trader, joined by lines. Then the truth outlined,
-      with the hits, misses and false alarms, and the score.
+    - **The display,** a panel of the viewer, beside the book: the detector runs in the viewer as
+      each update arrives. Each order a dot, update number across and price up, gray at first; in
+      the first version, the trades flagged as a slice take a color, and with the later patterns
+      the orders the detector groups take one color per inferred trader, joined by lines. Then the
+      truth outlined, with the hits, misses and false alarms, and the score.
     - **The demo,** in three scenes: the slicer uses equal sizes and is caught; it randomizes its
       sizes and is lost; the detector improves and finds it again.
-    - **Rests on** the animated replay (4), a new strategy in the fork, and the fork's
-      ground-truth output.
+    - **Rests on** the animated replay (4), a new strategy in the fork, the fork's ground-truth
+      output, and the book's market-making and liquidity-taking clients, run and tested.
 14. **A GPU sweep of the detector's settings, with Vulkan.** Scoring the slicing detector (13) at
     thousands of settings (window size, minimum count) over a whole recording, each setting
     independent of the others, which suits a GPU's compute shaders; the result, hits against false
