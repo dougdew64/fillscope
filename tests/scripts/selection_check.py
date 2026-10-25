@@ -3,7 +3,9 @@
 # (a test that should have run doesn't), which is why this check exists. It also runs iterate.py
 # for a few changes, and checks what it ran and what it then recorded: a run that passed records
 # its programs, one with a failing test records none of them, and the slow tier is left for
-# run-tests.sh.
+# run-tests.sh. And it checks the mutation check's choice of mutants the same way: with every
+# mutant recorded as caught, then one file changed, mutants.py must choose exactly the mutants
+# whose programs or file the change reaches, and a mutant no longer recorded must be chosen alone.
 #
 #   python3 -I tests/scripts/selection_check.py
 #
@@ -11,8 +13,10 @@
 # (scratch_tree.py), so the files being edited, the build in use and the real pass record are never
 # touched, whatever stops it.
 import importlib.util
+import json
 import os
 import pathlib
+import re
 import signal
 import sys
 import tempfile
@@ -90,6 +94,31 @@ RUN_CASES = [
     ("tests/backend/replay_lldb_driver.py", TEXT_PROBE, ALWAYS),
 ]
 
+# The mutation check's choice of mutants (mutants.py): (file changed, probe, the programs whose
+# change counts, or ALL): with everything recorded as caught, then `file` changed, it must choose
+# exactly the mutants that run one of those programs or mutate `file`, no more and no fewer. Each
+# programs set is the one CASES above checks iterate.py reports for that change.
+ALL = "every mutant"
+def unique_queue_mutant(text):
+    """A change to one mutant's definition alone: its replacement gains a space."""
+    return text.replace('[("ASSERT(num_elements_ != store_.size(),", "ASSERT(true,")]',
+                        '[("ASSERT(num_elements_ != store_.size(),", "ASSERT(true ,")]', 1)
+MUTANT_CASES = [
+    ("LICENSE", TEXT_PROBE, set()),
+    ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"}),
+    ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
+     {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",
+      "replay_debugger_tests"}),
+    # A test changed: every mutant its program's tests may catch runs again.
+    ("backend/Chapter12/tests/lf_queue_test.cpp", CPP_PROBE, {"lowlatency_tests"}),
+    # The check's own code: every mutant. (scripts_tests, whose run-time files it is, changes too.)
+    ("tests/scripts/mutants.py", TEXT_PROBE, ALL),
+    # One mutant's definition: that mutant, and those of scripts_tests, which reads mutants.py.
+    ("tests/scripts/mutants.py", unique_queue_mutant, {"scripts_tests"}),
+]
+# The mutant whose definition unique_queue_mutant changes.
+QUEUE_MUTANT = "a full queue is overwritten"
+
 # A test made to fail: its program must not be recorded as passed, so it stays affected.
 FAILING_TEST = "\nTEST(SelectionProbe, Fails) { FAIL() << \"selection_check.py made this fail\"; }\n"
 
@@ -136,6 +165,11 @@ class Changed:
         self.original = self.path.read_text()
         if self.probe is DELETE:
             self.path.unlink()
+        elif callable(self.probe):
+            changed = self.probe(self.original)
+            if changed == self.original:
+                raise RuntimeError(f"the probe for {self.path} changed nothing")
+            self.path.write_text(changed)
         else:
             self.path.write_text(self.original + self.probe)
 
@@ -183,6 +217,84 @@ def failing_case(copy):
     return None if ok else f"run, a failing test: expected only viewer_tests still affected, got {sorted(still)}"
 
 
+class Mutants:
+    """The copy's mutation check, with a copy and record of its own in `directory`, and the
+    copy's mutants, each with the programs it runs as this check works them out: from CTest's
+    listing of every test, matched here (the mutation check asks CTest about each name instead)."""
+
+    def __init__(self, copy, build, directory):
+        self.copy = copy
+        self.directory = directory
+        self.env = {**os.environ, "FILLSCOPE_MUTANTS_DIR": str(directory)}
+        spec = importlib.util.spec_from_file_location("copy_mutants", copy.root / "tests" / "scripts" / "mutants.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        # As root (CI's container), the check leaves out the mutants it can't arrange (it says so).
+        skipped = module.NEEDS_A_USER_NOT_ROOT if os.geteuid() == 0 else set()
+        self.mutants = [(name, file, tests) for name, file, _, tests in module.MUTANTS if name not in skipped]
+        listing = json.loads(SCRATCH_TREE.run(["ctest", "--test-dir", str(build), "--show-only=json-v1"]).stdout)
+        self.tests = {t["name"]: {label[len("exe:"):] for p in t.get("properties", []) if p["name"] == "LABELS"
+                                  for label in p["value"] if label.startswith("exe:")}
+                      for t in listing["tests"]}
+
+    def run(self, *args):
+        result = SCRATCH_TREE.run([sys.executable, "-I", str(self.copy.root / "tests" / "scripts" / "mutants.py"), *args],
+                                  env=self.env)
+        if result.returncode != 0:
+            raise RuntimeError(f"mutants.py {' '.join(args)} failed:\n{result.stdout[-3000:]}")
+        return result.stdout
+
+    def chosen(self):
+        return {line[len("run   "):] for line in self.run("--list").splitlines() if line.startswith("run   ")}
+
+    def programs(self, tests):
+        found = set()
+        for part in tests.split(" + "):
+            part = part.strip()
+            prefix = part.split(":", 1)[0]
+            if prefix in ("ui", "node", "lowlatency"):
+                found.add({"ui": "viewer_ui_tests", "node": "vscode_debug_state_tests",
+                           "lowlatency": "lowlatency_tests"}[prefix])
+            else:
+                found |= {p for name, programs in self.tests.items() if re.search(part, name) for p in programs}
+        return found
+
+    def expected(self, file, programs):
+        if programs == ALL:
+            return {name for name, _, _ in self.mutants}
+        return {name for name, mutated, tests in self.mutants if mutated == file or self.programs(tests) & programs}
+
+
+def mutant_case(mutants, file, probe, programs):
+    """mutants.py with everything recorded as caught, then `file` changed: returns a problem, or None."""
+    mutants.run("--record-all")
+    with mutants.copy.changed(file, probe):
+        chosen = mutants.chosen()
+    expected = mutants.expected(file, programs)
+    if probe is not TEXT_PROBE and probe is not CPP_PROBE and probe is not DELETE:
+        expected.add(QUEUE_MUTANT)
+    what = getattr(probe, "__name__", "changed")
+    ok = chosen == expected
+    print(f"{'ok  ' if ok else 'FAIL'} mutants, {file} {what}: {len(chosen)} chosen of {len(mutants.mutants)}")
+    if ok:
+        return None
+    return (f"mutants, {file} {what}: chose {len(chosen)}, expected {len(expected)}; "
+            f"extra {sorted(chosen - expected)[:5]}, missing {sorted(expected - chosen)[:5]}")
+
+
+def mutant_not_caught_case(mutants):
+    """A mutant whose record is gone, as when it wasn't caught, is chosen alone."""
+    mutants.run("--record-all")
+    record_path = mutants.directory / "last-caught.json"
+    record = json.loads(record_path.read_text())
+    del record[QUEUE_MUTANT]
+    record_path.write_text(json.dumps(record))
+    chosen = mutants.chosen()
+    ok = chosen == {QUEUE_MUTANT}
+    print(f"{'ok  ' if ok else 'FAIL'} mutants, one not caught last time: chose {', '.join(sorted(chosen)) or 'none'}")
+    return None if ok else f"mutants, one not caught last time: chose {sorted(chosen)}"
+
+
 def main():
     for signum in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, stop_on_signal)
@@ -214,11 +326,19 @@ def main():
             problem = failing_case(copy)
             if problem:
                 failures.append(problem)
+            mutants = Mutants(copy, build, pathlib.Path(scratch) / "mutants")
+            for file, probe, programs in MUTANT_CASES:
+                problem = mutant_case(mutants, file, probe, programs)
+                if problem:
+                    failures.append(problem)
+            problem = mutant_not_caught_case(mutants)
+            if problem:
+                failures.append(problem)
     finally:
         scratch_tree.remove(copy_root)
     for failure in failures:
         print(f"PROBLEM: {failure}")
-    total = len(CASES) + len(RUN_CASES) + 1
+    total = len(CASES) + len(RUN_CASES) + 1 + len(MUTANT_CASES) + 1
     print(f"{total - len(failures)} of {total} selections right")
     return 0 if not failures else 1
 

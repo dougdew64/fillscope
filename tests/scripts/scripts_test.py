@@ -1,15 +1,19 @@
-# The test machinery's own logic (iterate.py): reading the manifest, what is never recorded as
-# passed, the registration and sanitizer checks, fingerprints and the pass record. These decide
-# whether a test runs and whether a pass counts, and a mistake in them would pass silently, so they
-# are tested like the code they test.
+# The test machinery's own logic: iterate.py's (reading the manifest, what is never recorded as
+# passed, the registration and sanitizer checks, fingerprints and the pass record), and the mutation
+# check's choice of which mutants to run (mutants.py's keys and record, scratch_tree.py's sync).
+# These decide whether a test or a mutant runs and whether a pass counts, and a mistake in them
+# would pass silently, so they are tested like the code they test.
 #
 #   python3 -I tests/scripts/scripts_test.py
+import hashlib
 import importlib.util
 import io
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 
@@ -152,7 +156,33 @@ class FingerprintTest(unittest.TestCase):
             os.environ.update(saved)
 
 
+class BinaryFingerprintTest(unittest.TestCase):
+    def test_a_large_binary_is_hashed_by_its_contents(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            path = pathlib.Path(scratch) / "viewer_ui_tests"
+            path.write_bytes(b"\1" * iterate.LARGE_FILE)
+            self.assertEqual(iterate.file_digest(str(path), whole=True), hashlib.sha256(path.read_bytes()).digest())
+
+    def test_a_program_whose_bytes_change_is_changed_though_its_size_and_time_are_kept(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            path = pathlib.Path(scratch) / "lowlatency_tests"
+            path.write_bytes(b"\1" * iterate.LARGE_FILE)
+            program = iterate.Program(manifest_line("lowlatency_tests", "system", str(path)))
+            before = iterate.fingerprint(program, "common")
+            times = path.stat()
+            path.write_bytes(b"\2" * iterate.LARGE_FILE)
+            os.utime(path, ns=(times.st_atime_ns, times.st_mtime_ns))
+            self.assertNotEqual(iterate.fingerprint(program, "common"), before)
+
+
 class PassRecordTest(unittest.TestCase):
+    def test_the_record_drops_programs_the_build_no_longer_lists(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            module = load_iterate(pathlib.Path(scratch) / "last-pass.json")
+            module.record({"retired_tests": "f1", "kept_tests": "f2"})
+            module.record({"new_tests": "f3"}, known={"kept_tests", "new_tests"})
+            self.assertEqual(module.load_state(), {"kept_tests": "f2", "new_tests": "f3"})
+
     def test_a_record_is_kept_and_an_unreadable_one_is_ignored_with_a_warning(self):
         with tempfile.TemporaryDirectory() as scratch:
             state = pathlib.Path(scratch) / "last-pass.json"
@@ -167,6 +197,104 @@ class PassRecordTest(unittest.TestCase):
             with redirect_stdout(said):
                 self.assertEqual(module.load_state(), {})
             self.assertIn("ignoring the unreadable pass record", said.getvalue())
+
+
+def load_script(name):
+    spec = importlib.util.spec_from_file_location(name, HERE / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+mutants = load_script("mutants")
+scratch_tree = load_script("scratch_tree")
+
+
+class MutantRecordTest(unittest.TestCase):
+    """mutants.py skips a mutant whose key is unchanged since it was caught; a key that missed
+    something it depends on would skip a mutant silently."""
+
+    MUTANT = ("a full queue is overwritten", "backend/Chapter12/common/lf_queue.h",
+              [("ASSERT(num_elements_ != store_.size(),", "ASSERT(true,")], "lowlatency:LFQueue.*")
+
+    def key(self, machinery="m", mutant=MUTANT, contents=b"c", fingerprints=None):
+        return mutants.mutant_key(machinery, mutant, contents,
+                                  {"lowlatency_tests": "f"} if fingerprints is None else fingerprints)
+
+    def test_a_key_is_the_same_for_the_same_things(self):
+        self.assertEqual(self.key(), self.key())
+
+    def test_a_key_changes_with_each_thing_a_result_depends_on(self):
+        name, file, edits, tests = self.MUTANT
+        changes = {
+            "the check's code": self.key(machinery="m2"),
+            "the mutant's edits": self.key(mutant=(name, file, [(edits[0][0], "ASSERT(false,")], tests)),
+            "the tests it names": self.key(mutant=(name, file, edits, "lowlatency:LFQueue.AQueue*")),
+            "the file it mutates": self.key(contents=b"c2"),
+            "a program's fingerprint": self.key(fingerprints={"lowlatency_tests": "f2"}),
+            "another program": self.key(fingerprints={"lowlatency_tests": "f", "feed_tests": "g"}),
+        }
+        for what, key in changes.items():
+            self.assertNotEqual(key, self.key(), what)
+
+    def test_the_check_s_code_leaves_out_the_mutants_but_nothing_else(self):
+        source = "a = 1\nMUTANTS = [\n    (\"one\", ...),\n]\n\nb = 2\n"
+        self.assertEqual(mutants.without_mutants(source), mutants.without_mutants(source.replace("one", "two")))
+        self.assertNotEqual(mutants.without_mutants(source), mutants.without_mutants(source.replace("b = 2", "b = 3")))
+        self.assertIn("b = 2", mutants.without_mutants(source))
+
+    def test_the_tests_named_are_mapped_to_the_programs_that_run_them(self):
+        asked = []
+
+        def ctest_programs(regex):
+            asked.append(regex)
+            return {"feed_tests"} if regex.startswith("FeedSocket") else {"backend_system_tests"}
+        self.assertEqual(mutants.programs_named("ui:clicking_an_order_points_at_it", ctest_programs), {"viewer_ui_tests"})
+        self.assertEqual(mutants.programs_named("node:a session ends", ctest_programs), {"vscode_debug_state_tests"})
+        self.assertEqual(mutants.programs_named("lowlatency:LFQueue.*", ctest_programs), {"lowlatency_tests"})
+        self.assertEqual(mutants.programs_named("FeedSocket.X + backend_system_tests", ctest_programs),
+                         {"feed_tests", "backend_system_tests"})
+        self.assertEqual(asked, ["FeedSocket.X", "backend_system_tests"])
+
+    def test_a_caught_mutant_is_recorded_and_one_not_caught_loses_its_record(self):
+        record = mutants.updated({}, "a", "k1", caught=True)
+        self.assertEqual(record, {"a": "k1"})
+        self.assertEqual(mutants.updated(record, "a", "k2", caught=False), {})
+        self.assertEqual(mutants.updated(record, "b", "k3", caught=False), {"a": "k1"})
+
+    def test_every_mutant_has_a_name_of_its_own(self):
+        self.assertIsNone(mutants.duplicate_names(mutants.MUTANTS))
+        self.assertIn("twice", mutants.duplicate_names([("twice", "f", [], "t"), ("twice", "g", [], "t")]))
+
+
+class SyncTest(unittest.TestCase):
+    """scratch_tree.sync keeps the mutation check's copy up to date, changing only what differs, and
+    giving what it rewrites the time now: the build rebuilds what is newer than what it built."""
+
+    def test_only_what_differs_changes_and_a_rewritten_file_is_newer_than_before(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root, copy = pathlib.Path(scratch) / "root", pathlib.Path(scratch) / "copy"
+            root.mkdir()
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            for name in ("same.cpp", "edited.cpp", "removed.cpp"):
+                (root / name).write_text(name)
+            scratch_tree.sync(root, copy)
+            self.assertEqual((copy / "edited.cpp").read_text(), "edited.cpp")
+            old = time.time_ns() - 3600 * 10**9  # an hour ago: older than anything the copy built
+            same_time = (copy / "same.cpp").stat().st_mtime_ns
+            (root / "edited.cpp").write_text("edited, with new contents")
+            os.utime(root / "edited.cpp", ns=(old, old))
+            (root / "removed.cpp").unlink()
+            (root / "added.cpp").write_text("added")
+            before = time.time_ns()
+            changed = scratch_tree.sync(root, copy)
+            self.assertEqual(sorted(changed), ["added.cpp", "edited.cpp", "removed.cpp"])
+            self.assertEqual((copy / "edited.cpp").read_text(), "edited, with new contents")
+            self.assertGreaterEqual((copy / "edited.cpp").stat().st_mtime_ns, before,
+                                    "a rewritten file keeps its source's old time, so the build wouldn't rebuild it")
+            self.assertEqual((copy / "same.cpp").stat().st_mtime_ns, same_time, "an unchanged file was rewritten")
+            self.assertFalse((copy / "removed.cpp").exists())
+            self.assertEqual((copy / "added.cpp").read_text(), "added")
 
 
 if __name__ == "__main__":

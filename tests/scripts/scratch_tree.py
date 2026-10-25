@@ -1,7 +1,9 @@
 # A scratch copy of the working tree, with a build of its own, for the checks that change source
 # files (mutants.py, selection_check.py). They work only in the copy, so they never touch the files
-# being edited, nor the build the editor and iterate.py use, and an interrupted check leaves
-# nothing behind that matters: the copy is in a temporary directory and is deleted afterwards.
+# being edited, nor the build the editor and iterate.py use. The selection check makes a copy in a
+# temporary directory and deletes it afterwards (make, remove). The mutation check keeps one in
+# build/mutants/tree and brings it up to date each time (sync): its build is then incremental, and
+# its programs, built at the same paths, can be compared from one run to the next.
 #
 # The copy holds the working tree as it is, uncommitted changes included: every file git tracks or
 # would track (untracked files that aren't ignored), the back end's (a submodule's) files likewise,
@@ -80,6 +82,73 @@ def fill(root, copy):
         (copy / ".git" / "objects" / "info" / "alternates").write_text(f"{objects}/objects\n")
         subprocess.run(["git", "-C", str(copy), "update-ref", "HEAD", head], **quiet)
     subprocess.run(["git", "-C", str(copy), "add", "-A"], **quiet)
+
+
+def wanted_files(root):
+    """{path in the copy: source} for everything a copy of `root` holds: the working tree's files,
+    the back end's (a submodule's) as plain files, and the extension's development tools."""
+    wanted = {}
+    for name in tracked_files(root):
+        source = root / name
+        if source.is_dir() and not source.is_symlink():
+            for inner in tracked_files(source):
+                wanted[f"{name}/{inner}"] = source / inner
+        else:
+            wanted[name] = source
+    modules = root / NODE_MODULES
+    if modules.is_dir():
+        for source in modules.rglob("*"):
+            if source.is_symlink() or source.is_file():
+                wanted[str(source.relative_to(root))] = source
+    return wanted
+
+
+def differs(source, target):
+    if source.is_symlink() or target.is_symlink():
+        return not (source.is_symlink() and target.is_symlink() and os.readlink(source) == os.readlink(target))
+    if not target.is_file():
+        return True
+    return source.stat().st_size != target.stat().st_size or source.read_bytes() != target.read_bytes()
+
+
+def sync(root, copy):
+    """Makes `copy` hold the working tree at `root` as it is now, changing only what differs, so the
+    copy's build rebuilds only what changed: a file whose contents differ is rewritten, with the
+    time now rather than its source's (the build rebuilds what is newer than what it built, and a
+    file edited during an earlier check can be older than that), one gone from the tree is removed,
+    and one not yet copied is added. A copy not made yet is made, as make() makes one. Returns the
+    paths, in the copy, it changed."""
+    if not (copy / ".git").is_dir():
+        copy.mkdir(parents=True, exist_ok=True)
+        fill(root, copy)
+        return ["(all: a new copy)"]
+    wanted = wanted_files(root)
+    changed = []
+    for name, source in sorted(wanted.items()):
+        target = copy / name
+        if differs(source, target):
+            if target.is_symlink() or target.exists():
+                target.unlink()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source.is_symlink():
+                target.symlink_to(os.readlink(source))
+            else:
+                shutil.copy(source, target)  # its contents and mode; the time is now
+            changed.append(name)
+    present = set(tracked_files(copy))
+    modules = copy / NODE_MODULES
+    if modules.is_dir():
+        present |= {str(p.relative_to(copy)) for p in modules.rglob("*") if p.is_symlink() or p.is_file()}
+    for name in sorted(present - set(wanted)):
+        (copy / name).unlink()
+        changed.append(name)
+    quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "check": True}
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "-q", "HEAD"],
+                          stdout=subprocess.PIPE, text=True).stdout.strip()
+    if head:
+        subprocess.run(["git", "-C", str(copy), "update-ref", "HEAD", head], **quiet)
+    subprocess.run(["git", "-C", str(copy), "add", "-A"], **quiet)
+    return changed
 
 
 def declared_hashes(copy):

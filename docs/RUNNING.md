@@ -170,22 +170,32 @@ parallel with any still going; a newer push to a pull request cancels that pull 
 
 **Checks of the tests themselves** (slower; before changing the test machinery, and in CI):
 ```sh
-python3 -I tests/scripts/mutants.py [NAME]   # deliberate bugs, each must fail the tests it names
-python3 -I tests/scripts/selection_check.py  # iterate.py selects, runs and records the right programs
+python3 -I tests/scripts/mutants.py          # deliberate bugs, each must fail the tests it names:
+                                             #   those not caught already, as things are
+python3 -I tests/scripts/mutants.py --all    #   every one
+python3 -I tests/scripts/mutants.py NAME     #   those whose names contain NAME
+python3 -I tests/scripts/mutants.py --list   #   which would run, running none
+python3 -I tests/scripts/selection_check.py  # iterate.py and mutants.py choose exactly right
 ```
 **How long each takes** (measured on the development machine, with both builds already current):
-`run-tests.sh` about 2 minutes and the selection check about 2 (2026-10-23); the mutation check
-about 23, for 181 mutants, each a rebuild and a test run (2026-10-24: about 10 minutes of
-rebuilds, and about 7 of the back end's system tests, which wait more than they compute; it took
-39 before each back-end mutant ran only the tests that catch it). A cold build adds several minutes to the first.
+`run-tests.sh` about 2 minutes (2026-10-23); the selection check about 4 (2026-10-24, with its
+mutant cases); the mutation check, every mutant (`--all`, or anything the check's own code
+depends on changed), about 23, for 192 mutants, each a rebuild and a test run (2026-10-24: about
+10 minutes of rebuilds, and about 7 of the back end's system tests, which wait more than they
+compute). Run as it normally is, it runs only the mutants a change reached: after a change to the
+viewer's drawing code, 18 of the 192 in about 40 seconds; with nothing changed, none, in under 2
+seconds. A cold build adds several minutes to the first.
 Run as root (CI's container), the mutation check skips, and names, the mutants whose test needs a
 directory it can't write to, which root always can.
-Both work in a scratch copy of the working tree, with a build of their own, so the files being
-edited, the build in use and the real pass record are never touched, whatever stops them; the copy
-is deleted afterwards. A mutant names the tests meant to catch it: CTest names, single Test Engine
-tests (`ui:`) or single Node tests (`node:`). `mutants.py` first checks that every test it names
-passes on the real code, so a test that already fails can't make a mutant look caught; with a
-`NAME`, it runs only the mutants whose names contain it.
+Both work in a copy of the working tree, with a build of their own, so the files being edited, the
+build in use and the real pass record are never touched, whatever stops them. The selection check's
+copy is temporary; the mutation check keeps its copy and its record of caught mutants in
+`build/mutants/` and updates the copy each run (two runs at once wait for each other). A mutant
+names the tests meant to catch it: CTest names, single Test Engine tests (`ui:`), single Node tests
+(`node:`), or the back end's GoogleTest tests (`lowlatency:`). `mutants.py` first checks that every
+test a mutant to run names passes on the real code, so a test that already fails can't make a
+mutant look caught. How it chooses which mutants to run is in
+[ARCHITECTURE.md](ARCHITECTURE.md) §9, *Whether the tests can be trusted*.
 
 ## Run
 The viewer shows the back end's books. In VS Code: Run and Debug, then **viewer + exchange + client**

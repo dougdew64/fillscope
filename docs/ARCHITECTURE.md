@@ -440,7 +440,16 @@ These rules, and the tests that guard them (`replay_debugger_tests`, under GDB a
    of ticker 0: ...".
 6. You ask the assistant about it; it reads `.fillscope/context.json`.
 
-## 9. Where the tests fit
+## 9. The tests
+The tests must do four things, and the machinery around them exists for the last three: test
+every behaviour that matters; run, after a change, every test the change could affect (and,
+between edits, little else); be trusted when they pass, which means each must be able to fail; and
+give the same answer however many runs, debugger sessions and exchanges share the machine. Most of
+the tests are written by an AI, and the charter trusts AI output only through checks independent
+of the AI ([AI-USE.md](AI-USE.md)), so the tests are themselves checked, mechanically. Commands,
+tiers and timings are in [RUNNING.md](RUNNING.md); this chapter is how and why it works.
+
+### What is tested, and where
 Each area's tests are in the matching `tests/` directory. The feed's unit tests check decoding, the
 books and recovery against hand-made updates (`feed_tests`); its system test runs the real exchange
 and a client and checks Fillscope's books against the exchange's snapshots, and a late reader's
@@ -449,13 +458,13 @@ updates that arrived. The viewer's core has unit tests that need no window (`vie
 tests run the whole loop above with real clicks through the Dear ImGui Test Engine, with no window
 or GPU, including reading real multicast streams and moving through a replay (`viewer_ui_tests`).
 Lockstep on a replay is tested under GDB and LLDB (`replay_debugger_tests`). The back end's own
-tests are in the fork. A test that uses the network does so on ports of its own, so it can run
-while you step through a replay in VS Code, or while another run of the tests goes on: a market
-data stream is only a group and a port, and a test that listened on the book's own once passed on
-a replay's updates instead of its exchange's. How tests are selected, tiered and run, and how a
-test gets its ports, is in [RUNNING.md](RUNNING.md).
+tests are in the fork (`backend/Chapter12/tests/`): `lowlatency_tests`, the matching, the market
+data, recording and replay, the order server, the queue, its sockets; and
+`lowlatency_allocation_tests`, what must not allocate. The test machinery is tested too
+(`scripts_tests`, below).
 
-**The pieces of a test run.** Several tools stack up, each handing over to the next:
+### The pieces of a test run
+Several tools stack up, each handing over to the next:
 - **A test** is a C++ function written with GoogleTest: `TEST(LFQueue, WritingToAFullQueueStopsTheProgram) { … }`.
   The macro also defines a global variable whose initializer registers the test, before `main`
   runs, so a program's tests are whichever test files are linked into it. `main` calls
@@ -472,66 +481,135 @@ test gets its ports, is in [RUNNING.md](RUNNING.md).
   `--gtest_filter=FeedSocket.ReceivesWhatIsSentToItsGroup`); the back end's own tests are one CTest
   test for the whole program, since they share one matching engine that takes seconds to make. The
   other test programs, such as the Python system test, are one CTest test each.
+- **A tier**, given to each program where it is registered, is its cost class: `unit`, `ui`,
+  `check`, `debugger` or `system`. It sets each test's timeout (from 2 seconds for a unit test to
+  120 for a system test), so a test that grows slow fails as slow the day it does, and it decides
+  when the program runs: the fast tiers between edits, all of them before a commit.
 - **The manifest**, `build/debug/test-manifest.txt`, written by the build, lists every test program:
   its name, its tier, its binary, and the files it uses at run time.
-- **The record of passing runs**, `build/debug/last-pass.json`, holds one fingerprint per program:
-  a hash of its binary (of its contents, or of its size and time if it is 8 MiB or more), its run-time
-  files, the shared libraries it loads, the `FILLSCOPE_` environment variables and every
-  `CMakeLists.txt`. `iterate.py` takes each fingerprint before the tests run and records it only if
-  the whole run passes; a program whose fingerprint differs from its record is affected, and runs.
 
-**How the tests are checked.** Two checks ask whether the tests themselves can be trusted:
-- **The mutation check** (`tests/scripts/mutants.py`). A test can pass while testing nothing: an
-  assertion left out, a wrong expectation, a test that never reaches the code it is named for. So
-  the check plants deliberate bugs ("mutants"), one at a time, in a scratch copy of the repository:
-  for example, the matcher's `price < ask` made `price <= ask`, so a buy no longer trades at the
-  ask's price. For each, it rebuilds what the edit affects, runs the tests named for that mutant,
-  and requires one of them to fail; a mutant that survives is a blind spot in the tests. A mutant
-  names the tests expected to catch it, so a change to one test needs only the mutants that name
-  it (the script runs a subset by mutant name). A mutant finds its place by text, not by line
-  number: each edit's old text must occur exactly once in its file, so the mutant survives edits
-  elsewhere in the file, and when its own code changes it fails as a problem rather than mutating
-  nothing. A mutant is born with its test, as that test's proof, or from a bug once fixed, to keep
-  it found; it changes when its code or test does, since the check forces that; and it is deleted
-  when the claim it guards no longer exists (76 had been, by 2026-10-24, most when the stand-ins
-  retired with the code they tested).
-- **The selection check** (`tests/scripts/selection_check.py`). Between edits, `iterate.py` runs
-  only the test programs an edit affects, judged from what the build produced rather than a
-  hand-kept list. If it judged wrongly, a test that should run wouldn't, and the tests would look
-  green over a break. So the check makes 25 known edits in a scratch copy and requires
-  `iterate.py` to choose exactly the right programs for each, no more and no fewer; each edit is a
-  rebuild. It matters when the test machinery or the build's structure
-  changes (a new test program, a new dependency).
+### Three times the tests run
+- **Between edits, `iterate.py`** runs only the fast programs a change affects, in seconds. What
+  "affects" means comes from the build, not a hand-kept list: each program has a *fingerprint*, a
+  hash of its binary's contents, of the files it uses at run time (for a file of 8 MiB or more, such
+  as Node.js's binary, its size and time instead), of the shared libraries it loads (by path, size
+  and time), of the `FILLSCOPE_` environment variables, and of every `CMakeLists.txt`. The record of
+  passing runs, `build/debug/last-pass.json`, holds each program's fingerprint as of its last
+  passing run; a program whose fingerprint differs is affected, and runs. A fingerprint is taken
+  before the tests run, so a file edited meanwhile counts as changed, and recorded only if the whole
+  run passes; a program whose tests were all skipped (a debugger not installed) isn't recorded, since
+  it proved nothing. A change the build doesn't carry into a program, such as a comment, can't
+  change its result, and doesn't make it run.
+- **Before a commit, `run-tests.sh`** runs every test, in two builds: the normal debug build, and one
+  with AddressSanitizer and UndefinedBehaviorSanitizer, which find bugs no assertion would (a read
+  of memory never initialized found the fork's uninitialized table). It also checks that every
+  CTest test belongs to a program in the manifest and every program has a test, and that every
+  program in the sanitizer build is built with both sanitizers. It takes about two minutes; nothing
+  is skipped, since quick tests aren't worth the risk of skipping (the owner's ruling, DECISIONS.md).
+- **In CI**, on every push to main and every pull request, in a clean Fedora container with only the
+  commit: `run-tests.sh`, with warnings as errors and a missing debugger failing its tests rather
+  than skipping them, then the mutation check, every mutant, and the selection check. Each commit
+  on main gets a run of its own.
 
-CI runs both on every push to main and every pull request.
+### Tests that use the network
+A market data stream is only a multicast group and a port, and a TCP order port is only a number,
+so two programs using the same ones meet: a test once listening on the book's own stream passed on
+the updates of a replay stepped in VS Code, never checking the exchange it had started. So every
+test process takes ports of its own: it claims a numbered slot by locking a file
+(`fillscope-test-ports/slot-N` in the temporary directory, held until the process exits, even if it
+crashes), and slot N has ports 22000 + 10 N to 22000 + 10 N + 9, clear of the book's. The exchange
+and the trading client take options for where they meet (`--order-port`, `--snapshot`,
+`--incremental`), which the system tests pass, and a sender on the book's stream runs throughout the
+back end's system test to show none of its updates arrive. Everything goes over the loopback
+interface, so nothing leaves the machine.
 
-**Why a mutation check, and what it costs.** Most of Fillscope's tests are written by an AI, and
-the charter trusts AI output only through a check that doesn't depend on the AI
-([AI-USE.md](AI-USE.md)). Review by the same AI doesn't answer whether a test can fail: the blind
-spot that wrote a test reads it as right. A mutant answers it mechanically. It has earned its
-place: mutants showed that several tests written on 2026-10-19 didn't test what they claimed, and
-both of CI's failures in its first 65 runs were mutants the tests didn't catch.
+### Whether the tests can be trusted
+A passing test says something only if it would fail on the bug it guards against. Two checks ask
+that of the tests and of the machinery that chooses them, and the machinery's own code is tested
+like the code it tests.
+
+**The mutation check** (`tests/scripts/mutants.py`) plants deliberate bugs, *mutants*, one at a
+time, and requires a named test to fail on each. A mutant is four things: a name, saying the bug
+("a full queue is overwritten"); the file it edits; its edits, each an old text and its
+replacement; and the tests that must catch it. The tests are named in one of four forms: a CTest
+name or regular expression (`FeedSocket.ReceivesWhatIsSentToItsGroup`, `A|B` for either), a Test
+Engine test (`ui:clicking_an_order_points_at_it`), a Node test (`node:…`), or GoogleTest tests inside
+the back end's one-test program (`lowlatency:LFQueue.WritingToAFullQueueStopsTheProgram`, run with
+`--gtest_filter`, since CTest has no name for anything inside it).
+- *Where a mutant goes.* By text, not line number: each edit's old text must occur exactly once in
+  its file. The mutant survives edits elsewhere in the file, and when its own code changes it fails
+  as a problem, rather than mutating nothing or the wrong place.
+- *A run.* The check keeps a copy of the working tree with a build of its own, in
+  `build/mutants/tree`, and brings it up to date first, rewriting only the files that differ (with
+  the time now, so the build rebuilds them), so its build is incremental and the files being edited
+  are never touched. It builds the real code, then the *baseline*: every set of tests a mutant to
+  run names must pass on the real code, so a test already failing can't make a mutant look caught.
+  Then, for each mutant: apply its edits, rebuild, run its tests, and count it caught only if tests
+  ran and one failed (a misspelt name matches nothing, and must not pass as caught); restore the
+  file, whatever happened.
+- *Which mutants run.* A mutant's result depends on four things: the check's own code, the mutant's
+  definition, the contents of the file it mutates, and the test programs it runs, by their
+  fingerprints as `iterate.py` takes them, in the copy's build. Their hash is the mutant's *key*;
+  when a mutant is caught its key is recorded, in `build/mutants/last-caught.json`, and next time a
+  mutant whose key is unchanged is skipped, as already known. A mutant not caught loses its record,
+  so it runs again. The comparison is of what the build produced, not of where the change was: a
+  change to `common/macros.h` changes no mutant's file, but every back-end program's binary, so
+  every back-end mutant runs, as it must, since the queue's full check is an `ASSERT`. A change to
+  the viewer's drawing code changes only `viewer_ui_tests`, and runs only the 18 of 192
+  mutants that run it. `--all` runs every mutant; CI keeps no record, so it always does.
+- *A mutant's life.* A mutant is born with its test, as that test's proof, or from a bug once fixed,
+  to keep it found; it changes when its code or test does, since the check forces that; and it is
+  deleted when the claim it guards no longer exists (76 had been by 2026-10-24, most when the
+  stand-ins retired with the code they tested).
+
+**The selection check** (`tests/scripts/selection_check.py`) makes known edits in a scratch copy and
+requires the right choice for each, no more and no fewer: for 25, the programs `iterate.py` reports
+affected, what it runs and what it then records; for 7, the mutants the mutation check would run,
+with every mutant first recorded as caught. It works out the right mutants its own way (from CTest's
+listing of every test, where the mutation check asks CTest about each name), so a mistake in one
+doesn't hide in the other. Among its cases: a change to nothing any program uses runs none, a test
+changed runs every mutant its program's tests may catch, one mutant's definition changed runs that
+mutant alone (and those of the scripts' own tests), and a mutant no longer recorded runs alone.
+
+**The machinery's own tests and mutants.** `scripts_tests` tests the parts whose mistakes would
+pass silently: reading the manifest, what is never recorded as passed, the fingerprints (a test
+binary's changed bytes are a change, even with its size and time kept), the record, each part of a
+mutant's key, the record of caught mutants, and the copy's update. The mutation check holds mutants
+of that code too ("a mutant's key leaves out the programs it runs", "the copy keeps a rewritten
+file's old time"), which those tests must catch.
+
+### Why a mutation check, and what it costs
+Review by the AI that wrote a test doesn't answer whether it can fail: the blind spot that wrote
+it reads it as right. A mutant answers it mechanically. It has earned its place: mutants showed that
+several tests written on 2026-10-19 didn't test what they claimed, and both of CI's failures in its
+first 65 runs were mutants the tests didn't catch.
 
 These mutants aren't the thousands a mutation-testing tool generates. Each is written by hand
 for one claim a test makes, paired with the bug the test says it guards against: "a full queue
 stops the program" with "a full queue is overwritten". So there are about two hundred, and each
-is worth running. Even so the check costs the most of anything here, since every mutant is a
-rebuild and a test run: 23 minutes for 181 (2026-10-24, [RUNNING.md](RUNNING.md)). The cost is
-lopsided. Fillscope's own 128 mutants take under a minute of test time between them; the rest is
-rebuilds and the back end's tests, which mostly wait (the book's code sleeps after starting each
-thread, and its client waits ten seconds before trading) rather than compute. Each mutant names the
-tests that must catch it, and runs only those: the back end's own tests are one CTest test for
-their whole program (they share one matching engine, which takes seconds to make), so a back-end
-mutant names its GoogleTest tests inside it (`lowlatency:LFQueue.WritingToAFullQueueStopsTheProgram`),
-which took the check from 39 minutes to 23.
+is worth running. Even so the full check costs the most of anything here, since every mutant is a
+rebuild and a test run: 23 minutes for 192 (2026-10-24). The cost is lopsided:
+Fillscope's own mutants take under a minute of test time between them; the rest is rebuilds and
+the back end's tests, which mostly wait (the book's code sleeps after starting each thread, and its
+client waits ten seconds before trading) rather than compute. Two changes brought it down: each
+back-end mutant runs only the GoogleTest tests that catch it, rather than the whole program (39
+minutes to 23), and a mutant is skipped when nothing it depends on has changed, so a change pays
+for the mutants it can affect: after a change to the viewer's drawing code, 18 mutants in about
+40 seconds; with nothing changed, under 2 seconds.
 
 The cost grows with the mutants and with the time their tests take, both of which grow with the
 code, so a very large codebase can't run every mutant on every change. The practice published for
-that scale is incremental: mutate only the lines a change touches, and show the reviewer the
-mutants that survive (Petrović and Ivanković, "State of Mutation Testing at Google", ICSE SEIP
-2018). Step 10 of the [plan](PLAN.md) works on the check's cost here. Nobody needs to wait for it
-meanwhile: locally, the mutants for what changed take seconds to minutes, and the full check runs
-in CI, after a push, while work goes on.
+that scale is incremental, as here: mutate only the lines a change touches, and show the reviewer
+the mutants that survive (Petrović and Ivanković, "State of Mutation Testing at Google", ICSE SEIP
+2018). Here the choice is by what the build produced, which is more cautious than by lines, and the
+full check still runs in CI.
+
+### One change, end to end
+You change how the viewer draws an order, in `src/viewer/viewer_view.cpp`. Between edits,
+`iterate.py` rebuilds and runs `viewer_ui_tests`, the one program whose binary changed, in seconds.
+Before committing, `run-tests.sh` runs everything in both builds, about two minutes. The mutation
+check, run locally, runs the 18 mutants of the programs the change reached. After the push, CI
+runs everything again from a clean container, every mutant included, while work goes on.
 
 ## 10. A reading order for the code
 1. `src/feed/market_update.h`: what the exchange sends.

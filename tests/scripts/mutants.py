@@ -1,19 +1,36 @@
 # Checks that the tests catch bugs: each mutant breaks the code in one deliberate way, and the
 # tests named for it must then fail, though they pass on the real code (checked first). It works in
-# a scratch copy of the working tree with a build of its own (scratch_tree.py), so the files being
-# edited and the build in use are never touched, whatever stops it.
+# a copy of the working tree with a build of its own (scratch_tree.py), kept in build/mutants/tree
+# and brought up to date each time, so the files being edited and the build in use are never
+# touched, whatever stops it.
 #
-#   python3 -I tests/scripts/mutants.py [NAME]     every mutant, or those whose names contain NAME
+#   python3 -I tests/scripts/mutants.py              every mutant not caught already, as things are
+#   python3 -I tests/scripts/mutants.py --all        every mutant
+#   python3 -I tests/scripts/mutants.py NAME         the mutants whose names contain NAME
+#   python3 -I tests/scripts/mutants.py --list       which mutants would run, and why, running none
+#   python3 -I tests/scripts/mutants.py --record-all record every mutant as caught, as things are
+#                                                    (for selection_check.py)
+#
+# A mutant is skipped when nothing its result depends on has changed since it was last caught:
+# its own definition, the file it mutates, the test programs it runs (their fingerprints, as
+# iterate.py takes them, from the copy's build) and this check's own code. Each caught mutant's key,
+# a hash of those, is recorded in build/mutants/last-caught.json; a mutant not caught loses its
+# record. CI keeps no record, so it runs every mutant. FILLSCOPE_MUTANTS_DIR puts the copy and the
+# record elsewhere (selection_check.py does, to check the skipping without touching either).
 #
 # A mutant whose text no longer matches the source is an error, not a pass: the check must not go
 # silently stale when the code changes.
+import fcntl
+import hashlib
 import importlib.util
+import json
 import os
 import pathlib
 import re
 import shutil
 import signal
 import sys
+import tempfile
 
 # Loading the scripts beside this one by path would otherwise leave __pycache__ files in the tree.
 sys.dont_write_bytecode = True
@@ -54,6 +71,9 @@ REPLAY_MAIN = "backend/Chapter12/exchange/exchange_replay.cpp"
 REQUEST_ANCHOR = "backend/Chapter12/exchange/matcher/lockstep_anchor.cpp"
 LF_QUEUE = "backend/Chapter12/common/lf_queue.h"
 MACROS = "backend/Chapter12/common/macros.h"
+MUTANTS_SCRIPT = "tests/scripts/mutants.py"
+SCRATCH_TREE_SCRIPT = "tests/scripts/scratch_tree.py"
+ITERATE_SCRIPT = "tests/scripts/iterate.py"
 SOCKET_UTILS = "backend/Chapter12/common/socket_utils.h"
 ENDPOINTS = "backend/Chapter12/common/endpoints.h"
 EXCHANGE_MAIN_SOURCE = "backend/Chapter12/exchange/exchange_main.cpp"
@@ -395,6 +415,42 @@ MUTANTS = [
     ("the viewer joins on the default interface", FEED_SOCKET,
      [(".imr_interface = {htonl(INADDR_LOOPBACK)}", ".imr_interface = {htonl(INADDR_ANY)}")],
      "FeedSocket.ReceivesWhatIsSentToItsGroup"),
+    # The mutation check's choice of mutants: what a mistake would skip silently.
+    ("a mutant's key leaves out its definition", MUTANTS_SCRIPT,
+     [("    digest.update(repr(mutant).encode())\n", "")],
+     "scripts_tests"),
+    ("a mutant's key leaves out the file it mutates", MUTANTS_SCRIPT,
+     [("    digest.update(file_digest)\n", "")],
+     "scripts_tests"),
+    ("a mutant's key leaves out the programs it runs", MUTANTS_SCRIPT,
+     [('        digest.update(f"{name}={value}\\n".encode())', "        pass")],
+     "scripts_tests"),
+    ("the check's own code counts its mutants", MUTANTS_SCRIPT,
+     # Split in two, here and below, so that the text occurs once in this file: in the code.
+     [("    return source[:start] "  "+ source[end + 3:]", "    return source")],
+     "scripts_tests"),
+    ("a mutant not caught keeps its record", MUTANTS_SCRIPT,
+     [("    if caught:\n        result[name] = key", "    if True:\n        result[name] = key")],
+     "scripts_tests"),
+    ("mutants may share a name", MUTANTS_SCRIPT,
+     [("        (repeated if name in seen "  "else seen).add(name)", "        seen.add(name)")],
+     "scripts_tests"),
+    ("a UI test's mutant names no program", MUTANTS_SCRIPT,
+     [('            found.add("viewer_'  'ui_tests")', "            pass")],
+     "scripts_tests"),
+    ("the copy keeps a rewritten file's old time", SCRATCH_TREE_SCRIPT,
+     [("                shutil.copy(source, target)  # its contents and mode; the time is now",
+       "                shutil.copy2(source, target)")],
+     "scripts_tests"),
+    ("the copy keeps a file gone from the tree", SCRATCH_TREE_SCRIPT,
+     [("        (copy / name).unlink()\n", "")],
+     "scripts_tests"),
+    ("a large test binary is fingerprinted by its size and time", ITERATE_SCRIPT,
+     [("file_digest(path, whole=path == program.binary)", "file_digest(path)")],
+     "scripts_tests"),
+    ("the pass record keeps programs the build no longer lists", ITERATE_SCRIPT,
+     [("    if known is not None:\n", "    if False:\n")],
+     "scripts_tests"),
     ("an ASSERT builds its message when it holds", MACROS,
      [("    if (UNLIKELY(!(cond))) {                              \\\n      std::cerr << \"ASSERT : \" << (msg) << std::endl;     \\\n",
        "    const std::string message_ = (msg);                   \\\n    if (UNLIKELY(!(cond))) {                              \\\n      std::cerr << \"ASSERT : \" << message_ << std::endl; \\\n")],
@@ -542,7 +598,7 @@ MUTANTS = [
      [("        error_ = std::move(written.error());  // the bar shows this\n",
        "        error_ = std::move(written.error());\n        published_ = context;\n")],
      "Publisher.AFailedWriteKeeps + ui:a_failed_write_shows_in_the_bar_and_the_book"),
-    ("a failed write leaves the old file", PUBLISHER,
+    ("the viewer's failed write leaves the old file", PUBLISHER,
      [("        if (::unlink(file_.c_str()) == 0 || errno", "        if (false || errno")],
      "Publisher.AFailedWriteRemovesTheOldFile + node:a failed write removes the old file, is logged, and the next write works again"),
     ("a failed write is retried only when the context changes", PUBLISHER,
@@ -589,7 +645,7 @@ MUTANTS = [
      [("if (const std::filesystem::path directory = file.parent_path(); !directory.empty()) {",
        "if (const std::filesystem::path directory = file.parent_path(); true) {")],
      "Publisher.ABareFileName"),
-    ("a failed write leaves its temporary file", PUBLISHER,
+    ("the viewer's failed write leaves its temporary file", PUBLISHER,
      [("        ::unlink(temporary.c_str());\n", "")],
      "Publisher.AFailedWriteIsRetried + node:a failed write throws and leaves no temporary file"),
     ("finish says the viewer is still running", PUBLISHER,
@@ -664,7 +720,7 @@ MUTANTS = [
     ("stop() doesn't take a new sequence number", DEBUG_STATE,
      [("    stop() {\n        this.seq += 1;\n", "    stop() {\n")],
      "node:the output line names the session, the place and the counts|every write by the writer has a higher sequence number, its last one too"),
-    ("a failed write leaves its temporary file", DEBUG_STATE,
+    ("the extension's failed write leaves its temporary file", DEBUG_STATE,
      [("        io.rmSync(temporary, { force: true });\n", "")],
      "node:a failed write throws and leaves no temporary file"),
     # Caught by a test that watches the calls, so it doesn't depend on a race with a reader.
@@ -691,7 +747,7 @@ MUTANTS = [
      [("                onExit: (code) => publisher.sessionEnded(session.id, adapterExitReason(code), incarnation),",
        "                onExit: (code) => publisher.sessionEnded(session.id, adapterExitReason(code)),")],
      "node:after a restart under the same id, the old adapter's late exit and messages change nothing"),
-    ("a failed write leaves the old file", EXTENSION,
+    ("the extension's failed write leaves the old file", EXTENSION,
      [("                fs.rmSync(file, { force: true });\n", "")],
      "node:a failed write removes the old file, is logged, and the next write works again"),
     ("a symlinked folder gets a publisher of its own", EXTENSION,
@@ -780,34 +836,200 @@ def stop_on_signal(signum, _frame):
     raise SystemExit(128 + signum)
 
 
-def main():
+USAGE = "usage: mutants.py [--all | --list | --record-all | NAME]"
+
+MUTATION_DIR = pathlib.Path(os.environ.get("FILLSCOPE_MUTANTS_DIR", ROOT / "build" / "mutants"))
+COPY = MUTATION_DIR / "tree"
+RECORD = MUTATION_DIR / "last-caught.json"
+
+
+def duplicate_names(mutants):
+    """What is wrong with the mutants' names, or None: each must be unique, since the record of
+    caught mutants is kept by name."""
+    seen, repeated = set(), set()
+    for name, *_ in mutants:
+        (repeated if name in seen else seen).add(name)
+    return f"mutants share a name: {', '.join(sorted(repeated))}" if repeated else None
+
+
+def without_mutants(source):
+    """mutants.py's source with its list of mutants left out: the check's own code, which every
+    mutant's result depends on, apart from the mutants, each of which counts only for itself."""
+    start = source.index("\nMUTANTS = [\n")
+    end = source.index("\n]\n", start)
+    return source[:start] + source[end + 3:]
+
+
+def machinery_digest(texts):
+    """A hash of the check's own code: `texts` are its scripts' sources, mutants.py's without its
+    list of mutants."""
+    digest = hashlib.sha256()
+    for text in texts:
+        digest.update(hashlib.sha256(text.encode()).digest())
+    return digest.hexdigest()
+
+
+def programs_named(tests, ctest_programs):
+    """The test programs a mutant's tests run: `ctest_programs(regex)` gives the programs of the
+    CTest tests a regular expression matches."""
+    found = set()
+    for part in tests.split(" + "):
+        part = part.strip()
+        if part.startswith("ui:"):
+            found.add("viewer_ui_tests")
+        elif part.startswith("node:"):
+            found.add("vscode_debug_state_tests")
+        elif part.startswith("lowlatency:"):
+            found.add("lowlatency_tests")
+        else:
+            found |= set(ctest_programs(part))
+    return found
+
+
+def mutant_key(machinery, mutant, file_digest, fingerprints):
+    """What a mutant's result depends on, as one hash: the check's code, the mutant's definition,
+    the contents of the file it mutates, and the fingerprint of each program it runs (by name,
+    "none" for a program the build doesn't list)."""
+    digest = hashlib.sha256()
+    digest.update(machinery.encode())
+    digest.update(repr(mutant).encode())
+    digest.update(file_digest)
+    for name, value in sorted(fingerprints.items()):
+        digest.update(f"{name}={value}\n".encode())
+    return digest.hexdigest()
+
+
+def updated(record, name, key, caught):
+    """The record after a mutant's run: its key if caught, no entry if not (so it runs next time)."""
+    result = {n: k for n, k in record.items() if n != name}
+    if caught:
+        result[name] = key
+    return result
+
+
+def load_record():
+    try:
+        return json.loads(RECORD.read_text())
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as error:
+        print(f"warning: ignoring the unreadable record {RECORD}: {error}")
+        return {}
+
+
+def write_record(record):
+    RECORD.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=RECORD.parent, prefix=RECORD.name, suffix=".tmp", delete=False) as out:
+        out.write(json.dumps(record, indent=1, sort_keys=True) + "\n")
+    os.replace(out.name, RECORD)
+
+
+def load_iterate(build):
+    """The copy's iterate.py, as a module, taking its fingerprints from the copy's build."""
+    previous = os.environ.get("FILLSCOPE_ITERATE_BUILD")
+    os.environ["FILLSCOPE_ITERATE_BUILD"] = str(build)
+    try:
+        spec = importlib.util.spec_from_file_location("copy_iterate", COPY / "tests" / "scripts" / "iterate.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        if previous is None:
+            os.environ.pop("FILLSCOPE_ITERATE_BUILD", None)
+        else:
+            os.environ["FILLSCOPE_ITERATE_BUILD"] = previous
+    return module
+
+
+def keys_of(mutants, build):
+    """{mutant name: key}, as the copy and its build are now."""
+    iterate = load_iterate(build)
+    fingerprints = iterate.fingerprints(iterate.programs())
+    scripts = COPY / "tests" / "scripts"
+    machinery = machinery_digest([without_mutants((scripts / "mutants.py").read_text()),
+                                  (scripts / "scratch_tree.py").read_text(), (scripts / "iterate.py").read_text()])
+    by_regex = {}
+
+    def ctest_programs(regex):
+        if regex not in by_regex:
+            listing = run(["ctest", "--test-dir", str(build), "-N", "-R", regex, "--show-only=json-v1"]).stdout
+            tests = json.loads(listing[listing.index("{"):])["tests"]
+            by_regex[regex] = {label[len("exe:"):] for test in tests for label in iterate.labels_of(test)
+                               if label.startswith("exe:")}
+        return by_regex[regex]
+
+    keys = {}
+    for mutant in mutants:
+        name, file, _, tests = mutant
+        path = COPY / file
+        contents = hashlib.sha256(path.read_bytes()).digest() if path.exists() else b"missing"
+        named = programs_named(tests, ctest_programs)
+        keys[name] = mutant_key(machinery, mutant, contents, {p: fingerprints.get(p, "none") for p in named})
+    return keys
+
+
+def lock_copy():
+    """Holds an exclusive lock on the copy until this process ends, waiting for any other run of
+    the check: two would edit the same copy."""
+    MUTATION_DIR.mkdir(parents=True, exist_ok=True)
+    lock = open(MUTATION_DIR / ".lock", "w")  # kept open: closing it would release the lock
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print(f"waiting for another mutation check using {COPY}")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    return lock
+
+
+def main(args):
     for signum in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, stop_on_signal)
-    only = sys.argv[1] if len(sys.argv) > 1 else None
+    if len(args) > 1 or (args and args[0].startswith("-") and args[0] not in ("--all", "--list", "--record-all")):
+        print(USAGE, file=sys.stderr)
+        return 2
+    if problem := duplicate_names(MUTANTS):
+        print(f"PROBLEM: {problem}")
+        return 1
+    option = args[0] if args and args[0].startswith("--") else None
+    only = args[0] if args and option is None else None
     mutants = [m for m in MUTANTS if only is None or only in m[0]]
     if os.geteuid() == 0:
         for name in sorted(m[0] for m in mutants if m[0] in NEEDS_A_USER_NOT_ROOT):
             print(f"skipped: {name} (its test can't be arranged as root; run the check as another user)")
         mutants = [m for m in mutants if m[0] not in NEEDS_A_USER_NOT_ROOT]
-    scratch_tree = SCRATCH_TREE
-    copy = scratch_tree.make(ROOT)
-    try:
-        build = scratch_tree.configure(copy, ROOT)
-        if build is None:
-            print("PROBLEM: the copy of the working tree couldn't be configured")
-            sys.exit(1)
-        check(Runner(copy, build), copy, build, mutants)
-    finally:
-        scratch_tree.remove(copy)
 
-
-def check(runner, copy, build, mutants):
+    lock = lock_copy()  # noqa: F841 (held, not used: released when the process ends)
+    SCRATCH_TREE.sync(ROOT, COPY)
+    build = SCRATCH_TREE.configure(COPY, ROOT)
+    if build is None:
+        print("PROBLEM: the copy of the working tree couldn't be configured")
+        return 1
     if run(["cmake", "--build", str(build)]).returncode != 0:
         print("PROBLEM: the real code does not build")
-        sys.exit(1)
+        return 1
+    keys = keys_of(mutants, build)
+    names = {m[0] for m in MUTANTS}
+    record = {name: key for name, key in load_record().items() if name in names}
 
-    # The baseline: every set of tests a mutant names must pass on the real code. Otherwise a test
-    # already failing (or flaky) would count every mutant naming it as caught.
+    if option == "--record-all":
+        record.update(keys)
+        write_record(record)
+        print(f"recorded {len(keys)} mutants as caught")
+        return 0
+    if option == "--all" or only is not None:
+        selected = mutants
+    else:
+        selected = [m for m in mutants if record.get(m[0]) != keys[m[0]]]
+    if option == "--list":
+        chosen = {m[0] for m in selected}
+        for name, *_ in mutants:
+            print(("run   " if name in chosen else "skip  ") + name)
+        return 0
+    return check(Runner(COPY, build), COPY, build, selected, keys, record, len(mutants) - len(selected))
+
+
+def check(runner, copy, build, mutants, keys, record, skipped):
+    # The baseline: every set of tests a mutant to run names must pass on the real code. Otherwise a
+    # test already failing (or flaky) would count every mutant naming it as caught.
     baseline_failures = []
     for tests in sorted({tests for _, _, _, tests in mutants}):
         passed, ran = runner.check(tests)
@@ -817,13 +1039,14 @@ def check(runner, copy, build, mutants):
         for failure in baseline_failures:
             print(f"PROBLEM: {failure}")
         print("no mutants run: the baseline must pass first")
-        sys.exit(1)
+        return 1
 
     caught, problems = 0, []
     for name, file, edits, tests in mutants:
         path = copy / file
         original = path.read_text()
         mutated = original
+        was_caught = False
         try:
             for old, new in edits:
                 if mutated.count(old) != 1:
@@ -837,6 +1060,7 @@ def check(runner, copy, build, mutants):
             passed, ran = runner.check(tests)
             if ran and not passed:
                 caught += 1
+                was_caught = True
                 print(f"caught:  {name}")
             else:
                 problems.append(f"{name}: NOT caught by {tests}")
@@ -844,11 +1068,14 @@ def check(runner, copy, build, mutants):
             problems.append(f"{name}: {error}")
         finally:
             path.write_text(original)
+            record = updated(record, name, keys[name], was_caught)
+            write_record(record)
     for problem in problems:
         print(f"PROBLEM: {problem}")
-    print(f"{caught} of {len(mutants)} mutants caught")
-    sys.exit(0 if caught == len(mutants) and not problems else 1)
+    print(f"{caught} of {len(mutants)} mutants caught" +
+          (f"; {skipped} unchanged since caught, not run (--all runs every one)" if skipped else ""))
+    return 0 if caught == len(mutants) and not problems else 1
 
 
 if __name__ == "__main__":  # loaded by other scripts too, which run its parts themselves
-    main()
+    sys.exit(main(sys.argv[1:]))

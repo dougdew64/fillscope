@@ -229,7 +229,16 @@ program), so it runs those rather than the whole program; and a mutant's program
 (`ctest -j`), which bought little, since the CTest lock keeps the two system tests apart. Measured
 with every command timed: the mutation check from 39.3 to 23.0 minutes, 181 of 181 caught both
 times; the back end's own tests from 16.4 minutes to 2.6. What remains is mostly rebuilds (10.3)
-and the system tests (about 7). The owner discusses the next options on these numbers.
+and the system tests (about 7). Second change (2026-10-24, the owner's choice): a mutant is skipped
+when nothing its result depends on has changed since it was caught (its definition, the file it
+mutates, the fingerprints of the programs it runs, the check's own code), with a record of caught
+mutants and a kept, incrementally built copy; the test binaries are fingerprinted by their
+contents, whatever their size. Checked by new cases in the selection check (32 of 32 right), unit
+tests in `scripts_tests`, and 11 mutants of that logic. Measured: every mutant, 23 minutes for 192;
+after a change to the viewer's drawing code, 18 mutants in 42 seconds; nothing changed, under 2
+seconds. CI keeps no record, and runs every mutant. Left, for the owner to weigh on these numbers:
+shorter waits in the system tests, cheaper rebuilds, parallel workers, CI as a backstop, and the
+local builds with CI's warnings as errors.
 
 ## Waiting on the owner
 - **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,

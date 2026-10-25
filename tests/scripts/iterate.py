@@ -124,13 +124,15 @@ def stat_of(path):
     return f"{path} {s.st_size} {s.st_mtime_ns}"
 
 
-def file_digest(path):
+def file_digest(path, whole=False):
     """What a file's fingerprint takes from it: its contents' hash, its size and time if it is
-    large, or that it is missing (a run-time file deleted is a change too, not an error)."""
+    large and not `whole`, or that it is missing (a run-time file deleted is a change too, not an
+    error). A test program's own binary is always hashed whole (about 20 ms for the largest), so a
+    relink to the same bytes is no change, and different bytes always are."""
     file = pathlib.Path(path)
     if not file.exists():
         return b"missing"
-    if file.stat().st_size >= LARGE_FILE:
+    if not whole and file.stat().st_size >= LARGE_FILE:
         return stat_of(path).encode()
     return hashlib.sha256(file.read_bytes()).digest()
 
@@ -148,7 +150,7 @@ def fingerprint(program, common):
     digest = hashlib.sha256(common.encode())
     for path in program.files:
         digest.update(path.encode())
-        digest.update(file_digest(path))
+        digest.update(file_digest(path, whole=path == program.binary))
     if program.binary is not None and os.path.exists(program.binary):
         for line in shared_libraries(program.binary):
             digest.update(line.encode())
@@ -182,9 +184,13 @@ def write_atomically(path, text):
     os.replace(out.name, path)
 
 
-def record(passed):
-    """Records `passed` ({name: fingerprint}) as the latest passing runs."""
+def record(passed, known=None):
+    """Records `passed` ({name: fingerprint}) as the latest passing runs, and drops the record of
+    any program not in `known` (the names of the programs the build lists now), if given: a program
+    since removed would otherwise stay in the record for good."""
     state = load_state()
+    if known is not None:
+        state = {name: value for name, value in state.items() if name in known}
     state.update(passed)
     write_atomically(STATE, json.dumps(state, indent=1, sort_keys=True) + "\n")
 
@@ -297,7 +303,8 @@ def lock_build():
 
 def main(args):
     if args == ["--record-all"]:
-        record(fingerprints(programs()))
+        everything = programs()
+        record(fingerprints(everything), known={p.name for p in everything})
         return 0
     if len(args) == 2 and args[0] == "--snapshot":
         write_atomically(pathlib.Path(args[1]), json.dumps(fingerprints(programs()), indent=1, sort_keys=True) + "\n")
@@ -308,7 +315,8 @@ def main(args):
         excluded = not_to_record(pathlib.Path(args[2]).read_text(), everything, tests_by_program(ctest_listing()))
         for name in sorted(excluded):
             print(f"not recorded as passed, since it tested nothing: {name}")
-        record({name: value for name, value in snapshot.items() if name not in excluded})
+        record({name: value for name, value in snapshot.items() if name not in excluded},
+               known={p.name for p in everything})
         return 0
     if len(args) == 2 and args[0] == "--check-sanitizers" and args[1] in ("yes", "no"):
         binaries = [p.binary for p in programs() if p.binary is not None] + [
@@ -357,7 +365,7 @@ def main(args):
     if not passed:
         return 1
     excluded = not_to_record(output, [p for p in everything if p.name in selected], tests_by_program(ctest_listing()))
-    record({name: now[name] for name in selected - excluded})
+    record({name: now[name] for name in selected - excluded}, known={p.name for p in everything})
     return 0
 
 
