@@ -55,6 +55,15 @@ The stages of the roadmap, each a change to the fork.
     trade carries no order id, only the side of the incoming order that caused it. The exchange's
     recording of the requests does name each order's client, so every guess can be scored against
     what really happened.
+    - **Decided (the owner, 2026-10-25).** The first version detects slicing alone; the other
+      patterns are later items. The detector lives in Fillscope and reads only the market data,
+      update by update, live or replayed, so it has no way to see a client. The truth comes from a
+      small change to the fork: replaying a recording also writes each order id with its client,
+      and each trade with its aggressor's client, which the matcher's responses to the clients
+      carry. The score is defined before the detector is written: for each trade, flagged as part
+      of a slice or not, against whether the slicer sent it, which gives hits, misses and false
+      alarms exactly. The display's horizontal axis is the update number, since the data has no
+      time. Who writes what is open.
     - **The patterns.** A large order sliced into equal pieces: repeated trades of one side and
       quantity. Cancel and replace: a cancel, and an order added close by in price soon after,
       likely the same trader adjusting; a client can't modify an order, so this is what moving one
@@ -68,10 +77,11 @@ The stages of the roadmap, each a change to the fork.
     - **The score.** What the detector caught, what it missed, and what it flagged wrongly, against
       the recording. A guess is shown as a guess, never as a fact about who placed an order (charter
       §2, priority 1).
-    - **The display.** Each order a dot, time across and price up, gray at first; the orders the
-      detector groups take one color per inferred trader, joined by lines. Then the truth outlined,
+    - **The display.** Each order a dot, update number across and price up, gray at first; in the
+      first version, the trades flagged as a slice take a color, and with the later patterns the
+      orders the detector groups take one color per inferred trader, joined by lines. Then the truth outlined,
       with the hits, misses and false alarms, and the score.
     - **The demo,** in three scenes: the slicer uses equal sizes and is caught; it randomizes its
       sizes and is lost; the detector improves and finds it again.
-    - **Rests on** the animated replay (4) and a new strategy in the fork. Who writes the detector
-      is open (charter §4).
+    - **Rests on** the animated replay (4), a new strategy in the fork, and the fork's
+      ground-truth output.
