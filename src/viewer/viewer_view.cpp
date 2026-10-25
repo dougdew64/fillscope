@@ -196,10 +196,22 @@ void draw_answer_controls(const AnswerShown& shown, ViewerActions& actions) {
     }
     tooltip([] { return std::string{"To the end: the last step played"}; });
     ImGui::SameLine();
+    // A step that asks first takes two frames, its question and then the step played; each says
+    // which, so the two aren't taken for two steps.
     const AnswerFrame& frame = answer.frames[shown.frame];
-    text(frame.step == 0 ? std::format("introduction; {} steps", answer.scenario.steps.size())
-                         : std::format("step {} of {}{}", frame.step, answer.scenario.steps.size(),
-                                       frame.asking ? ": a question first" : ""));
+    const std::size_t steps = answer.scenario.steps.size();
+    if (frame.step == 0) {
+        const std::size_t asking = answer.frames.size() - 1 - steps;
+        text(asking == 0 ? std::format("introduction; {} steps", steps)
+                         : std::format("introduction; {} steps, {} asking a question first, so {} presses to the end", steps,
+                                       asking, last));
+    } else if (frame.asking) {
+        text(std::format("step {} of {}: the question", frame.step, steps));
+    } else if (!answer.scenario.steps[frame.step - 1].ask.empty()) {
+        text(std::format("step {} of {}: what happened", frame.step, steps));
+    } else {
+        text(std::format("step {} of {}", frame.step, steps));
+    }
 }
 
 // What one step did: what each client was told, and each claim, marked as this viewer's own check

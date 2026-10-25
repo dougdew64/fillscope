@@ -520,6 +520,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "no answer shown: waiting for an answer at"); }));
         fillscope::test::write_maker_and_taker(answer, "What happens when a taker trades with a maker?");
         IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "Press > to begin."); }));
+        IM_CHECK(contains(vars.text, "introduction; 3 steps, 1 asking a question first, so 4 presses to the end"));
         IM_CHECK(contains(vars.text, "What happens when a taker trades with a maker?"));
         IM_CHECK(contains(vars.text, "A maker posts orders that wait"));
         IM_CHECK(contains(vars.text, "ticker 0: no orders"));
@@ -531,6 +532,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->ItemClick(forward.c_str());
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "Step 1. The maker sends order 10: buy 10 at 99."));
+        IM_CHECK(contains(vars.text, "step 1 of 3\n"));  // no question, so no half named
         IM_CHECK(contains(vars.text, "The maker bids 10 at 99."));
         IM_CHECK(contains(vars.text, "the maker: order 10 accepted: buy 10 at 99"));
         IM_CHECK(contains(vars.text, "The best bid is 99, for 10."));
@@ -540,7 +542,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->ItemClick(forward.c_str());
         ctx->Yield(2);
         // Step 3's question, the books still as before it: the maker's offer whole.
-        IM_CHECK(contains(vars.text, "step 3 of 3: a question first"));
+        IM_CHECK(contains(vars.text, "step 3 of 3: the question"));
         IM_CHECK(contains(vars.text, "The taker buys 4 at 101: what trades?"));
         IM_CHECK(contains(vars.text, "Press > to see what happens."));
         IM_CHECK(!contains(vars.text, "It trades 4 at 101"));  // the explanation waits for the step
@@ -551,6 +553,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->ItemClick(forward.c_str());
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "It trades 4 at 101, the resting order's price."));
+        IM_CHECK(contains(vars.text, "step 3 of 3: what happened"));
         IM_CHECK(contains(vars.text, "the maker: order 11 filled 4 at 101, 6 left"));
         IM_CHECK(contains(vars.text, "This step trades 4 at 101 (an incoming buy crossing)."));
         IM_CHECK(!contains(vars.text, "FALSE"));
@@ -559,7 +562,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
 
         ctx->ItemClick(std::format("**/{}", fillscope::kAnswerBack).c_str());
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "a question first"));
+        IM_CHECK(contains(vars.text, "step 3 of 3: the question"));
         IM_CHECK(contains(vars.text, "the books are as of update 2"));
         ctx->ItemClick(std::format("**/{}", fillscope::kAnswerStart).c_str());
         ctx->Yield(2);
