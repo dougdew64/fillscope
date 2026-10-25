@@ -888,6 +888,39 @@ TEST_F(Answers, AnAnswerThatCantBeShownSaysWhy) {
     EXPECT_NE(load_answer(file()).error().find("its scenario can't be read"), std::string::npos);
 }
 
+// Each update in words, with whose order where the answer knows it; a cancel update is a fill in a
+// step that sends a new order, and a cancel in one that cancels.
+TEST_F(Answers, EachUpdateInWordsWithWhoseOrder) {
+    test::write_maker_and_taker(file(), "Q");
+    const auto loaded = load_answer(file());
+    ASSERT_TRUE(loaded) << loaded.error();
+    const auto& updates = loaded->market_data.updates;
+    EXPECT_EQ(describe_update(updates[0], *loaded, false),
+              "update 1: the exchange's order 1 (the maker's 10) rests in the book: buy 10 at 99");
+    EXPECT_EQ(describe_update(updates[2], *loaded, false),
+              "update 3: a trade, 4 at 101, caused by an incoming buy; the market data doesn't say whose");
+    EXPECT_EQ(describe_update(updates[3], *loaded, false),
+              "update 4: the exchange's order 2 (the maker's 11) now has 6: it was partly filled");
+    const MarketUpdate gone{.seq = 5, .type = UpdateType::cancel, .order_id = 2, .ticker = 0, .side = Side::sell, .price = 101, .qty = 0, .priority = 1};
+    EXPECT_EQ(describe_update(gone, *loaded, false), "update 5: the exchange's order 2 (the maker's 11) leaves the book: it was filled, all of it");
+    EXPECT_EQ(describe_update(gone, *loaded, true), "update 5: the exchange's order 2 (the maker's 11) leaves the book: it was canceled");
+    const MarketUpdate unknown{.seq = 6, .type = UpdateType::add, .order_id = 9, .ticker = 0, .side = Side::sell, .price = 105, .qty = 1, .priority = 1};
+    EXPECT_EQ(describe_update(unknown, *loaded, false), "update 6: the exchange's order 9 rests in the book: sell 1 at 105");
+}
+
+TEST_F(Answers, TheTopOfTheBookInWords) {
+    test::write_maker_and_taker(file(), "Q");
+    const auto loaded = load_answer(file());
+    ASSERT_TRUE(loaded) << loaded.error();
+    BookBuilder books;
+    for (const MarketUpdate& update : loaded->market_data.updates) {
+        books.on_incremental(update);
+    }
+    EXPECT_EQ(describe_top(books.book(0), *loaded),
+              "best bid 99 for 10 (first in line: the maker's 10); best ask 101 for 6 (first in line: the maker's 11); a spread of 2");
+    EXPECT_EQ(describe_top(Book{}, *loaded), "no bid; no ask");
+}
+
 // The tool renames a new file over the old one, which the stamp sees even when the text is the same.
 TEST_F(Answers, AReplacedFileHasANewStamp) {
     EXPECT_FALSE(stamp_of(file()));

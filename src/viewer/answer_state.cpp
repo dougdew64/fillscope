@@ -91,6 +91,61 @@ std::expected<LoadedAnswer, std::string> load_answer(const std::filesystem::path
     return loaded;
 }
 
+namespace {
+
+// "the exchange's order 2 (the maker's 11)", or without the owner if the answer doesn't know it.
+std::string order_named(std::uint64_t id, const LoadedAnswer& answer) {
+    const auto owner = answer.owners.find(id);
+    return owner != answer.owners.end() ? std::format("the exchange's order {} ({})", id, owner->second)
+                                        : std::format("the exchange's order {}", id);
+}
+
+std::string_view side_word(Side side) { return side == Side::buy ? "buy" : "sell"; }
+
+}  // namespace
+
+std::string describe_update(const MarketUpdate& update, const LoadedAnswer& answer, bool cancel_step) {
+    const std::string at = std::format("update {}", update.seq);
+    switch (update.type) {
+    case UpdateType::add:
+        return std::format("{}: {} rests in the book: {} {} at {}", at, order_named(update.order_id, answer),
+                           side_word(update.side), update.qty, update.price);
+    case UpdateType::modify:
+        return std::format("{}: {} now has {}: it was partly filled", at, order_named(update.order_id, answer), update.qty);
+    case UpdateType::cancel:
+        return std::format("{}: {} leaves the book: {}", at, order_named(update.order_id, answer),
+                           cancel_step ? "it was canceled" : "it was filled, all of it");
+    case UpdateType::trade:
+        return std::format("{}: a trade, {} at {}, caused by an incoming {}; the market data doesn't say whose", at,
+                           update.qty, update.price, side_word(update.side));
+    case UpdateType::clear:
+    case UpdateType::snapshot_start:
+    case UpdateType::snapshot_end:
+        break;
+    }
+    return std::format("{}: {}", at, to_string(update.type));
+}
+
+std::string describe_top(const Book& book, const LoadedAnswer& answer) {
+    const auto bids = book.levels(Side::buy);
+    const auto asks = book.levels(Side::sell);
+    const auto best = [&answer](const std::vector<Level>& levels, std::string_view name) {
+        if (levels.empty()) {
+            return std::format("no {}", name);
+        }
+        const Level& level = levels.front();
+        // The first order at the best price is the one that fills next.
+        const auto owner = answer.owners.find(level.orders.front().order_id);
+        return std::format("best {} {} for {}{}", name, level.price, level.qty,
+                           owner != answer.owners.end() ? std::format(" (first in line: {})", owner->second) : std::string{});
+    };
+    std::string text = std::format("{}; {}", best(bids, "bid"), best(asks, "ask"));
+    if (!bids.empty() && !asks.empty()) {
+        text += std::format("; a spread of {}", asks.front().price - bids.front().price);
+    }
+    return text;
+}
+
 std::optional<FileStamp> stamp_of(const std::filesystem::path& file) {
     struct stat status{};
     if (::stat(file.c_str(), &status) != 0) {

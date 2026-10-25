@@ -813,9 +813,17 @@ one update (`ViewerApp::answer_to`, then `replay_to`); the replay's own controls
 pane and the books can't disagree.
 
 **The pane**, on the left of the window, with the market on the right, shows the question, the
-controls, and the frame: the introduction; a step's request and its question; or a step played, with
-what it says, the updates it made, what each client was told, and each claim marked true or
-**FALSE** (with what is true instead). When no answer can be shown, the pane says why, nothing of
+controls, and the frame: the introduction; a step's request, the book just before it, and its
+question; or a step played. A step played keeps apart what everyone sees and what one client
+sees: what it says; its market data, public, every update in words (`describe_update`), with
+whose order it touches where the answer knows; what the exchange told each client, privately; the
+book after it, the best bid and ask, whose order is first in line at each, and the spread
+(`describe_top`); and each claim marked true or **FALSE** (with what is true instead). The words
+for an update are exact, not guessed: in Ghosh's exchange a modify only ever means a resting order
+partly filled, and a cancel update, in a step that sends a new order, a resting order filled
+whole; in a step that cancels, it is the cancel (the back end's `MEOrderBook::match`). An order
+filled whole on arrival never rests, so it has no update of its own and no row in the book: the
+trade and the responses are its whole life. When no answer can be shown, the pane says why, nothing of
 the last answer stays on screen, and the status line and the context bar say no answer is shown,
 not that the viewer is waiting for the exchange.
 

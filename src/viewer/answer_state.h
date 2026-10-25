@@ -5,6 +5,7 @@
 
 #include "answer/answer.h"
 #include "answer/scenario.h"
+#include "feed/book.h"
 #include "feed/market_data_file.h"
 
 #include <cstddef>
@@ -47,6 +48,16 @@ struct LoadedAnswer {
 // replay file missing, or one changed since the answer was written (its fingerprint differs), in
 // which case the answer is stale and the tool has to be run again.
 [[nodiscard]] std::expected<LoadedAnswer, std::string> load_answer(const std::filesystem::path& file);
+
+// One market update of an answer's step, in words, with whose order it touches where the answer
+// knows ("the exchange's order 2 (the maker's 11)"). In a step that sends a new order, a cancel
+// update can only be a resting order filled whole, and a modify one partly filled (the back end's
+// MEOrderBook::match); in a step that cancels, it is the cancel. A trade's market data names no
+// order, so its incoming side's owner isn't said.
+[[nodiscard]] std::string describe_update(const MarketUpdate& update, const LoadedAnswer& answer, bool cancel_step);
+
+// The book's best bid and best ask, whose they are, and the spread between them, in words.
+[[nodiscard]] std::string describe_top(const Book& book, const LoadedAnswer& answer);
 
 // What identifies one version of a file, to see it has been replaced: the answer tool renames a new
 // file over the old one, which changes all three.

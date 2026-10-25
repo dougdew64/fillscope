@@ -214,23 +214,37 @@ void draw_answer_controls(const AnswerShown& shown, ViewerActions& actions) {
     }
 }
 
-// What one step did: what each client was told, and each claim, marked as this viewer's own check
+// What one step did: the market data it made, which every trader sees; what each client was told,
+// which only that client sees; the book after it; and each claim, marked as this viewer's own check
 // of it found it (answer_state.h), not as the answer file says.
-void draw_step_played(const LoadedAnswer& answer, std::size_t step) {
+void draw_step_played(const LoadedAnswer& answer, std::size_t step, const Book& book) {
     const CheckedStep& checked = answer.checked[step - 1];
+    const bool cancel_step = std::holds_alternative<Cancel>(answer.scenario.steps[step - 1].request.action);
     wrapped(answer.scenario.steps[step - 1].say);
     ImGui::Spacing();
-    text(checked.update_count == 0
-             ? std::string{"It changes no book."}
-             : std::format("Market data: updates {} to {}.", checked.first_update, checked.first_update + checked.update_count - 1));
+    if (checked.update_count == 0) {
+        text("Market data: none. It changes no book.");
+    } else {
+        wrapped("Market data (public: every trader sees this):");
+        ImGui::Indent();
+        for (std::uint64_t seq = checked.first_update; seq < checked.first_update + checked.update_count; ++seq) {
+            // The replay's updates are numbered 1, 2, 3, ..., so update n is updates[n - 1].
+            wrapped(describe_update(answer.market_data.updates[seq - 1], answer, cancel_step));
+        }
+        ImGui::Unindent();
+    }
     if (!checked.responses.empty()) {
-        text("The exchange tells:");
+        wrapped("The exchange tells (privately: each client only its own):");
         ImGui::Indent();
         for (const ClientResponse& response : checked.responses) {
             wrapped(std::format("{}: {}", role_of(answer.scenario, response.client), describe(response)));
         }
         ImGui::Unindent();
     }
+    text("The book after this step:");
+    ImGui::Indent();
+    wrapped(describe_top(book, answer));
+    ImGui::Unindent();
     if (!checked.claims.empty()) {
         text("Claims, checked against the replay:");
         ImGui::Indent();
@@ -276,12 +290,17 @@ void draw_answer(const ViewerView& view, ViewerActions& actions) {
     wrapped(std::format("Step {}. {}", frame.step, describe(step.request, answer.scenario)));
     ImGui::Spacing();
     if (frame.asking) {
+        text("The book before this step:");
+        ImGui::Indent();
+        wrapped(describe_top(view.state.books.book(answer.scenario.ticker), answer));
+        ImGui::Unindent();
+        ImGui::Spacing();
         wrapped(step.ask);
         ImGui::Spacing();
         text("Press > to see what happens.");
         return;
     }
-    draw_step_played(answer, frame.step);
+    draw_step_played(answer, frame.step, view.state.books.book(answer.scenario.ticker));
 }
 
 // One button per ticker, its order count in its tooltip; the shown one is marked.

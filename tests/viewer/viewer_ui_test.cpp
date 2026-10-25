@@ -544,6 +544,8 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         // Step 3's question, the books still as before it: the maker's offer whole.
         IM_CHECK(contains(vars.text, "step 3 of 3: the question"));
         IM_CHECK(contains(vars.text, "The taker buys 4 at 101: what trades?"));
+        IM_CHECK(contains(vars.text, "The book before this step:"));
+        IM_CHECK(contains(vars.text, "best ask 101 for 10 (first in line: the maker's 11)"));
         IM_CHECK(contains(vars.text, "Press > to see what happens."));
         IM_CHECK(!contains(vars.text, "It trades 4 at 101"));  // the explanation waits for the step
         IM_CHECK(contains(vars.text, "the books are as of update 2"));
@@ -554,6 +556,11 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "It trades 4 at 101, the resting order's price."));
         IM_CHECK(contains(vars.text, "step 3 of 3: what happened"));
+        IM_CHECK(contains(vars.text, "Market data (public: every trader sees this):"));
+        IM_CHECK(contains(vars.text, "update 3: a trade, 4 at 101, caused by an incoming buy"));
+        IM_CHECK(contains(vars.text, "update 4: the exchange's order 2 (the maker's 11) now has 6: it was partly filled"));
+        IM_CHECK(contains(vars.text, "The exchange tells (privately: each client only its own):"));
+        IM_CHECK(contains(vars.text, "best ask 101 for 6 (first in line: the maker's 11)"));
         IM_CHECK(contains(vars.text, "the maker: order 11 filled 4 at 101, 6 left"));
         IM_CHECK(contains(vars.text, "This step trades 4 at 101 (an incoming buy crossing)."));
         IM_CHECK(!contains(vars.text, "FALSE"));
