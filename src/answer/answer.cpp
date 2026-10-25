@@ -148,16 +148,16 @@ std::expected<std::string, std::string> fingerprint_file(const std::filesystem::
 }
 
 nlohmann::ordered_json answer_json(const Scenario& scenario, const nlohmann::json& scenario_json,
-                                   const std::vector<CheckedStep>& checked, const std::filesystem::path& market_data_file,
-                                   const std::string& market_data_fingerprint) {
+                                   const std::vector<CheckedStep>& checked, const ReplayFiles& replay) {
     nlohmann::ordered_json json;
     json["version"] = 1;
     json["about"] =
         "An answer to the Fillscope viewer's user, from the assistant: a scenario of client requests, played through "
         "the back end's matching engine by exchange_replay, so every book, trade and response is the engine's. Each "
-        "step is one request; its claims were checked against the replay, and all hold. 'replay' names the market "
-        "data the steps rest on, and its fingerprint, to tell a stale answer from a current one. 'scenario' is the "
-        "answer as written.";
+        "step is one request; its claims were checked against the replay, and all hold. A step's 'ask', if any, is "
+        "a question shown before the step is played. 'replay' names the market data and steps files the answer "
+        "rests on, with their fingerprints, to tell a stale answer from a current one. 'scenario' is the answer as "
+        "written.";
     json["question"] = scenario.question;
     json["intro"] = scenario.intro;
     json["ticker"] = scenario.ticker;
@@ -166,8 +166,10 @@ nlohmann::ordered_json answer_json(const Scenario& scenario, const nlohmann::jso
         clients[std::to_string(client)] = role;
     }
     json["clients"] = clients;
-    json["replay"] = {{"marketDataFile", std::filesystem::absolute(market_data_file).string()},
-                      {"marketDataFingerprint", market_data_fingerprint}};
+    json["replay"] = {{"marketDataFile", std::filesystem::absolute(replay.market_data).string()},
+                      {"marketDataFingerprint", replay.market_data_fingerprint},
+                      {"stepsFile", std::filesystem::absolute(replay.steps).string()},
+                      {"stepsFingerprint", replay.steps_fingerprint}};
     nlohmann::ordered_json steps = nlohmann::ordered_json::array();
     for (std::size_t i = 0; i < checked.size(); ++i) {
         const ScenarioStep& step = scenario.steps[i];
@@ -183,6 +185,7 @@ nlohmann::ordered_json answer_json(const Scenario& scenario, const nlohmann::jso
         steps.push_back({{"number", i + 1},
                          {"client", step.request.client},
                          {"request", describe(step.request, scenario)},
+                         {"ask", step.ask},
                          {"say", step.say},
                          {"updates", {{"first", checked[i].first_update}, {"count", checked[i].update_count}}},
                          {"responses", responses},
@@ -233,11 +236,14 @@ std::expected<void, std::string> make_answer(const Scenario& scenario, const nlo
     if (const std::string wrong = false_claims(*checked); !wrong.empty()) {
         return std::unexpected{std::format("a claim is false, so the answer isn't written:\n{}", wrong)};
     }
-    const auto fingerprint = fingerprint_file(market_data);
-    if (!fingerprint) {
-        return std::unexpected{fingerprint.error()};
+    const auto market_fingerprint = fingerprint_file(market_data);
+    const auto steps_fingerprint = fingerprint_file(steps_file);
+    if (!market_fingerprint || !steps_fingerprint) {
+        return std::unexpected{market_fingerprint ? steps_fingerprint.error() : market_fingerprint.error()};
     }
-    const std::string text = answer_json(scenario, scenario_json, *checked, market_data, *fingerprint).dump(1) + "\n";
+    const ReplayFiles replay{.market_data = market_data, .market_data_fingerprint = *market_fingerprint,
+                             .steps = steps_file, .steps_fingerprint = *steps_fingerprint};
+    const std::string text = answer_json(scenario, scenario_json, *checked, replay).dump(1) + "\n";
     return write_atomically(paths.answer_file, text);
 }
 

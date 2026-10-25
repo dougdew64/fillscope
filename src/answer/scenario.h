@@ -115,6 +115,9 @@ struct ScenarioStep {
     Request request;
     std::string say;
     std::vector<Claim> claims;
+    // A question shown before the step is played, its explanation only after: an answer as a quiz
+    // on what the exchange will do. Empty for none.
+    std::string ask;
 };
 
 struct Scenario {

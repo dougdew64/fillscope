@@ -16,6 +16,7 @@
 
 #include "feed/feed_socket.h"
 #include "feed/market_update.h"
+#include "support/answer_fixture.h"
 #include "support/test_support.h"
 #include "viewer/context.h"
 #include "viewer/viewer_app.h"
@@ -124,6 +125,7 @@ void viewer_frame(ImGuiTestContext* ctx) {
     if (vars.incremental && vars.snapshot) {
         vars.app->receive(*vars.incremental, *vars.snapshot, now);
     }
+    vars.app->poll_answer(now);
     ImGui::LogToBuffer();
     (void)vars.app->paint(now);
     vars.text = ImGui::GetCurrentContext()->LogBuffer.c_str();
@@ -502,6 +504,106 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "last market data error: a datagram of 10 bytes"); }));
         vars.incremental.reset();
         vars.snapshot.reset();
+    });
+
+    // An answer (viewer --answer): the pane beside the market, stepped a frame at a time, the books
+    // moving with it, a step's question shown before the step is played, and the context naming the
+    // step. The answer file appears after the viewer starts, as when the assistant writes one.
+    viewer_test(engine, "an_answer_is_stepped_through", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const std::filesystem::path answer = scratch_root() / ctx->Test->Name / ".fillscope" / "answer.json";
+        vars.app->watch_answer(answer);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "Waiting for an answer at"));
+        IM_CHECK(contains(vars.text, "market data: none until an answer is shown"));
+        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "no answer shown: waiting for an answer at"); }));
+        fillscope::test::write_maker_and_taker(answer, "What happens when a taker trades with a maker?");
+        IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "Press > to begin."); }));
+        IM_CHECK(contains(vars.text, "What happens when a taker trades with a maker?"));
+        IM_CHECK(contains(vars.text, "A maker posts orders that wait"));
+        IM_CHECK(contains(vars.text, "ticker 0: no orders"));
+        // In an answer, only its own controls move the books.
+        IM_CHECK(!ctx->ItemExists(std::format("**/{}", fillscope::kReplayForward).c_str()));
+        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "answer to \"What happens when a taker trades with a maker?\": its introduction"); }));
+
+        const std::string forward = std::format("**/{}", fillscope::kAnswerForward);
+        ctx->ItemClick(forward.c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "Step 1. The maker sends order 10: buy 10 at 99."));
+        IM_CHECK(contains(vars.text, "The maker bids 10 at 99."));
+        IM_CHECK(contains(vars.text, "the maker: order 10 accepted: buy 10 at 99"));
+        IM_CHECK(contains(vars.text, "The best bid is 99, for 10."));
+        IM_CHECK(contains(vars.text, "the maker's 10"));  // the book says whose each order is
+
+        ctx->ItemClick(forward.c_str());
+        ctx->ItemClick(forward.c_str());
+        ctx->Yield(2);
+        // Step 3's question, the books still as before it: the maker's offer whole.
+        IM_CHECK(contains(vars.text, "step 3 of 3: a question first"));
+        IM_CHECK(contains(vars.text, "The taker buys 4 at 101: what trades?"));
+        IM_CHECK(contains(vars.text, "Press > to see what happens."));
+        IM_CHECK(!contains(vars.text, "It trades 4 at 101"));  // the explanation waits for the step
+        IM_CHECK(contains(vars.text, "the books are as of update 2"));
+        IM_CHECK(read_context(vars)["background"]["answer"]["asking"] == true);
+        IM_CHECK(read_context(vars)["background"]["answer"]["step"] == 3);
+
+        ctx->ItemClick(forward.c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "It trades 4 at 101, the resting order's price."));
+        IM_CHECK(contains(vars.text, "the maker: order 11 filled 4 at 101, 6 left"));
+        IM_CHECK(contains(vars.text, "This step trades 4 at 101 (an incoming buy crossing)."));
+        IM_CHECK(!contains(vars.text, "FALSE"));
+        IM_CHECK(contains(vars.text, "the books are as of update 4"));
+        IM_CHECK(read_context(vars)["background"]["answer"]["asking"] == false);
+
+        ctx->ItemClick(std::format("**/{}", fillscope::kAnswerBack).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "a question first"));
+        IM_CHECK(contains(vars.text, "the books are as of update 2"));
+        ctx->ItemClick(std::format("**/{}", fillscope::kAnswerStart).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "Press > to begin."));
+        IM_CHECK(contains(vars.text, "ticker 0: no orders"));
+        ctx->ItemClick(std::format("**/{}", fillscope::kAnswerEnd).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "It trades 4 at 101"));
+    });
+
+    // A new answer replaces the one shown, from its start; one that can't be shown says why and
+    // leaves nothing of the last on screen; a claim the viewer finds false is marked so.
+    viewer_test(engine, "a_new_answer_replaces_the_shown_one", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const std::filesystem::path answer = scratch_root() / ctx->Test->Name / ".fillscope" / "answer.json";
+        fillscope::test::write_maker_and_taker(answer, "First question?");
+        vars.app->watch_answer(answer);
+        ctx->SetRef(fillscope::kViewerWindow);
+        IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "First question?"); }));
+        ctx->ItemClick(std::format("**/{}", fillscope::kAnswerEnd).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "the books are as of update 4"));
+
+        fillscope::test::write_maker_and_taker(answer, "Second question?", /*false_claim=*/true);
+        // The pane at once; the bar once the context file says so (a change the user didn't make is
+        // published at most once per interval), and then nothing of the first answer anywhere.
+        IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "Second question?"); }));
+        IM_CHECK(yield_until(ctx, [&] { return !contains(vars.text, "First question?"); }));
+        IM_CHECK(contains(vars.text, "Press > to begin."));  // a new answer opens at its start
+        ctx->ItemClick(std::format("**/{}", fillscope::kAnswerEnd).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "FALSE"));
+        IM_CHECK(contains(vars.text, "In fact, the best ask is 101, for 6."));
+
+        // The replay's market data changed under the answer: stale, so nothing of it is shown. The
+        // same answer is then written again, as a new file over the old, so the viewer reads it.
+        std::ofstream{answer.parent_path() / "answer" / "market.dat", std::ios::app} << "x";
+        std::filesystem::copy_file(answer, answer.string() + ".tmp");
+        std::filesystem::rename(answer.string() + ".tmp", answer);
+        IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "Can't show the answer: the answer is stale"); }));
+        IM_CHECK(yield_until(ctx, [&] { return !contains(vars.text, "Second question?"); }));
+        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "no answer shown: the answer at"); }));
+        IM_CHECK(contains(vars.text, "market data: none until an answer is shown"));
+        IM_CHECK(contains(vars.text, "ticker 0: no orders"));
     });
 
     viewer_test(engine, "a_replay_goes_to_any_update", [](ImGuiTestContext* ctx) {

@@ -1,8 +1,11 @@
 // The viewer's core, without Dear ImGui: its command line (parse_viewer_args), what the user has
 // pointed at and followed (Selection), the context built from the books and the selection
-// (make_context, to_json, bar_text), and the file it is published to (ContextPublisher,
-// write_atomically). The books themselves are tested in tests/feed/.
+// (make_context, to_json, bar_text), the file it is published to (ContextPublisher,
+// write_atomically), and an answer it shows (answer_state.h). The books themselves are tested in
+// tests/feed/.
 
+#include "support/answer_fixture.h"
+#include "viewer/answer_state.h"
 #include "viewer/context.h"
 #include "viewer/context_publisher.h"
 #include "viewer/stop_signals.h"
@@ -782,6 +785,149 @@ TEST(StopSignals, ASecondSignalEndsTheProcess) {
     ASSERT_EQ(::waitpid(child, &status, 0), child);
     ASSERT_TRUE(WIFSIGNALED(status)) << "the child exited with " << WEXITSTATUS(status);
     EXPECT_EQ(WTERMSIG(status), SIGINT);
+}
+
+// ---- An answer the viewer shows ----
+
+TEST(ParseViewerArgs, AnAnswerItsFrameAndAScreenshot) {
+    const auto answer = parse_viewer_args(std::array{"--answer", ".fillscope/answer.json", "--answer-frame", "3"});
+    ASSERT_TRUE(answer) << answer.error();
+    EXPECT_EQ(answer->answer, std::filesystem::path{".fillscope/answer.json"});
+    EXPECT_EQ(answer->answer_frame, 3u);
+    const auto shot = parse_viewer_args(std::array{"--exit-after", "2", "--screenshot", "a.ppm"});
+    ASSERT_TRUE(shot) << shot.error();
+    EXPECT_EQ(shot->screenshot, std::filesystem::path{"a.ppm"});
+    // Each refused, saying why: what would be silently ignored, or never happen.
+    const std::vector<std::pair<std::vector<const char*>, std::string>> refused = {
+        {{"--answer", "a.json", "--replay", "m.dat"}, "give it without --replay"},
+        {{"--answer", "a.json", "--incremental", "233.252.14.3:20001"}, "give it without --replay"},
+        {{"--answer-frame", "2"}, "give it with --answer"},
+        {{"--answer", "a.json", "--answer-frame", "-1"}, "--answer-frame:"},
+        {{"--screenshot", "a.ppm"}, "give it with --exit-after"},
+        {{"--answer", ""}, "--answer needs a file"},
+    };
+    for (const auto& [args, why] : refused) {
+        const auto parsed = parse_viewer_args(args);
+        ASSERT_FALSE(parsed) << args[0];
+        EXPECT_NE(parsed.error().find(why), std::string::npos) << parsed.error();
+    }
+}
+
+class Answers : public ::testing::Test {
+protected:
+    void SetUp() override {
+        dir_ = std::filesystem::temp_directory_path() /
+               std::format("fillscope-viewer-answer-{}-{}", ::getpid(), ::testing::UnitTest::GetInstance()->current_test_info()->name());
+        std::filesystem::remove_all(dir_);
+        std::filesystem::create_directories(dir_);
+    }
+    void TearDown() override { std::filesystem::remove_all(dir_); }
+
+    [[nodiscard]] std::filesystem::path file() const { return dir_ / "answer.json"; }
+
+    std::filesystem::path dir_;
+};
+
+// The intro, then each step played; a step that asks first has its question before it, with the
+// books as before the step.
+TEST_F(Answers, TheFramesAreTheIntroThenEachStepItsQuestionFirst) {
+    test::write_maker_and_taker(file(), "Q");
+    const auto loaded = load_answer(file());
+    ASSERT_TRUE(loaded) << loaded.error();
+    const std::vector<AnswerFrame> expected = {{.step = 0, .asking = false, .books_after = 0},
+                                               {.step = 1, .asking = false, .books_after = 1},
+                                               {.step = 2, .asking = false, .books_after = 2},
+                                               {.step = 3, .asking = true, .books_after = 2},
+                                               {.step = 3, .asking = false, .books_after = 4}};
+    EXPECT_EQ(loaded->frames, expected);
+    // A step that makes no update ends where it began.
+    Scenario cancel_only = loaded->scenario;
+    std::vector<CheckedStep> checked = loaded->checked;
+    checked[1].update_count = 0;
+    checked[2].first_update = 2;
+    EXPECT_EQ(answer_frames(cancel_only, checked)[2], (AnswerFrame{.step = 2, .asking = false, .books_after = 1}));
+}
+
+// The viewer checks the claims itself, against the replay's files, and says whose each order is.
+TEST_F(Answers, LoadingChecksTheClaimsAgainAndKnowsWhoseEachOrderIs) {
+    test::write_maker_and_taker(file(), "Q", /*false_claim=*/true);
+    const auto loaded = load_answer(file());
+    ASSERT_TRUE(loaded) << loaded.error();
+    EXPECT_EQ(loaded->scenario.question, "Q");
+    EXPECT_TRUE(loaded->checked[0].claims[0].holds);
+    ASSERT_EQ(loaded->checked[2].claims.size(), 2u);
+    EXPECT_TRUE(loaded->checked[2].claims[0].holds);
+    EXPECT_FALSE(loaded->checked[2].claims[1].holds) << "the file's answer was written with a false claim";
+    EXPECT_EQ(loaded->checked[2].claims[1].actually, "the best ask is 101, for 6");
+    EXPECT_EQ(loaded->owners.at(1), "the maker's 10");
+    EXPECT_EQ(loaded->owners.at(2), "the maker's 11");
+    EXPECT_EQ(loaded->owners.at(3), "the taker's 30");
+    EXPECT_EQ(loaded->market_data.updates.size(), 4u);
+}
+
+TEST_F(Answers, AnAnswerThatCantBeShownSaysWhy) {
+    EXPECT_NE(load_answer(file()).error().find("there is no answer at"), std::string::npos);
+    std::ofstream{file()} << R"({"version": 2})";
+    EXPECT_NE(load_answer(file()).error().find("isn't an answer the viewer can read"), std::string::npos);
+
+    test::write_maker_and_taker(file(), "Q");
+    // A replay run over its files since: its steps would describe something else.
+    std::ofstream{dir_ / "answer" / "market.dat", std::ios::app} << "x";
+    const auto stale = load_answer(file());
+    ASSERT_FALSE(stale);
+    EXPECT_NE(stale.error().find("the answer is stale"), std::string::npos) << stale.error();
+
+    test::write_maker_and_taker(file(), "Q");
+    std::filesystem::remove(dir_ / "answer" / "steps.dat");
+    EXPECT_NE(load_answer(file()).error().find("the answer's replay is gone"), std::string::npos);
+
+    test::write_maker_and_taker(file(), "Q");
+    auto json = nlohmann::json::parse(std::ifstream{file()});
+    json["scenario"]["steps"][0]["request"]["market"] = true;
+    std::ofstream{file()} << json.dump();
+    EXPECT_NE(load_answer(file()).error().find("its scenario can't be read"), std::string::npos);
+}
+
+// The tool renames a new file over the old one, which the stamp sees even when the text is the same.
+TEST_F(Answers, AReplacedFileHasANewStamp) {
+    EXPECT_FALSE(stamp_of(file()));
+    test::write_maker_and_taker(file(), "Q");
+    const auto first = stamp_of(file());
+    ASSERT_TRUE(first);
+    EXPECT_EQ(stamp_of(file()), first);
+    test::write_maker_and_taker(file(), "Q");
+    EXPECT_NE(stamp_of(file()), first);
+}
+
+// The context names the answer and the step, so a question asked at a step is about it.
+TEST_F(Answers, TheContextSaysWhereInTheAnswerTheUserIs) {
+    test::write_maker_and_taker(file(), "What happens?");
+    auto loaded = load_answer(file());
+    ASSERT_TRUE(loaded) << loaded.error();
+    ViewerState state;
+    state.answer = AnswerShown{.file = file(), .stamp = std::nullopt, .answer = std::move(*loaded), .problem = std::nullopt, .frame = 3};
+    const Context asking = make_context(state, Selection{});
+    ASSERT_TRUE(asking.feed.answer);
+    EXPECT_EQ(*asking.feed.answer, (AnswerPlace{.file = file().string(), .question = "What happens?", .step = 3, .steps = 3, .asking = true}));
+    const auto json = to_json(asking, Writer{}, 1, 0);
+    EXPECT_EQ(json["background"]["answer"]["step"], 3);
+    EXPECT_EQ(json["background"]["answer"]["asking"], true);
+    EXPECT_EQ(json["background"]["answer"]["question"], "What happens?");
+    EXPECT_EQ(bar_text(asking).background,
+              "answer to \"What happens?\": step 3 of 3, its question (not yet played) · showing ticker 0");
+    state.answer->frame = 0;
+    EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
+              "answer to \"What happens?\": its introduction · showing ticker 0");
+    EXPECT_TRUE(to_json(make_context(state, Selection{}), Writer{}, 1, 0)["background"]["noAnswer"].is_null());
+    state.answer->answer.reset();
+    EXPECT_FALSE(make_context(state, Selection{}).feed.answer) << "no answer shown, none named";
+    EXPECT_TRUE(to_json(make_context(state, Selection{}), Writer{}, 1, 0)["background"]["answer"].is_null());
+    // Showing answers, with none to show, says why: not "waiting for the exchange".
+    EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
+              std::format("no answer shown: waiting for an answer at {} · showing ticker 0", file().string()));
+    state.answer->problem = "the answer is stale";
+    EXPECT_EQ(to_json(make_context(state, Selection{}), Writer{}, 1, 0)["background"]["noAnswer"],
+              std::format("the answer at {} can't be shown: the answer is stale", file().string()));
 }
 
 }  // namespace

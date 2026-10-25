@@ -21,6 +21,13 @@ struct ViewerOptions {
     Stream snapshot = kExchangeSnapshot;
     // A replay's market data file to show instead of the live exchange (exchange_replay's output).
     std::optional<std::filesystem::path> replay;
+    // An answer file to watch, showing each answer written to it (the answer tool's output,
+    // .fillscope/answer.json by default there), instead of the live exchange.
+    std::optional<std::filesystem::path> answer;
+    // With --answer: the frame to open it at once it is read (0 is its introduction).
+    std::optional<std::size_t> answer_frame;
+    // With --exit-after: the window's image, written to this file (a PPM) as the viewer exits.
+    std::optional<std::filesystem::path> screenshot;
     // Relative paths are relative to the working directory: the repository, when started from VS Code.
     std::filesystem::path context_file{kDefaultContextFile};
 };
@@ -30,6 +37,6 @@ struct ViewerOptions {
 
 inline constexpr std::string_view kViewerUsage =
     "usage: viewer [--exit-after SECONDS] [--incremental GROUP:PORT] [--snapshot GROUP:PORT] [--replay FILE] "
-    "[--context-file PATH]";
+    "[--answer FILE [--answer-frame N]] [--screenshot FILE] [--context-file PATH]";
 
 }  // namespace fillscope

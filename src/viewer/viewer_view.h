@@ -26,11 +26,12 @@ struct ViewerActions {
     std::optional<OrderRef> follow;           // follow this order
     std::optional<std::uint32_t> show_ticker; // show this ticker's book
     std::optional<std::uint64_t> replay_to;   // in a replay: the books after this update
+    std::optional<std::size_t> answer_to;     // in an answer: show this frame
     bool clear_point = false;
     bool clear_follow = false;
 
     [[nodiscard]] bool any() const noexcept {
-        return point_at || follow || show_ticker || replay_to || clear_point || clear_follow;
+        return point_at || follow || show_ticker || replay_to || answer_to || clear_point || clear_follow;
     }
 };
 
@@ -69,6 +70,14 @@ inline constexpr const char* kReplayBack = "<##replay_back";
 inline constexpr const char* kReplayForward = ">##replay_forward";
 inline constexpr const char* kReplayEnd = ">|##replay_end";
 inline constexpr const char* kReplaySlider = "##replay_position";
+// An answer's pane, the market beside it, and the answer's controls: to its start, back a frame,
+// forward a frame, to its end.
+inline constexpr const char* kAnswerPane = "answer";
+inline constexpr const char* kMarketPane = "market";
+inline constexpr const char* kAnswerStart = "|<##answer_start";
+inline constexpr const char* kAnswerBack = "<##answer_back";
+inline constexpr const char* kAnswerForward = ">##answer_forward";
+inline constexpr const char* kAnswerEnd = ">|##answer_end";
 
 // A short label, formatted into a fixed buffer: built without allocating, which matters for labels
 // built for every visible row on every paint. Text that doesn't fit is cut; the labels here are far

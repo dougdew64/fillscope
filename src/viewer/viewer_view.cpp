@@ -14,6 +14,7 @@ namespace fillscope {
 namespace {
 
 constexpr ImVec4 kErrorColor{1.0f, 0.4f, 0.4f, 1.0f};
+constexpr ImVec4 kTrueColor{0.45f, 0.85f, 0.45f, 1.0f};  // a claim the replay bears out
 constexpr ImVec4 kFollowedRowColor{0.45f, 0.38f, 0.10f, 0.65f};
 constexpr ImVec4 kBidColor{0.45f, 0.85f, 0.45f, 1.0f};
 constexpr ImVec4 kAskColor{0.95f, 0.50f, 0.45f, 1.0f};
@@ -93,7 +94,9 @@ void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
 void draw_status(const ViewerView& view) {
     const ViewerState& state = view.state;
     const BookBuilder& books = state.books;
-    if (state.replay) {
+    if (state.answer && !state.replay) {
+        text("market data: none until an answer is shown");
+    } else if (state.replay) {
         // A replay is read from a file: not the exchange, and with no snapshots to recover from.
         if (books.status() == BookBuilder::Status::recovering) {
             text(std::format("market data: a replay, stuck after update {}: {}; a replay has no snapshots to recover from",
@@ -161,6 +164,114 @@ void draw_replay(const ViewerView& view, ViewerActions& actions) {
     }
 }
 
+// Text wrapped at the edge of the pane it is in.
+void wrapped(std::string_view s) {
+    ImGui::PushTextWrapPos(0.0f);
+    text(s);
+    ImGui::PopTextWrapPos();
+}
+
+// An answer's controls and where the user is in it. Each control asks for a frame; the loop shows it
+// (ViewerApp::answer_to), moving the books with it.
+void draw_answer_controls(const AnswerShown& shown, ViewerActions& actions) {
+    const LoadedAnswer& answer = *shown.answer;
+    const std::size_t last = answer.frames.size() - 1;
+    if (ImGui::SmallButton(kAnswerStart)) {
+        actions.answer_to = 0;
+    }
+    tooltip([] { return std::string{"To the start: the introduction, the books empty"}; });
+    ImGui::SameLine();
+    if (ImGui::SmallButton(kAnswerBack) && shown.frame > 0) {
+        actions.answer_to = shown.frame - 1;
+    }
+    tooltip([] { return std::string{"Back"}; });
+    ImGui::SameLine();
+    if (ImGui::SmallButton(kAnswerForward) && shown.frame < last) {
+        actions.answer_to = shown.frame + 1;
+    }
+    tooltip([] { return std::string{"Forward: a step's question, then the step played"}; });
+    ImGui::SameLine();
+    if (ImGui::SmallButton(kAnswerEnd)) {
+        actions.answer_to = last;
+    }
+    tooltip([] { return std::string{"To the end: the last step played"}; });
+    ImGui::SameLine();
+    const AnswerFrame& frame = answer.frames[shown.frame];
+    text(frame.step == 0 ? std::format("introduction; {} steps", answer.scenario.steps.size())
+                         : std::format("step {} of {}{}", frame.step, answer.scenario.steps.size(),
+                                       frame.asking ? ": a question first" : ""));
+}
+
+// What one step did: what each client was told, and each claim, marked as this viewer's own check
+// of it found it (answer_state.h), not as the answer file says.
+void draw_step_played(const LoadedAnswer& answer, std::size_t step) {
+    const CheckedStep& checked = answer.checked[step - 1];
+    wrapped(answer.scenario.steps[step - 1].say);
+    ImGui::Spacing();
+    text(checked.update_count == 0
+             ? std::string{"It changes no book."}
+             : std::format("Market data: updates {} to {}.", checked.first_update, checked.first_update + checked.update_count - 1));
+    if (!checked.responses.empty()) {
+        text("The exchange tells:");
+        ImGui::Indent();
+        for (const ClientResponse& response : checked.responses) {
+            wrapped(std::format("{}: {}", role_of(answer.scenario, response.client), describe(response)));
+        }
+        ImGui::Unindent();
+    }
+    if (!checked.claims.empty()) {
+        text("Claims, checked against the replay:");
+        ImGui::Indent();
+        for (const ClaimResult& claim : checked.claims) {
+            ImGui::PushStyleColor(ImGuiCol_Text, claim.holds ? kTrueColor : kErrorColor);
+            text(claim.holds ? "true " : "FALSE");
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            wrapped(claim.holds ? claim.says : std::format("{} In fact, {}.", claim.says, claim.actually));
+        }
+        ImGui::Unindent();
+    }
+}
+
+// The answer's pane: its question, where the user is in it, and that frame's text.
+void draw_answer(const ViewerView& view, ViewerActions& actions) {
+    const AnswerShown& shown = *view.state.answer;
+    if (!shown.answer) {
+        if (shown.problem) {
+            ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
+            wrapped(std::format("Can't show the answer: {}", *shown.problem));
+            ImGui::PopStyleColor();
+        } else {
+            wrapped(std::format("Waiting for an answer at {}.", shown.file.string()));
+        }
+        return;
+    }
+    const LoadedAnswer& answer = *shown.answer;
+    wrapped(answer.scenario.question);
+    ImGui::Separator();
+    draw_answer_controls(shown, actions);
+    ImGui::Separator();
+    const AnswerFrame& frame = answer.frames[shown.frame];
+    if (frame.step == 0) {
+        if (!answer.scenario.intro.empty()) {
+            wrapped(answer.scenario.intro);
+        }
+        ImGui::Spacing();
+        text("Press > to begin.");
+        return;
+    }
+    const ScenarioStep& step = answer.scenario.steps[frame.step - 1];
+    wrapped(std::format("Step {}. {}", frame.step, describe(step.request, answer.scenario)));
+    ImGui::Spacing();
+    if (frame.asking) {
+        wrapped(step.ask);
+        ImGui::Spacing();
+        text("Press > to see what happens.");
+        return;
+    }
+    draw_step_played(answer, frame.step);
+}
+
 // One button per ticker, its order count in its tooltip; the shown one is marked.
 void draw_tickers(const ViewerView& view, ViewerActions& actions) {
     text("ticker");
@@ -220,7 +331,10 @@ void draw_book(const ViewerView& view, ViewerActions& actions) {
     // Half the remaining height; the followed order's history takes the rest.
     const float height = view.published && view.published->follow ? ImGui::GetContentRegionAvail().y * 0.6f
                                                                   : ImGui::GetContentRegionAvail().y;
-    if (!ImGui::BeginTable(kBookTable, 6, flags, ImVec2{0.0f, height})) {
+    // In an answer, a column says whose each order is, which the answer's replay knows (and the
+    // market data doesn't).
+    const LoadedAnswer* answer = view.state.answer && view.state.answer->answer ? &*view.state.answer->answer : nullptr;
+    if (!ImGui::BeginTable(kBookTable, answer ? 7 : 6, flags, ImVec2{0.0f, height})) {
         return;
     }
     ImGui::TableSetupScrollFreeze(0, 1);  // the header row stays visible while scrolling
@@ -230,6 +344,9 @@ void draw_book(const ViewerView& view, ViewerActions& actions) {
     ImGui::TableSetupColumn("queue");
     ImGui::TableSetupColumn("order");
     ImGui::TableSetupColumn("qty");
+    if (answer) {
+        ImGui::TableSetupColumn("whose");
+    }
     ImGui::TableHeadersRow();
 
     for (const BookRow& row : rows) {
@@ -285,6 +402,11 @@ void draw_book(const ViewerView& view, ViewerActions& actions) {
         });
         ImGui::TableNextColumn();
         text(Label{"{}", order.qty}.c_str());
+        if (answer) {
+            ImGui::TableNextColumn();
+            const auto owner = answer->owners.find(order.order_id);
+            text(owner != answer->owners.end() ? owner->second : std::string{"unknown"});
+        }
     }
     ImGui::EndTable();
 }
@@ -380,8 +502,18 @@ ViewerActions draw_viewer(const ViewerView& view) {
 
     draw_context_bar(view, actions);
     ImGui::Separator();
+    // An answer's pane on the left, the market on the right. In an answer the books move only with
+    // its frames, so the replay's own controls aren't drawn: the pane and the books can't disagree.
+    const bool answering = view.state.answer.has_value();
+    if (answering) {
+        ImGui::BeginChild(kAnswerPane, {ImGui::GetContentRegionAvail().x * 0.45f, 0.0f}, ImGuiChildFlags_Borders);
+        draw_answer(view, actions);
+        ImGui::EndChild();
+        ImGui::SameLine();
+        ImGui::BeginChild(kMarketPane);
+    }
     draw_status(view);
-    if (view.state.replay) {
+    if (view.state.replay && !answering) {
         draw_replay(view, actions);
     }
     ImGui::Separator();
@@ -390,6 +522,9 @@ ViewerActions draw_viewer(const ViewerView& view) {
     if (view.published && view.published->follow) {
         ImGui::Separator();
         draw_history(*view.published->follow);
+    }
+    if (answering) {
+        ImGui::EndChild();
     }
 
     ImGui::End();

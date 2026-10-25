@@ -24,10 +24,17 @@
 
 #include <algorithm>
 #include <chrono>
+#include <expected>
+#include <filesystem>
+#include <format>
+#include <fstream>
 #include <memory>
+#include <optional>
 #include <print>
 #include <span>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -82,6 +89,27 @@ private:
     bool opengl_ready_ = false;
 };
 
+// Writes the frame just drawn, `width` by `height` pixels, as a binary PPM (P6): the simplest image
+// format there is, which any image tool reads. OpenGL's rows run bottom to top, a PPM's top to
+// bottom, so the rows are written in reverse.
+std::expected<void, std::string> write_screenshot(const std::filesystem::path& file, int width, int height) {
+    std::vector<unsigned char> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+    std::ofstream out{file, std::ios::binary};
+    out << "P6\n" << width << ' ' << height << "\n255\n";
+    const std::size_t row = static_cast<std::size_t>(width) * 3;
+    for (int y = height - 1; y >= 0; --y) {
+        out.write(reinterpret_cast<const char*>(pixels.data() + static_cast<std::size_t>(y) * row), static_cast<std::streamsize>(row));
+    }
+    out.close();
+    if (!out) {
+        return std::unexpected{std::format("can't write the screenshot {}", file.string())};
+    }
+    return {};
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -101,7 +129,9 @@ int main(int argc, char** argv) {
     std::optional<fillscope::MarketDataFile> replay;
     std::optional<fillscope::FeedSocket> incremental;
     std::optional<fillscope::FeedSocket> snapshot;
-    if (options->replay) {
+    if (options->answer) {
+        // Nothing to join or read yet: the answer file is watched, and read when it appears.
+    } else if (options->replay) {
         auto read = fillscope::read_market_data_file(*options->replay);
         if (!read) {
             std::println(stderr, "viewer: {}", read.error());
@@ -159,6 +189,10 @@ int main(int argc, char** argv) {
     if (replay) {
         app.open_replay(*options->replay, std::move(*replay));
     }
+    if (options->answer) {
+        app.watch_answer(*options->answer);
+    }
+    std::optional<std::size_t> answer_frame = options->answer_frame;
     const auto start = std::chrono::steady_clock::now();
     int last_report_second = 0;
 
@@ -172,6 +206,11 @@ int main(int argc, char** argv) {
         const auto now = std::chrono::steady_clock::now();
         if (incremental) {
             app.receive(*incremental, *snapshot, now);
+        }
+        app.poll_answer(now);
+        if (answer_frame && app.state().answer && app.state().answer->answer) {
+            app.answer_to(*answer_frame);  // once, as soon as the answer has been read
+            answer_frame.reset();
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -190,16 +229,24 @@ int main(int argc, char** argv) {
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        const double t = std::chrono::duration<double>(now - start).count();
+        const bool last_paint = options->exit_after_seconds > 0 && t >= options->exit_after_seconds;
+        if (last_paint && options->screenshot) {
+            // Read before the swap: the frame just drawn is in the back buffer.
+            if (const auto written = write_screenshot(*options->screenshot, width, height); !written) {
+                std::println(stderr, "viewer: {}", written.error());
+                return 1;
+            }
+        }
         glfwSwapBuffers(window.get());
 
-        const double t = std::chrono::duration<double>(now - start).count();
         if (static_cast<int>(t) > last_report_second) {
             last_report_second = static_cast<int>(t);
             std::println("viewer: t={} paints={} updates={} books as of update {}", last_report_second, app.paints(),
                          app.state().books.updates_received(), app.state().books.last_seq());
             std::fflush(stdout);
         }
-        if (options->exit_after_seconds > 0 && t >= options->exit_after_seconds) {
+        if (last_paint) {
             break;
         }
     }

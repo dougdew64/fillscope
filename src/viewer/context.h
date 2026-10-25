@@ -89,6 +89,18 @@ struct ReplayAddress {
     friend bool operator==(const ReplayAddress&, const ReplayAddress&) = default;
 };
 
+// Where the user is in an answer (viewer --answer): which answer, and which step of it. A question
+// asked now is about this step: its books are the replay's after it, or, while it asks, before it.
+struct AnswerPlace {
+    std::string file;       // the answer file
+    std::string question;   // the question it answers
+    std::size_t step = 0;   // 0 for its intro, else its step, from 1
+    std::size_t steps = 0;  // how many it has
+    bool asking = false;    // the step's question is shown, and the step not yet played
+
+    friend bool operator==(const AnswerPlace&, const AnswerPlace&) = default;
+};
+
 // An order as the books have it now: resting, with its place in its price's queue; or not resting,
 // with the last update applied to it (how it left, if a cancel) or the recovery it left during; or
 // never seen.
@@ -132,6 +144,11 @@ struct Context {
         std::uint32_t shown_ticker = 0;
         // A replay's market data file and recording, and how many updates it has; empty when live.
         std::optional<ReplayAddress> replay;  // seq: the replay's last update
+        // In an answer, where the user is in it; empty otherwise, and while none is shown.
+        std::optional<AnswerPlace> answer;
+        // A viewer showing answers, with none to show: why (none written yet, or why the last can't be
+        // shown). Empty otherwise.
+        std::optional<std::string> no_answer;
 
         friend bool operator==(const Feed&, const Feed&) = default;
     };

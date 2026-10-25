@@ -72,11 +72,24 @@ target_link_libraries(imgui_app PUBLIC glfw OpenGL::GL)
 
 # The viewer's core, without Dear ImGui: what it has received, what the user has pointed at and
 # followed, and the context it publishes. Unit-tested on its own.
+# The answer tool (src/answer/): plays an answer's scenario through the back end's exchange_replay,
+# checks its claims, and writes the answer for the viewer.
+add_library(fillscope_answer STATIC
+  src/answer/scenario.cpp src/answer/wire.cpp src/answer/check.cpp src/answer/answer.cpp)
+target_include_directories(fillscope_answer PUBLIC src)
+target_link_libraries(fillscope_answer PUBLIC fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
+target_compile_options(fillscope_answer PRIVATE ${FILLSCOPE_WARNINGS})
+add_executable(fillscope-answer src/answer/main.cpp)
+target_link_libraries(fillscope-answer PRIVATE fillscope_answer)
+target_compile_options(fillscope-answer PRIVATE ${FILLSCOPE_WARNINGS})
+target_compile_definitions(fillscope-answer PRIVATE FILLSCOPE_EXCHANGE_REPLAY="$<TARGET_FILE:exchange_replay>")
+add_dependencies(fillscope-answer exchange_replay)
+
 add_library(fillscope_viewer_core STATIC
   src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp
-  src/viewer/stop_signals.cpp)
+  src/viewer/stop_signals.cpp src/viewer/answer_state.cpp)
 target_include_directories(fillscope_viewer_core PUBLIC src)
-target_link_libraries(fillscope_viewer_core PUBLIC fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
+target_link_libraries(fillscope_viewer_core PUBLIC fillscope_answer fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
 target_compile_options(fillscope_viewer_core PRIVATE ${FILLSCOPE_WARNINGS})
 
 # The parts that draw with Dear ImGui are compiled into each program that uses them (the viewer, and
@@ -103,18 +116,6 @@ if(FILLSCOPE_TESTS)
 endif()
 add_subdirectory(backend/Chapter12)
 
-# The answer tool (src/answer/): plays an answer's scenario through the back end's exchange_replay,
-# checks its claims, and writes the answer for the viewer.
-add_library(fillscope_answer STATIC
-  src/answer/scenario.cpp src/answer/wire.cpp src/answer/check.cpp src/answer/answer.cpp)
-target_include_directories(fillscope_answer PUBLIC src)
-target_link_libraries(fillscope_answer PUBLIC fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
-target_compile_options(fillscope_answer PRIVATE ${FILLSCOPE_WARNINGS})
-add_executable(fillscope-answer src/answer/main.cpp)
-target_link_libraries(fillscope-answer PRIVATE fillscope_answer)
-target_compile_options(fillscope-answer PRIVATE ${FILLSCOPE_WARNINGS})
-target_compile_definitions(fillscope-answer PRIVATE FILLSCOPE_EXCHANGE_REPLAY="$<TARGET_FILE:exchange_replay>")
-add_dependencies(fillscope-answer exchange_replay)
 
 if(FILLSCOPE_TESTS)
   enable_testing()

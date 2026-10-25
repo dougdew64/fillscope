@@ -3,6 +3,7 @@
 #pragma once
 
 #include "feed/book_builder.h"
+#include "viewer/answer_state.h"
 #include "feed/market_update.h"
 
 #include <cstdint>
@@ -30,6 +31,9 @@ struct ViewerState {
     std::optional<std::string> feed_error;
     // Set when the viewer shows a replay rather than the live exchange.
     std::optional<Replay> replay;
+    // Set when the viewer shows answers (--answer): the answer file it watches, and what it shows
+    // of it. An answer's market data is shown as a replay, stepped a frame at a time.
+    std::optional<AnswerShown> answer;
 };
 
 }  // namespace fillscope

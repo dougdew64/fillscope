@@ -48,6 +48,8 @@ ANSWER_SCENARIO = "src/answer/scenario.cpp"
 ANSWER_WIRE = "src/answer/wire.cpp"
 ANSWER_CHECK = "src/answer/check.cpp"
 ANSWER = "src/answer/answer.cpp"
+ANSWER_STATE = "src/viewer/answer_state.cpp"
+VIEWER_APP = "src/viewer/viewer_app.cpp"
 VIEWER_STATE = "src/viewer/viewer_state.cpp"
 VIEWER_STATE_HEADER = "src/viewer/viewer_state.h"
 DOC_LINKS = "tests/docs/doc_links_test.cpp"
@@ -411,6 +413,23 @@ MUTANTS = [
      [("    if (const std::string wrong = false_claims(*checked); !wrong.empty()) {",
        "    if (const std::string wrong = false_claims(*checked); false && !wrong.empty()) {")],
      "answer_system_tests"),
+    # The viewer showing an answer: each a way it would show something false without anyone noticing.
+    ("a step's question shows the books after it", ANSWER_STATE,
+     [("            frames.push_back({.step = i + 1, .asking = true, .books_after = before});",
+       "            frames.push_back({.step = i + 1, .asking = true, .books_after = before + checked[i].update_count});")],
+     "Answers.TheFramesAreTheIntroThenEachStepItsQuestionFirst + ui:an_answer_is_stepped_through"),
+    ("a stale answer is shown", ANSWER_STATE,
+     [("        if (*now != recorded) {", "        if (false) {")],
+     "Answers.AnAnswerThatCantBeShownSaysWhy + ui:a_new_answer_replaces_the_shown_one"),
+    ("the book's whose column goes by the client's id", ANSWER_STATE,
+     [("                loaded.owners[response.market_order_id] =", "                loaded.owners[response.client_order_id] =")],
+     "Answers.LoadingChecksTheClaimsAgainAndKnowsWhoseEachOrderIs"),
+    ("an answer that can't be shown leaves the last one's books", VIEWER_APP,
+     [("        state_.replay.reset();\n        state_.books = BookBuilder{};\n", "")],
+     "ui:a_new_answer_replaces_the_shown_one"),
+    ("the context says a step's question has been played", CONTEXT,
+     [("                                  .asking = frame.asking};", "                                  .asking = false};")],
+     "Answers.TheContextSaysWhereInTheAnswerTheUserIs + ui:an_answer_is_stepped_through"),
     ("a recording's partial last request is read", RECORDING,
      [("    if (body % sizeof(MEClientRequest) != 0) {", "    if (false) {")],
      "lowlatency:RequestRecording.SaysWhyARecordingCantBeRead"),

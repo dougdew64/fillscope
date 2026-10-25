@@ -49,6 +49,16 @@ public:
     // from the first. What is pointed at and followed stays.
     void replay_to(std::uint64_t seq);
 
+    // Shows answers: watches `file` for an answer (answer/answer.h), and shows each new one as it is
+    // written. Nothing is shown until poll_answer() finds one.
+    void watch_answer(const std::filesystem::path& file);
+    // Looks at the answer file, at most once per kAnswerPollInterval: if it has been replaced since it
+    // was last read, reads it, and shows the new answer from its start, or why it can't be shown.
+    void poll_answer(Clock::time_point now);
+    // Shows the answer's frame `frame` (clamped to its last): the books after that frame's update.
+    void answer_to(std::size_t frame);
+    static constexpr std::chrono::milliseconds kAnswerPollInterval{250};
+
     // One paint: draws the viewer (call between ImGui::NewFrame() and ImGui::Render()), applies what
     // the user did, and publishes the context, at once if the user did anything. Returns what the
     // user did.
@@ -80,6 +90,7 @@ private:
     std::uint64_t paints_ = 0;
     std::vector<MarketUpdate> received_;         // reused every paint, so receiving doesn't allocate
     std::optional<std::string> reported_error_;  // the publishing error last reported
+    std::optional<Clock::time_point> answer_polled_at_;
 };
 
 }  // namespace fillscope

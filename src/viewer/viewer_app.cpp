@@ -54,6 +54,49 @@ void ViewerApp::replay_to(std::uint64_t seq) {
     }
 }
 
+void ViewerApp::watch_answer(const std::filesystem::path& file) {
+    state_.answer = AnswerShown{.file = std::filesystem::absolute(file), .stamp = std::nullopt, .answer = std::nullopt,
+                                .problem = std::nullopt, .frame = 0};
+    answer_polled_at_.reset();
+}
+
+void ViewerApp::poll_answer(Clock::time_point now) {
+    if (!state_.answer || (answer_polled_at_ && now - *answer_polled_at_ < kAnswerPollInterval)) {
+        return;
+    }
+    answer_polled_at_ = now;
+    AnswerShown& shown = *state_.answer;
+    const std::optional<FileStamp> stamp = stamp_of(shown.file);
+    if (stamp == shown.stamp) {
+        return;  // the version already read, or still no file
+    }
+    shown.stamp = stamp;
+    auto loaded = load_answer(shown.file);
+    shown.frame = 0;
+    if (!loaded) {
+        // Nothing of an earlier answer stays on screen: its books would be taken for this one's.
+        shown.answer.reset();
+        shown.problem = std::move(loaded.error());
+        state_.replay.reset();
+        state_.books = BookBuilder{};
+        return;
+    }
+    shown.problem.reset();
+    open_replay(loaded->market_data_file, loaded->market_data);
+    state_.shown_ticker = loaded->scenario.ticker;
+    shown.answer = std::move(*loaded);
+    answer_to(0);
+}
+
+void ViewerApp::answer_to(std::size_t frame) {
+    if (!state_.answer || !state_.answer->answer) {
+        return;
+    }
+    AnswerShown& shown = *state_.answer;
+    shown.frame = std::min(frame, shown.answer->frames.size() - 1);
+    replay_to(shown.answer->frames[shown.frame].books_after);
+}
+
 ViewerActions ViewerApp::paint(Clock::time_point now) {
     ViewerTiming timing{.seconds_since_update = std::nullopt, .paints = paints_};
     if (last_update_at_) {
@@ -66,6 +109,9 @@ ViewerActions ViewerApp::paint(Clock::time_point now) {
                                                          .publish_error = publisher_.error()});
     if (actions.replay_to) {
         replay_to(*actions.replay_to);
+    }
+    if (actions.answer_to) {
+        answer_to(*actions.answer_to);
     }
     fillscope::apply(actions, selection_, state_);
     publisher_.update(make_context(state_, selection_),

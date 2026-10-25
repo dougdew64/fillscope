@@ -39,7 +39,7 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string_view option{args[i]};
         if (option != "--exit-after" && option != "--incremental" && option != "--snapshot" && option != "--replay" &&
-            option != "--context-file") {
+            option != "--answer" && option != "--answer-frame" && option != "--screenshot" && option != "--context-file") {
             return std::unexpected{std::format("unknown option '{}'", option)};
         }
         if (i + 1 == args.size()) {
@@ -58,6 +58,22 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
                 return std::unexpected{"--replay needs a file"};
             }
             options.replay = value;
+        } else if (option == "--answer") {
+            if (value.empty()) {
+                return std::unexpected{"--answer needs a file"};
+            }
+            options.answer = value;
+        } else if (option == "--answer-frame") {
+            const auto frame = parse_number<std::size_t>(value);
+            if (!frame) {
+                return std::unexpected{std::format("--answer-frame: {}", frame.error())};
+            }
+            options.answer_frame = *frame;
+        } else if (option == "--screenshot") {
+            if (value.empty()) {
+                return std::unexpected{"--screenshot needs a file"};
+            }
+            options.screenshot = value;
         } else if (option == "--context-file") {
             if (value.empty()) {
                 return std::unexpected{"--context-file needs a path"};
@@ -75,6 +91,18 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
             }
             options.exit_after_seconds = *seconds;
         }
+    }
+    if (options.answer && (options.replay || stream_given)) {
+        // An answer brings its own market data, so a replay or a stream given with it would be
+        // silently ignored.
+        return std::unexpected{"--answer shows an answer's own market data: give it without --replay, --incremental or --snapshot"};
+    }
+    if (options.answer_frame && !options.answer) {
+        return std::unexpected{"--answer-frame chooses where an answer opens: give it with --answer"};
+    }
+    if (options.screenshot && options.exit_after_seconds == 0) {
+        // The image is taken as the viewer exits, so one that never exits would never write it.
+        return std::unexpected{"--screenshot is written as the viewer exits: give it with --exit-after"};
     }
     if (options.replay && stream_given) {
         // A replay reads no stream, so a stream given with it would be silently ignored.

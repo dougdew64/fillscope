@@ -660,9 +660,8 @@ the explanation ever being able to show something the exchange wouldn't do. You 
 the editor's chat; the assistant answers with a *scenario*: a short list of client requests, what to
 say about each, and the facts it claims each one leads to. The answer tool plays those requests
 through the back end's real matching engine and checks every claim against what the engine did;
-the viewer shows the result a step at a time, the explanation in a pane beside the book
-([PLAN.md](PLAN.md), step 13, not yet built). It is HRW's Answers, rebuilt for an exchange
-([FEATURES.md](FEATURES.md), item 15).
+the viewer shows the result a step at a time, the explanation in a pane beside the book. It is
+HRW's Answers, rebuilt for an exchange ([FEATURES.md](FEATURES.md), item 15).
 
 **Nothing goes through the running exchange or the network.** The requests are written as a
 recording and replayed by `exchange_replay`, the back end's fresh matching engine with no clients,
@@ -711,6 +710,8 @@ maker?":
   of one of the client's ids. Each new order needs an id of its own: the exchange keys a client's
   orders by id, and a second order under one would overwrite the first's entry.
 - **`say`** is the explanation of the step.
+- **`ask`**, if given, is a question the pane shows before the step is played, its `say` only
+  after: an answer as a quiz on what the exchange will do, whose right answer is the replay's.
 - **`claims`** are the facts the step states, five kinds: `bestBid` or `bestAsk` (the best price on
   that side, and the total resting there; `null` for an empty side); `trades` (exactly the step's
   trades, in order, so a trade left out is as false as one made up); `resting` (a client's order
@@ -749,12 +750,12 @@ It exits 0 when it has written the answer, 1 when it refused, and 2 for a bad co
 takes about 1.3 seconds, nearly all of it the replay building its matching engine.
 
 **The answer file** holds the question, the roles, and each step: its request in words ("The
-taker sends order 30: buy 4 at 101."), what it says, the numbers of the updates it made, the
-responses in words, and its claims as sentences, each with `holds`. It names the market data file
-the steps rest on, with a fingerprint of it, so the viewer can tell a current answer from one whose
-replay has since changed. And it carries the scenario as written: the viewer reads it with the same
-`read_scenario`, and will check the claims against its own books, rather than trust the file's
-word for it.
+taker sends order 30: buy 4 at 101."), its question and what it says, the numbers of the updates
+it made, the responses in words, and its claims as sentences, each with `holds`. It names the
+market data and steps files the answer rests on, with a fingerprint of each, so the viewer can
+tell a current answer from one whose replay has since changed. And it carries the scenario as
+written: the viewer reads it with the same `read_scenario`, and checks the claims itself, rather
+than take the file's word for it.
 
 ### How a claim is checked
 `check_scenario` follows the replay step by step, as the viewer will: a fresh `BookBuilder` is
@@ -787,6 +788,54 @@ pins down how Ghosh's exchange matches, as an answer will state it: an order fil
 order's price, the incoming order told first; a buy sweeping two prices, best first; what an order
 can't fill resting in the book; a cancel, and a cancel of an order no longer there rejected with no
 update; and a false claim refused with the earlier answer left as it was.
+
+### The viewer playing an answer
+`viewer --answer FILE` (in VS Code, the **viewer (answers)** launch) is a viewer for answers, not
+the live exchange: it watches the answer file, and shows each answer written to it, from its
+start, within a quarter of a second (`ViewerApp::poll_answer`). It sees a new answer by the file's
+inode, size and time (`stamp_of`), all of which the tool's rename over the old file changes.
+
+**Loading one** (`load_answer`, `answer_state.h`) reads the answer file, and refuses it, saying why,
+if it isn't one, if its scenario can't be read, or if a replay file it names is gone or no longer
+has the fingerprint the answer recorded: a replay run over those files since would make every step
+describe something else, so such an answer is *stale*. Otherwise it reads the market data and the
+steps, and checks every claim again with `check_scenario`, the tool's own checker: a claim is shown
+true or false as this viewer finds it against the replay, never as the file says. It also notes
+whose each order is, from the responses that accepted them, which the market data doesn't say: the
+book gets a column, `whose` ("the maker's 11"), while an answer is shown, so the exchange's order
+ids in the book and the clients' ids in the pane can be matched.
+
+**The frames.** An answer is stepped a frame at a time: its introduction, with the books empty;
+then, for each step, its question if it asks one, with the books still as before the step, and the
+step played, with the books after it (`answer_frames`). The books move only with the frames: the
+answer's market data is shown as a replay (`open_replay`), and each frame asks for the books after
+one update (`ViewerApp::answer_to`, then `replay_to`); the replay's own controls aren't drawn, so the
+pane and the books can't disagree.
+
+**The pane**, on the left of the window, with the market on the right, shows the question, the
+controls, and the frame: the introduction; a step's request and its question; or a step played, with
+what it says, the updates it made, what each client was told, and each claim marked true or
+**FALSE** (with what is true instead). When no answer can be shown, the pane says why, nothing of
+the last answer stays on screen, and the status line and the context bar say no answer is shown,
+not that the viewer is waiting for the exchange.
+
+**The context names where you are**: `background.answer` gives the answer file, its question, the
+step (0 for the introduction), how many steps it has, and whether the step's question is shown and
+the step not yet played; `background.noAnswer` says why none is shown. So a question asked in the
+chat at a step is about that step, and the assistant can rebuild exactly what you see.
+
+**Pictures of it.** `--answer-frame N` opens an answer at frame N, and `--screenshot FILE`, with
+`--exit-after`, writes the window as the viewer exits (a PPM, read back from the frame just drawn).
+They let the assistant see what it built, which it otherwise can't, and suit demos.
+
+**What tests it:** `viewer_tests`: the frames, loading (claims checked again, whose each order is,
+and every refusal: no answer, not an answer, stale, a replay file gone, a scenario that can't be
+read), a replaced file's new stamp, the context and the bar, and the options. `viewer_ui_tests`,
+with real clicks on answers written by hand (`tests/support/answer_fixture.h`): waiting for an
+answer; stepping through one, forward and back, the books moving with the frames, a step's question
+before its explanation, and the context's step; a new answer replacing the shown one from its
+start; a claim the viewer finds false marked so; and a stale answer refused, nothing of the last
+left on screen.
 
 ## 11. A reading order for the code
 1. `src/feed/market_update.h`: what the exchange sends.

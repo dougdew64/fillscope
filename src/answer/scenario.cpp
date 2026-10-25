@@ -373,7 +373,7 @@ std::expected<Scenario, std::string> read_scenario(const Json& json) {
     for (std::size_t i = 0; i < steps->size(); ++i) {
         const std::string where = std::format("step {}", i + 1);
         const Json& step = (*steps)[i];
-        if (auto fields = only_fields(step, where, {"request", "say", "claims"}); !fields) {
+        if (auto fields = only_fields(step, where, {"request", "ask", "say", "claims"}); !fields) {
             return std::unexpected{fields.error()};
         }
         if (!step.contains("request")) {
@@ -384,10 +384,11 @@ std::expected<Scenario, std::string> read_scenario(const Json& json) {
             return std::unexpected{request.error()};
         }
         auto say = text(step, "say", where, true);
-        if (!say) {
-            return std::unexpected{say.error()};
+        auto ask = text(step, "ask", where, false);
+        if (const auto problem = first_error(say, ask)) {
+            return std::unexpected{*problem};
         }
-        ScenarioStep read{.request = *request, .say = *say, .claims = {}};
+        ScenarioStep read{.request = *request, .say = *say, .claims = {}, .ask = *ask};
         if (step.contains("claims")) {
             if (!step["claims"].is_array()) {
                 return refuse(std::format("{}.claims", where), "must be a list");

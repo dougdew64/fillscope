@@ -144,14 +144,17 @@ the slower program adds the tier to its name.
 - **`viewer_tests` (GoogleTest, `unit`):** the viewer's core without Dear ImGui: the selection, the
   context built from the books and the selection (an order's place in its queue, a level's orders,
   a followed order's events and gaps), its JSON and bar text, publishing (including failure and
-  recovery), and the command line.
+  recovery), an answer (its frames, its claims checked again, whose each order is, and every way
+  one is refused), and the command line.
 - **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** the viewer's whole loop, as
   `ViewerApp` runs it for the program, with real clicks: the book's order on screen, choosing a
   ticker, pointing at orders and levels, following an order as it fills, clearing, the bar and the
   book's marks (as drawn: each item reports them to the Test Engine) saying exactly what the file
   holds, a failed write shown in the bar and the tooltips, real multicast streams (a feed joined
-  while running, recovered from a snapshot, and a datagram that can't be decoded), and a replay's
-  controls, with the replay address following the books. (The
+  while running, recovered from a snapshot, and a datagram that can't be decoded), a replay's
+  controls, with the replay address following the books, and answers (stepped through, a step's
+  question before its explanation, a new one replacing the last, a false claim marked, a stale one
+  refused). (The
   followed row's colour itself isn't observable; its id button reports the mark.) Text is checked
   through Dear ImGui's logging, since plain text items have no ID for the Test Engine to find; rows
   and buttons are found by their IDs.
@@ -232,16 +235,25 @@ move the books to any update of the run. From a terminal: `exchange_main --recor
 `exchange_replay FILE MARKET_DATA`, then `viewer --replay MARKET_DATA`.
 
 `--exit-after SECONDS` closes the viewer after that long; Ctrl-C and SIGTERM close it the same way,
-so its last context file says it has stopped. `--incremental GROUP:PORT` and `--snapshot GROUP:PORT`
+so its last context file says it has stopped. With `--exit-after`, `--screenshot FILE` writes the
+window, as it was last drawn, to FILE (a PPM image) as the viewer exits. `--incremental GROUP:PORT` and `--snapshot GROUP:PORT`
 choose the market data streams (by default the exchange's). The viewer prints on stderr when
 publishing the context fails and when it works again, and if it can't join a stream.
 
 ## Answers
-`build/debug/fillscope-answer SCENARIO` plays an answer's scenario through the back end's matcher
-and checks its claims; if all hold, it writes `.fillscope/answer.json` (`--answer FILE` chooses
-another), with the replay's files in `.fillscope/answer/` beside it. If a claim is false, or a
-request is something Ghosh's exchange can't do, it says why and writes nothing. The format, and
-what the viewer will do with an answer, are in [ARCHITECTURE.md](ARCHITECTURE.md), §10.
+Ask a question about the market in the editor's chat; the assistant answers with a scenario and
+makes the answer. To see it: Run and Debug, then **viewer (answers)** (it builds first), which
+watches `.fillscope/answer.json` and shows each answer written there, a pane beside the book. `>`
+steps forward: a step's question, if it asks one, then the step played; `<` back; `|<` and `>|` to
+the start and the end. Leave it open: the next answer replaces the shown one. From a terminal:
+`build/debug/viewer --answer .fillscope/answer.json`, and `--answer-frame N` to open an answer at
+frame N.
+
+`build/debug/fillscope-answer SCENARIO` makes an answer: it plays the scenario's requests through the
+back end's matcher and checks its claims; if all hold, it writes `.fillscope/answer.json` (`--answer
+FILE` chooses another), with the replay's files in `.fillscope/answer/` beside it. If a claim is
+false, or a request is something Ghosh's exchange can't do, it says why and writes nothing. The
+format, and how the viewer shows an answer, are in [ARCHITECTURE.md](ARCHITECTURE.md), §10.
 
 ## Pointing and following
 The buttons along the top choose the ticker whose book is shown. In the book, **click an order's

@@ -90,6 +90,18 @@ TEST(ReadScenario, ReadsEveryPart) {
 
 // What Ghosh's exchange can't be asked to do is refused in the domain's words, not played as
 // something else.
+// A step may ask a question before it is played; one that isn't text is refused.
+TEST(ReadScenario, AStepMayAskFirst) {
+    Json json = maker_and_taker();
+    json["steps"][2]["ask"] = "The taker buys 4 at 101: what trades?";
+    const auto read = read_scenario(json);
+    ASSERT_TRUE(read) << read.error();
+    EXPECT_EQ(read->steps[2].ask, "The taker buys 4 at 101: what trades?");
+    EXPECT_EQ(read->steps[0].ask, "") << "asking is optional";
+    json["steps"][2]["ask"] = 4;
+    EXPECT_NE(refusal(json).find("step 3.ask: must be text"), std::string::npos) << refusal(json);
+}
+
 TEST(ReadScenario, RefusesWhatTheExchangeCantDoSayingWhy) {
     EXPECT_NE(refusal(with_request(2, Json::parse(R"({"client": 3, "market": {"id": 30, "side": "buy", "qty": 4}})")))
                   .find("no market orders"),
@@ -495,18 +507,23 @@ TEST(AnswerJson, CarriesTheScenarioAsWrittenAndEachStep) {
     const auto checked = check_scenario(t.scenario, t.updates, t.steps);
     ASSERT_TRUE(checked);
     Json scenario_json = maker_and_taker();
-    const auto json = answer_json(t.scenario, scenario_json, *checked, "/runs/market.dat", "fnv1a64:0123");
+    const auto json = answer_json(t.scenario, scenario_json, *checked,
+                                  {.market_data = "/runs/market.dat", .market_data_fingerprint = "fnv1a64:0123",
+                                   .steps = "/runs/steps.dat", .steps_fingerprint = "fnv1a64:4567"});
     EXPECT_EQ(json["version"], 1);
     EXPECT_EQ(json["question"], t.scenario.question);
     EXPECT_EQ(json["clients"]["1"], "the maker");
     EXPECT_EQ(json["replay"]["marketDataFile"], "/runs/market.dat");
     EXPECT_EQ(json["replay"]["marketDataFingerprint"], "fnv1a64:0123");
+    EXPECT_EQ(json["replay"]["stepsFile"], "/runs/steps.dat");
+    EXPECT_EQ(json["replay"]["stepsFingerprint"], "fnv1a64:4567");
     EXPECT_EQ(Json(json["scenario"]), scenario_json);
     ASSERT_EQ(json["steps"].size(), 2u);
     const auto& step = json["steps"][0];
     EXPECT_EQ(step["number"], 1);
     EXPECT_EQ(step["request"], "The maker sends order 10: buy 10 at 99.");
     EXPECT_EQ(step["say"], "The maker bids.");
+    EXPECT_EQ(step["ask"], "") << "this step asks nothing";
     EXPECT_EQ(step["updates"]["first"], 1);
     EXPECT_EQ(step["updates"]["count"], 1);
     EXPECT_EQ(step["responses"][0]["to"], "the maker");

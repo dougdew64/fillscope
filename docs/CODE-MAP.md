@@ -33,7 +33,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | Drawing, and clicks | `src/viewer/viewer_view.*` | §4, *What it draws*; §8 | 2026-10-24: what the ticker buttons choose |
 | The context: what is published | `src/viewer/context.*` | §4, *What it draws*, *The pieces*, *An order pointed at* | 2026-10-24: what "showing ticker 0" in the bar means; 2026-10-25: whether "exchange live at update N" is part of the context |
 | Publishing the context | `src/viewer/context_publisher.*` | §4, *Publishing* | 2026-10-25: where the context bar is defined |
-| Answers: a scenario played through the real matcher, its claims checked | `src/answer/` | §10 | 2026-10-25: whether an answer goes through the running exchange and the network to the viewer |
+| Answers: a scenario played through the real matcher, its claims checked, and the viewer playing it | `src/answer/`, `src/viewer/answer_state.*` | §10 | 2026-10-25: whether an answer goes through the running exchange and the network to the viewer |
 | Shared helpers: a descriptor's owner, number parsing, a file replaced atomically | `src/common/` | §2 (in part); §4, *Publishing* | |
 | The debug-state extension | `tools/vscode-debug-state/` | §5; [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md) | |
 | The attribution report | `tools/attribution/` | [AI-USE.md](AI-USE.md) (in part) | |

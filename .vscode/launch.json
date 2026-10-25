@@ -25,6 +25,17 @@
       "preLaunchTask": "replay the last recording"
     },
     {
+      // Answers: the assistant's answer to a question, written by fillscope-answer to
+      // .fillscope/answer.json, shown as it is written and stepped through in a pane beside the book.
+      "name": "viewer (answers)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/viewer",
+      "args": ["--answer", "${workspaceFolder}/.fillscope/answer.json"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build"
+    },
+    {
       // A snapshot every 5 seconds, where the book's exchange has a minute, so a viewer started late
       // catches up quickly; each run's requests recorded, replacing the last run's.
       "name": "exchange",

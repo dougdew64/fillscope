@@ -106,6 +106,20 @@ Context make_context(const ViewerState& state, const Selection& selection) {
         here = ReplayAddress{.market_data_file = feed.replay->market_data_file, .recording = feed.replay->recording,
                              .seq = books.last_seq()};
     }
+    if (state.answer && !state.answer->answer) {
+        feed.no_answer = state.answer->problem ? std::format("the answer at {} can't be shown: {}", state.answer->file.string(),
+                                                             *state.answer->problem)
+                                               : std::format("waiting for an answer at {}", state.answer->file.string());
+    }
+    if (state.answer && state.answer->answer) {
+        const LoadedAnswer& answer = *state.answer->answer;
+        const AnswerFrame& frame = answer.frames.at(state.answer->frame);
+        feed.answer = AnswerPlace{.file = state.answer->file.string(),
+                                  .question = answer.scenario.question,
+                                  .step = frame.step,
+                                  .steps = answer.scenario.steps.size(),
+                                  .asking = frame.asking};
+    }
 
     if (const auto& pointed = selection.pointed()) {
         context.point = Context::Point{.seq = selection.point_seq(), .target = OrderState{}, .replay = here};
@@ -224,7 +238,10 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
         "as of lastSeq, older than the exchange; follow.gaps lists the recoveries whose updates an order's "
         "events may be missing. In a replay (background.replay), the books are exactly a recorded run's after "
         "update lastSeq, and point and follow carry a replayAddress that rebuilds that state: apply the market data "
-        "file's updates 1 to seq. 'writer' says which viewer wrote this file and whether it is still running.";
+        "file's updates 1 to seq. In an answer (background.answer), the user is at that step of it, 0 being its "
+        "intro; while 'asking', its question is shown and the step not yet played, so the books are as before it. "
+        "A viewer showing answers with none to show says why in background.noAnswer. "
+        "'writer' says which viewer wrote this file and whether it is still running.";
 
     const Context::Feed& feed = context.feed;
     nlohmann::ordered_json latest = nlohmann::ordered_json::array();
@@ -246,6 +263,13 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
                                                         {"updates", feed.replay->seq}}
                                : nlohmann::ordered_json(nullptr)},
         {"noReplayAddress", feed.replay ? nlohmann::ordered_json(nullptr) : nlohmann::ordered_json(kNoReplayAddress)},
+        {"answer", feed.answer ? nlohmann::ordered_json{{"file", feed.answer->file},
+                                                        {"question", feed.answer->question},
+                                                        {"step", feed.answer->step},
+                                                        {"steps", feed.answer->steps},
+                                                        {"asking", feed.answer->asking}}
+                               : nlohmann::ordered_json(nullptr)},
+        {"noAnswer", or_null(feed.no_answer)},
     };
 
     if (context.point) {
@@ -314,7 +338,14 @@ std::string order_summary(const OrderState& order) {
 ContextBarText bar_text(const Context& context) {
     ContextBarText text;
     const Context::Feed& feed = context.feed;
-    if (feed.replay) {
+    if (feed.no_answer) {
+        text.background = std::format("no answer shown: {}", *feed.no_answer);
+    } else if (feed.answer) {
+        const AnswerPlace& answer = *feed.answer;
+        text.background = answer.step == 0 ? std::format("answer to \"{}\": its introduction", answer.question)
+                                           : std::format("answer to \"{}\": step {} of {}{}", answer.question, answer.step,
+                                                         answer.steps, answer.asking ? ", its question (not yet played)" : "");
+    } else if (feed.replay) {
         text.background = std::format("replay of {} at update {} of {}", feed.replay->market_data_file, feed.last_seq,
                                       feed.replay->seq);
         if (feed.status == BookBuilder::Status::recovering) {

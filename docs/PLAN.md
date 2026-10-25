@@ -296,6 +296,15 @@ quiz on what the exchange will do (the scenario's format and the tool take it to
 **Done when:** UI tests step through an answer and check the pane and the books at each step, a new
 answer replaces the shown one, a claim made false by a changed replay shows as false, and a step's
 `ask` shows before the step and its explanation only after.
+**Status:** done (2026-10-25). `viewer --answer FILE` (the **viewer (answers)** launch) watches the
+answer file and shows each new answer, a pane beside the book, stepped a frame at a time: the
+introduction, a step's question, the step played; the claims checked again by the viewer itself;
+a `whose` column in the book; the context naming the answer and the step. A changed replay makes
+the answer stale, refused rather than shown. The tool takes `ask`, and names the steps file too.
+`--answer-frame N` and `--screenshot FILE` let the assistant see what it built; it checked the
+pane in pictures before handing it over ([ARCHITECTURE.md](ARCHITECTURE.md), §10). Checked by
+`viewer_tests`, `viewer_ui_tests` (stepping, replacing, a false claim, a stale answer), and five
+mutants.
 
 ### 14. A first answer, and the demo
 The first real answers, to the owner's first questions; whatever they show missing is fixed. A

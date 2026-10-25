@@ -54,11 +54,19 @@ struct AnswerPaths {
 [[nodiscard]] std::expected<void, std::string> make_answer(const Scenario& scenario, const nlohmann::json& scenario_json,
                                                            const AnswerPaths& paths);
 
+// The replay's files an answer rests on, each with its fingerprint (fingerprint_file), so the viewer
+// can tell they are still the ones the answer was checked against.
+struct ReplayFiles {
+    std::filesystem::path market_data;
+    std::string market_data_fingerprint;
+    std::filesystem::path steps;
+    std::string steps_fingerprint;
+};
+
 // The answer file's contents, for a scenario whose every claim holds. The scenario goes in as it was
-// given, so the viewer can read it with read_scenario and check the claims against its own books.
+// given, so the viewer can read it with read_scenario and check the claims itself, against the
+// replay's files.
 [[nodiscard]] nlohmann::ordered_json answer_json(const Scenario& scenario, const nlohmann::json& scenario_json,
-                                                 const std::vector<CheckedStep>& checked,
-                                                 const std::filesystem::path& market_data_file,
-                                                 const std::string& market_data_fingerprint);
+                                                 const std::vector<CheckedStep>& checked, const ReplayFiles& replay);
 
 }  // namespace fillscope
