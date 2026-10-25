@@ -700,7 +700,7 @@ MUTANTS = [
        "        if (::unlink(file_.c_str()) == 0 || errno == ENOENT) {")],
      "Publisher.AFailedWriteIsRetriedAndRecovers"),
     ("a replay's status speaks of the exchange", VIEW,
-     [("    if (state.replay) {\n        // A replay is read from a file", "    if (false) {\n        // A replay is read from a file")],
+     [("    } else if (state.replay) {\n        // A replay is read from a file", "    } else if (false) {\n        // A replay is read from a file")],
      "ui:a_replay_that_cant_be_followed_says_where_it_stopped"),
     ("a stuck replay is fed its updates again", "src/viewer/viewer_app.cpp",
      [("         next <= seq && state_.books.status() != BookBuilder::Status::recovering; ++next) {",
