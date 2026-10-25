@@ -87,7 +87,8 @@ class Program:
 
 def build():
     """Configures and builds the debug build; False if either fails (the compiler said why)."""
-    configure = ["cmake", "-S", str(ROOT), "-B", str(BUILD), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug"]
+    configure = ["cmake", "-S", str(ROOT), "-B", str(BUILD), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Debug",
+                 "-DFILLSCOPE_WERROR=ON"]  # as CI builds: a warning in our own code fails
     return (subprocess.run(configure, stdout=subprocess.DEVNULL).returncode == 0 and
             subprocess.run(["cmake", "--build", str(BUILD)]).returncode == 0)
 

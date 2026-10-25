@@ -504,12 +504,15 @@ Several tools stack up, each handing over to the next:
   with AddressSanitizer and UndefinedBehaviorSanitizer, which find bugs no assertion would (a read
   of memory never initialized found the fork's uninitialized table). It also checks that every
   CTest test belongs to a program in the manifest and every program has a test, and that every
-  program in the sanitizer build is built with both sanitizers. It takes about two minutes; nothing
-  is skipped, since quick tests aren't worth the risk of skipping (the owner's ruling, DECISIONS.md).
+  program in the sanitizer build is built with both sanitizers. Every build here fails on a warning
+  in our own code, as CI's does. It takes about two minutes; nothing is skipped, since quick tests
+  aren't worth the risk of skipping (the owner's ruling, DECISIONS.md).
 - **In CI**, on every push to main and every pull request, in a clean Fedora container with only the
-  commit: `run-tests.sh`, with warnings as errors and a missing debugger failing its tests rather
-  than skipping them, then the mutation check, every mutant, and the selection check. Each commit
-  on main gets a run of its own.
+  commit: `run-tests.sh`, with a missing debugger failing its tests rather than skipping them,
+  then the mutation check, every mutant, and the selection check. Each commit on main gets a run of
+  its own. CI is the backstop, not the gate: a change is done when these pass locally, and CI,
+  checked once afterwards, adds the one thing a local run can't, exactly the committed tree in a
+  clean environment.
 
 ### Tests that use the network
 A market data stream is only a multicast group and a port, and a TCP order port is only a number,

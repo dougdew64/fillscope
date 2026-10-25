@@ -5,7 +5,7 @@
 #
 #   tests/scripts/run-tests.sh            from anywhere in the repository
 #
-# FILLSCOPE_WERROR=ON (as CI sets it) makes a warning in our own code fail both builds.
+# A warning in our own code fails both builds, as in CI (FILLSCOPE_WERROR=OFF turns that off).
 set -euo pipefail
 
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -32,7 +32,7 @@ build() {  # build BUILD_DIR [CMAKE OPTIONS...]
     shift
     echo "== $build_dir"
     cmake -S "$root" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-          -DFILLSCOPE_WERROR="${FILLSCOPE_WERROR:-OFF}" "$@" > /dev/null
+          -DFILLSCOPE_WERROR="${FILLSCOPE_WERROR:-ON}" "$@" > /dev/null
     cmake --build "$build_dir"
 }
 

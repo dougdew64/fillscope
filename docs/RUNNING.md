@@ -20,7 +20,7 @@ procedure. **Read when:** building, running or changing it.
 ## Build
 ```sh
 git submodule update --init                 # once, after cloning: fetches backend/
-cmake -S . -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DFILLSCOPE_WERROR=ON
 cmake --build build/debug
 ```
 The back end builds with its own build file and flags (C++20, its own `-Werror`), into
@@ -30,8 +30,10 @@ Needs GCC, CMake, Ninja, `glfw-devel` and `mesa-libGL-devel`; for the tests, als
 LLDB with `python3-lldb`, `flock` (util-linux), and Node.js with npm. Dear ImGui, GoogleTest and
 the Dear ImGui Test Engine are fetched as release archives checked against their SHA-256; the
 extension's development tools are installed by `npm ci` during the build. In VS Code, the default
-build task does the same and links `compile_commands.json` for clangd. `-DFILLSCOPE_WERROR=ON`
-makes a warning in our own code fail the build, as it does in CI.
+build task does the same and links `compile_commands.json` for clangd. A warning in our own code
+fails the build, as it does in CI (`-DFILLSCOPE_WERROR`, on by default; written out above, since
+a build directory configured before 2026-10-24 remembers it off). The mutation and selection
+checks turn it off in their copies: a deliberately broken file may well draw a warning.
 
 ## Test
 **Iterating and gating are different acts.** Between edits, run only what the edit affects; before

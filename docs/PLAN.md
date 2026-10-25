@@ -223,7 +223,7 @@ two failures in 65 runs were both mutants the local run hadn't run. The owner di
 don't skip programs to save time; the cost to work on is the mutation check's.
 **Done when:** the time from a change to its tests' result is measured before and after, and each
 shortcut is shown not to skip a test the change affects.
-**Status:** in progress. First change (2026-10-24): each of the 36 back-end mutants names the
+**Status:** done (2026-10-24). First change: each of the 36 back-end mutants names the
 GoogleTest tests that catch it (`lowlatency:FILTER`, found by running each mutant against the whole
 program), so it runs those rather than the whole program; and a mutant's programs run in parallel
 (`ctest -j`), which bought little, since the CTest lock keeps the two system tests apart. Measured
@@ -236,16 +236,18 @@ mutants and a kept, incrementally built copy; the test binaries are fingerprinte
 contents, whatever their size. Checked by new cases in the selection check (32 of 32 right), unit
 tests in `scripts_tests`, and 11 mutants of that logic. Measured: every mutant, 23 minutes for 192;
 after a change to the viewer's drawing code, 18 mutants in 42 seconds; nothing changed, under 2
-seconds. CI keeps no record, and runs every mutant. Left, for the owner to weigh on these numbers:
-shorter waits in the system tests, cheaper rebuilds, parallel workers, CI as a backstop, and the
-local builds with CI's warnings as errors.
+seconds. CI keeps no record, and runs every mutant. Third: the local builds fail on a warning in
+our own code, as CI's do (`FILLSCOPE_WERROR` on by default), so a warning is found here first. The
+owner judged the rest unjustified now (2026-10-24): shorter waits in the system tests, cheaper
+rebuilds and parallel workers would save time mainly in the full check, which runs in CI and when
+the check's own code changes; a stretch of work in the back end, where a change still chooses
+dozens of mutants, is when to weigh them again. CI is treated as a backstop, a working habit
+rather than code: a change is done when the local gate passes, and CI is checked once afterwards.
 
 ## Waiting on the owner
 - **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,
   asking questions, whose answers go into [ARCHITECTURE.md](ARCHITECTURE.md), before the roadmap
   continues.
-- **Step 10's decisions:** it changes what a commit must pass, so the owner chooses which shortcuts
-  to take.
 
 ## Later
 The rest of the roadmap becomes changes to the fork, ordered when steps 1 to 10 have landed: ITCH

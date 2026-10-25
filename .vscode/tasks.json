@@ -4,7 +4,7 @@
     {
       "label": "build",
       "type": "shell",
-      "command": "cmake -S . -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build/debug && ln -sf build/debug/compile_commands.json compile_commands.json",
+      "command": "cmake -S . -B build/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DFILLSCOPE_WERROR=ON && cmake --build build/debug && ln -sf build/debug/compile_commands.json compile_commands.json",
       "group": { "kind": "build", "isDefault": true },
       "problemMatcher": ["$gcc"]
     },

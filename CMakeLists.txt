@@ -2,7 +2,8 @@
 #
 #   -DFILLSCOPE_SANITIZE=ON   AddressSanitizer and UndefinedBehaviorSanitizer on everything
 #   -DFILLSCOPE_TESTS=OFF     skip the tests and their dependencies
-#   -DFILLSCOPE_WERROR=ON     warnings in our own code fail the build (CI sets this)
+#   -DFILLSCOPE_WERROR=OFF    warnings in our own code don't fail the build (the checks that build
+#                             deliberately broken code set this; every other build fails on one)
 cmake_minimum_required(VERSION 3.24)
 project(fillscope LANGUAGES CXX)
 
@@ -15,7 +16,7 @@ endif()
 
 option(FILLSCOPE_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(FILLSCOPE_TESTS "Build the tests" ON)
-option(FILLSCOPE_WERROR "Treat warnings in our own code as errors" OFF)
+option(FILLSCOPE_WERROR "Treat warnings in our own code as errors" ON)
 
 if(FILLSCOPE_SANITIZE)
   # Applied before any target, so the dependencies are instrumented too. UB stops the program
