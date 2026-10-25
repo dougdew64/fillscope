@@ -794,6 +794,9 @@ TEST(ParseViewerArgs, AnAnswerItsFrameAndAScreenshot) {
     ASSERT_TRUE(answer) << answer.error();
     EXPECT_EQ(answer->answer, std::filesystem::path{".fillscope/answer.json"});
     EXPECT_EQ(answer->answer_frame, 3u);
+    const auto course = parse_viewer_args(std::array{"--answer", "a.json", "--course", "build/debug/course"});
+    ASSERT_TRUE(course) << course.error();
+    EXPECT_EQ(course->course, std::filesystem::path{"build/debug/course"});
     const auto shot = parse_viewer_args(std::array{"--exit-after", "2", "--screenshot", "a.ppm"});
     ASSERT_TRUE(shot) << shot.error();
     EXPECT_EQ(shot->screenshot, std::filesystem::path{"a.ppm"});
@@ -805,6 +808,7 @@ TEST(ParseViewerArgs, AnAnswerItsFrameAndAScreenshot) {
         {{"--answer", "a.json", "--answer-frame", "-1"}, "--answer-frame:"},
         {{"--screenshot", "a.ppm"}, "give it with --exit-after"},
         {{"--answer", ""}, "--answer needs a file"},
+        {{"--course", "build/debug/course"}, "give it with --answer"},
     };
     for (const auto& [args, why] : refused) {
         const auto parsed = parse_viewer_args(args);
@@ -941,7 +945,7 @@ TEST_F(Answers, TheContextSaysWhereInTheAnswerTheUserIs) {
     state.answer = AnswerShown{.file = file(), .stamp = std::nullopt, .answer = std::move(*loaded), .problem = std::nullopt, .frame = 3};
     const Context asking = make_context(state, Selection{});
     ASSERT_TRUE(asking.feed.answer);
-    EXPECT_EQ(*asking.feed.answer, (AnswerPlace{.file = file().string(), .question = "What happens?", .step = 3, .steps = 3, .asking = true}));
+    EXPECT_EQ(*asking.feed.answer, (AnswerPlace{.file = file().string(), .question = "What happens?", .step = 3, .steps = 3, .asking = true, .lesson = {}}));
     const auto json = to_json(asking, Writer{}, 1, 0);
     EXPECT_EQ(json["background"]["answer"]["step"], 3);
     EXPECT_EQ(json["background"]["answer"]["asking"], true);

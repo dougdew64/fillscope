@@ -24,6 +24,15 @@
       "problemMatcher": []
     },
     {
+      // The course's lessons, each played through the answer tool into build/debug/course/, for the
+      // viewer to offer (viewer --course). Only the lessons changed since are played again.
+      "label": "build the course",
+      "type": "shell",
+      "command": "cmake --build build/debug --target course",
+      "dependsOn": "build",
+      "problemMatcher": []
+    },
+    {
       "label": "test: affected (between edits)",
       "type": "shell",
       "command": "python3 -I tests/scripts/iterate.py",

@@ -1,0 +1,37 @@
+{
+  "question": "Can a market maker lose money? Who takes it?",
+  "clients": { "1": "the maker", "2": "an informed trader" },
+  "intro": "A maker earns the spread from traders who trade for their own reasons, such as needing cash or investing savings. But some traders know something the maker doesn't, such as good news about to come out. Trading with them, the maker is on the wrong side, and that loss must be paid for out of the spread. This is adverse selection.",
+  "steps": [
+    {
+      "request": { "client": 1, "new": { "id": 1, "side": "buy", "price": 99, "qty": 10 } },
+      "say": "The maker bids 10 at 99,",
+      "claims": [ { "bestBid": { "price": 99, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 2, "side": "sell", "price": 101, "qty": 10 } },
+      "say": "and offers 10 at 101: a spread of 2, as before.",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 1, "side": "buy", "price": 101, "qty": 10 } },
+      "say": "A trader buys all 10 at 101. The maker can't tell why: it might be an investor, or someone who knows the price is about to rise. The maker has sold 10 it didn't have: it is short 10.",
+      "claims": [ { "trades": [ { "price": 101, "qty": 10, "aggressor": "buy" } ] }, { "bestAsk": null } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 2, "side": "sell", "price": 110, "qty": 10 } },
+      "say": "Good news comes out, and the stock is now worth about 110. The trader who bought offers its 10 back, at 110.",
+      "claims": [ { "bestAsk": { "price": 110, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 3, "side": "buy", "price": 110, "qty": 10 } },
+      "ask": "The maker, short 10, buys them back at 110 before the price climbs further. Who made money, and how much?",
+      "say": "The maker sold 10 at 101 and bought them back at 110: it lost 9 a share, 90 in all. The informed trader made those 90. To cover a loss like that, the maker needs the spread from many trades with uninformed traders: 45 shares each bought at 99 and sold at 101, 2 earned on each. That is why makers widen their spreads when they fear traders know more than they do, and why the spread is partly the price of not knowing.",
+      "claims": [
+        { "trades": [ { "price": 110, "qty": 10, "aggressor": "buy" } ] },
+        { "told": { "client": 1, "filled": { "id": 3, "price": 110, "qty": 10, "leaves": 0 } } },
+        { "told": { "client": 2, "filled": { "id": 2, "price": 110, "qty": 10, "leaves": 0 } } }
+      ]
+    }
+  ]
+}

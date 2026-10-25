@@ -57,6 +57,12 @@ public:
     void poll_answer(Clock::time_point now);
     // Shows the answer's frame `frame` (clamped to its last): the books after that frame's update.
     void answer_to(std::size_t frame);
+    // Offers `course`, its lessons' answers in `built`, beside the answer file watched (call after
+    // watch_answer): that file is "your questions", choice 0.
+    void open_course(Course course, const std::filesystem::path& built);
+    // Shows choice `choice` (clamped): 0 for the user's own questions, otherwise that lesson, from its
+    // start.
+    void choose(std::size_t choice);
     static constexpr std::chrono::milliseconds kAnswerPollInterval{250};
 
     // One paint: draws the viewer (call between ImGui::NewFrame() and ImGui::Render()), applies what

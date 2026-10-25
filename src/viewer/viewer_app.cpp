@@ -97,6 +97,22 @@ void ViewerApp::answer_to(std::size_t frame) {
     replay_to(shown.answer->frames[shown.frame].books_after);
 }
 
+void ViewerApp::open_course(Course course, const std::filesystem::path& built) {
+    if (!state_.answer) {
+        return;
+    }
+    state_.course = CourseChoice{.course = std::move(course), .built = std::filesystem::absolute(built),
+                                 .questions = state_.answer->file, .chosen = 0};
+}
+
+void ViewerApp::choose(std::size_t choice) {
+    if (!state_.course) {
+        return;
+    }
+    state_.course->chosen = std::min(choice, state_.course->course.lessons.size());
+    watch_answer(state_.course->chosen_file());  // read at the next poll, which is at once
+}
+
 ViewerActions ViewerApp::paint(Clock::time_point now) {
     ViewerTiming timing{.seconds_since_update = std::nullopt, .paints = paints_};
     if (last_update_at_) {
@@ -109,6 +125,10 @@ ViewerActions ViewerApp::paint(Clock::time_point now) {
                                                          .publish_error = publisher_.error()});
     if (actions.replay_to) {
         replay_to(*actions.replay_to);
+    }
+    if (actions.choose) {
+        choose(*actions.choose);
+        poll_answer(now);  // the chosen answer shows in this paint's context, not a paint later
     }
     if (actions.answer_to) {
         answer_to(*actions.answer_to);

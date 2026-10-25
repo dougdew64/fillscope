@@ -1,0 +1,13 @@
+{
+  "title": "How an exchange works, through Ghosh's matching engine",
+  "lessons": [
+    { "title": "Orders and the book", "scenario": "01-orders-and-the-book.json" },
+    { "title": "Price first, then time", "scenario": "02-price-then-time.json" },
+    { "title": "Trading at once, at the resting price", "scenario": "03-trading-at-once.json" },
+    { "title": "A large order walks the book", "scenario": "04-a-large-order.json" },
+    { "title": "Cancelling, and losing your place", "scenario": "05-cancelling.json" },
+    { "title": "How a market maker provides liquidity", "scenario": "06-market-maker.json" },
+    { "title": "When the maker loses: informed traders", "scenario": "07-informed-traders.json" },
+    { "title": "Slicing a large order", "scenario": "08-slicing.json" }
+  ]
+}

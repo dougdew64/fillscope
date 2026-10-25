@@ -26,6 +26,9 @@ struct ViewerOptions {
     std::optional<std::filesystem::path> answer;
     // With --answer: the frame to open it at once it is read (0 is its introduction).
     std::optional<std::size_t> answer_frame;
+    // With --answer: the built course to offer beside it (the build's course/ directory, which the
+    // "course" target writes).
+    std::optional<std::filesystem::path> course;
     // With --exit-after: the window's image, written to this file (a PPM) as the viewer exits.
     std::optional<std::filesystem::path> screenshot;
     // Relative paths are relative to the working directory: the repository, when started from VS Code.
@@ -37,6 +40,6 @@ struct ViewerOptions {
 
 inline constexpr std::string_view kViewerUsage =
     "usage: viewer [--exit-after SECONDS] [--incremental GROUP:PORT] [--snapshot GROUP:PORT] [--replay FILE] "
-    "[--answer FILE [--answer-frame N]] [--screenshot FILE] [--context-file PATH]";
+    "[--answer FILE [--answer-frame N] [--course DIR]] [--screenshot FILE] [--context-file PATH]";
 
 }  // namespace fillscope

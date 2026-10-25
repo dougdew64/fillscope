@@ -1,0 +1,46 @@
+{
+  "question": "What does cancelling an order do, and what does it cost?",
+  "clients": { "1": "the first buyer", "2": "the second buyer", "3": "a seller" },
+  "intro": "A trader can take back an order that is still waiting, by cancelling it. In Ghosh's exchange a client can't change an order: to change its price or size, it cancels the order and sends a new one. A new order goes to the back of its price's queue.",
+  "steps": [
+    {
+      "request": { "client": 1, "new": { "id": 1, "side": "buy", "price": 100, "qty": 5 } },
+      "say": "The first buyer bids 5 at 100: first in line.",
+      "claims": [ { "bestBid": { "price": 100, "qty": 5 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 1, "side": "buy", "price": 100, "qty": 5 } },
+      "say": "The second buyer bids 5 at 100, behind it.",
+      "claims": [ { "bestBid": { "price": 100, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 1, "cancel": { "id": 1 } },
+      "say": "The first buyer cancels its order. It leaves the book, and the exchange tells the buyer how much was still unfilled: all 5.",
+      "claims": [
+        { "told": { "client": 1, "canceled": { "id": 1, "leaves": 5 } } },
+        { "resting": { "client": 1, "id": 1, "qty": null } },
+        { "bestBid": { "price": 100, "qty": 5 } }
+      ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 2, "side": "buy", "price": 100, "qty": 5 } },
+      "say": "It changes its mind and bids 5 at 100 again, the same order as before. But it is a new order now, so it queues behind the second buyer.",
+      "claims": [ { "bestBid": { "price": 100, "qty": 10 } }, { "resting": { "client": 1, "id": 2, "qty": 5 } } ]
+    },
+    {
+      "request": { "client": 3, "new": { "id": 1, "side": "sell", "price": 100, "qty": 5 } },
+      "ask": "A seller sells 5 at 100. Whose order fills now?",
+      "say": "The second buyer's: by cancelling, the first buyer gave up its place at the front. Changing an order in Ghosh's exchange always costs its place in the queue.",
+      "claims": [
+        { "told": { "client": 2, "filled": { "id": 1, "price": 100, "qty": 5, "leaves": 0 } } },
+        { "resting": { "client": 1, "id": 2, "qty": 5 } }
+      ]
+    },
+    {
+      "request": { "client": 3, "cancel": { "id": 1 } },
+      "ask": "The seller tries to cancel its order, which has already filled. What happens?",
+      "say": "The cancel is rejected: there is nothing left to cancel. A trader can only take back what hasn't traded yet, which is why a cancel can arrive too late.",
+      "claims": [ { "told": { "client": 3, "cancelRejected": { "id": 1 } } }, { "trades": [] } ]
+    }
+  ]
+}

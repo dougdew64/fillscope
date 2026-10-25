@@ -27,7 +27,7 @@ sys.dont_write_bytecode = True
 EXTENSION = {"vscode_debug_state_tests", "vscode_debug_state_typecheck"}
 ATTRIBUTION = {"attribution_tests", "attribution_report_check", "attribution_copy_check"}
 CODE_MAP = {"code_map_tests", "code_map_check"}
-ANSWER = {"answer_tests", "answer_system_tests"}
+ANSWER = {"answer_tests", "answer_system_tests", "course_system_tests"}
 ALL = {"common_tests", "docs_tests",
        "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
        "lowlatency_allocation_tests", "feed_tests",
@@ -63,7 +63,8 @@ CASES = [
     ("src/feed/book_builder.cpp", CPP_PROBE,
      {"feed_tests", "feed_system_tests", "viewer_tests", "viewer_ui_tests"} | ANSWER),
     ("tests/support/test_support.h", CPP_PROBE,
-     {"feed_tests", "feed_system_tests", "viewer_ui_tests", "replay_debugger_tests", "answer_system_tests"}),
+     {"feed_tests", "feed_system_tests", "viewer_ui_tests", "replay_debugger_tests", "answer_system_tests",
+      "course_system_tests"}),
     ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
     ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
     ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
@@ -72,7 +73,7 @@ CASES = [
     ("tests/backend/replay_lldb_driver.py", DELETE, {"replay_debugger_tests"}),
     # Reaches its programs only as a run-time file: the replay binary they start.
     ("backend/Chapter12/exchange/exchange_replay.cpp", CPP_PROBE,
-     {"feed_system_tests", "replay_debugger_tests", "answer_system_tests"}),
+     {"feed_system_tests", "replay_debugger_tests", "answer_system_tests", "course_system_tests"}),
     ("tools/vscode-debug-state/tsconfig.json", JS_PROBE, EXTENSION),
     ("tools/attribution/attribution.py", TEXT_PROBE, ATTRIBUTION),
     ("tools/code_map/code_map.py", TEXT_PROBE, CODE_MAP),
@@ -80,7 +81,7 @@ CASES = [
     # makes a matching engine), and the system test starts its programs.
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",
-      "replay_debugger_tests", "answer_system_tests"}),
+      "replay_debugger_tests", "answer_system_tests", "course_system_tests"}),
     # The allocation tests are a program of their own, so a change to them affects only it.
     ("backend/Chapter12/tests/allocation_test.cpp", CPP_PROBE, {"lowlatency_allocation_tests"}),
     # A build file counts only through what it decides: what is built, and how CTest runs each
@@ -122,7 +123,7 @@ MUTANT_CASES = [
     ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"}),
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",
-      "replay_debugger_tests", "answer_system_tests"}),
+      "replay_debugger_tests", "answer_system_tests", "course_system_tests"}),
     # A test changed: every mutant its program's tests may catch runs again.
     ("backend/Chapter12/tests/lf_queue_test.cpp", CPP_PROBE, {"lowlatency_tests"}),
     # The check's own code: every mutant. (scripts_tests, whose run-time files it is, changes too.)

@@ -616,6 +616,50 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(contains(vars.text, "ticker 0: no orders"));
     });
 
+    // A course (viewer --course): the pane's drop-down offers its lessons beside your own questions;
+    // choosing one shows it from its start, and the context names the lesson; choosing "Your
+    // questions" goes back to the answer file watched.
+    viewer_test(engine, "a_lesson_is_chosen_from_the_course", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const std::filesystem::path dir = scratch_root() / ctx->Test->Name;
+        const std::filesystem::path built = dir / "course";
+        std::filesystem::create_directories(built);
+        std::ofstream{built / "course.json"} << R"({"title": "A course", "lessons": [
+            {"title": "The first lesson", "scenario": "01-first.json", "read": "a chapter"},
+            {"title": "The second lesson", "scenario": "02-second.json"}]})";
+        auto course = fillscope::read_course_file(built / "course.json");
+        IM_CHECK(course.has_value());
+        fillscope::test::write_maker_and_taker(fillscope::lesson_answer(built, course->lessons[0]), "Lesson one?");
+        fillscope::test::write_maker_and_taker(fillscope::lesson_answer(built, course->lessons[1]), "Lesson two?");
+        const std::filesystem::path questions = dir / ".fillscope" / "answer.json";
+        fillscope::test::write_maker_and_taker(questions, "My own question?");
+        vars.app->watch_answer(questions);
+        vars.app->open_course(std::move(*course), built);
+        ctx->SetRef(fillscope::kViewerWindow);
+        IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "My own question?"); }));
+        IM_CHECK(contains(vars.text, "Your questions"));
+
+        ctx->ItemClick(std::format("**/{}", fillscope::kLessonChoice).c_str());
+        ctx->ItemClick("//$FOCUSED/2. The second lesson##choice2");
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "Lesson two?"));
+        IM_CHECK(contains(vars.text, "Press > to begin."));
+        IM_CHECK(read_context(vars)["background"]["answer"]["lesson"] == "lesson 2, \"The second lesson\"");
+        IM_CHECK(bar_starts(vars.text, "lesson 2, \"The second lesson\": its introduction"));
+
+        ctx->ItemClick(std::format("**/{}", fillscope::kLessonChoice).c_str());
+        ctx->ItemClick("//$FOCUSED/1. The first lesson##choice1");
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "Lesson one?"));
+        IM_CHECK(contains(vars.text, "Read: a chapter"));
+
+        ctx->ItemClick(std::format("**/{}", fillscope::kLessonChoice).c_str());
+        ctx->ItemClick("//$FOCUSED/Your questions##choice0");
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "My own question?"));
+        IM_CHECK(read_context(vars)["background"]["answer"]["lesson"].is_null());
+    });
+
     viewer_test(engine, "a_replay_goes_to_any_update", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         // add_book's six updates, then order 11 partly filled and order 12 cancelled.

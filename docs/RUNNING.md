@@ -14,6 +14,7 @@ procedure. **Read when:** building, running or changing it.
 | `tools/vscode-debug-state/` | the VS Code extension that publishes the debugger's state ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `tools/attribution/` | `attribution.py`, which writes [ATTRIBUTION.md](ATTRIBUTION.md): per file, the owner's lines and the lines co-authored with Claude (`python3 -I tools/attribution/attribution.py`; `--check` checks the committed report). The back end keeps a copy, which writes its own report with upstream's lines too (`--upstream`; its `CLAUDE.md` gives the command) |
 | `tools/code_map/` | `code_map.py`, which checks that [CODE-MAP.md](CODE-MAP.md) puts every code file in exactly one part (`python3 -I tools/code_map/code_map.py --check`) |
+| `course/` | the course's lessons, each an answer's scenario, and `course.json`, the manifest that orders them ([ARCHITECTURE.md](ARCHITECTURE.md), §10) |
 | `tests/<area>/` | the tests of one area, mirroring `src/` and `tools/` (`tests/feed/` tests `src/feed/`), with the area's `CMakeLists.txt` |
 | `tests/support/` | helpers several areas' tests share (running a command, sending to a multicast group) |
 | `tests/scripts/` | the commands that run the tests and check them (below) |
@@ -131,6 +132,9 @@ the slower program adds the tier to its name.
   earlier answer left as it was, and how the matcher matches (a fill at the resting order's price,
   a sweep across two prices, an order's unfilled rest resting, a cancel, a rejected cancel). About
   8 seconds: each run builds a matching engine.
+- **`course_system_tests` (GoogleTest, `system`):** every lesson of the course played through the
+  answer tool and the real `exchange_replay`, read back as the viewer reads it with every claim
+  checked again, and the manifest naming exactly the lessons `course/` holds. About 10 seconds.
 - **`feed_tests` (GoogleTest, `unit`):** Fillscope's reading of the market data: decoding (the
   back end's own test bytes among others), a book, keeping the books in step and every way recovery
   starts and ends, each order's history, a replay's market data file, and receiving real multicast
@@ -245,8 +249,10 @@ Ask a question about the market in the editor's chat; the assistant answers with
 makes the answer. To see it: Run and Debug, then **viewer (answers)** (it builds first), which
 watches `.fillscope/answer.json` and shows each answer written there, a pane beside the book. `>`
 steps forward: a step's question, if it asks one, then the step played; `<` back; `|<` and `>|` to
-the start and the end. Leave it open: the next answer replaces the shown one. From a terminal:
-`build/debug/viewer --answer .fillscope/answer.json`, and `--answer-frame N` to open an answer at
+the start and the end. Leave it open: the next answer replaces the shown one. The drop-down at the
+top of the pane offers the course's lessons (`course/`), in order, beside "Your questions". From a
+terminal: `cmake --build build/debug --target course` to play the lessons, then `build/debug/viewer
+--answer .fillscope/answer.json --course build/debug/course`; `--answer-frame N` opens an answer at
 frame N.
 
 `build/debug/fillscope-answer SCENARIO` makes an answer: it plays the scenario's requests through the

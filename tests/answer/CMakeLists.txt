@@ -13,3 +13,16 @@ fillscope_test_program(answer_system_tests system
   COMMAND $<TARGET_FILE:answer_system_tests> $<TARGET_FILE:fillscope-answer>
   RUNTIME_DEPS $<TARGET_FILE:fillscope-answer> $<TARGET_FILE:exchange_replay>)
 set_tests_properties(answer_system_tests PROPERTIES RESOURCE_LOCK exchange)
+
+# The course (course_system_test.cpp): every lesson played through the tool and exchange_replay, and
+# read back as the viewer reads it, every claim checked again; and the manifest naming exactly the
+# lessons there are. The system tier, holding the exchange's lock: each lesson starts a replay.
+file(GLOB course_files CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/course/*.json)
+add_executable(course_system_tests course_system_test.cpp)
+target_link_libraries(course_system_tests PRIVATE fillscope_viewer_core GTest::gtest)
+target_include_directories(course_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+target_compile_options(course_system_tests PRIVATE ${FILLSCOPE_WARNINGS})
+fillscope_test_program(course_system_tests system
+  COMMAND $<TARGET_FILE:course_system_tests> $<TARGET_FILE:fillscope-answer> ${PROJECT_SOURCE_DIR}/course
+  RUNTIME_DEPS $<TARGET_FILE:fillscope-answer> $<TARGET_FILE:exchange_replay> ${course_files})
+set_tests_properties(course_system_tests PROPERTIES RESOURCE_LOCK exchange)

@@ -192,6 +192,15 @@ int main(int argc, char** argv) {
     if (options->answer) {
         app.watch_answer(*options->answer);
     }
+    if (options->course) {
+        auto course = fillscope::read_course_file(*options->course / "course.json");
+        if (!course) {
+            std::println(stderr, "viewer: {} (the course is built by: cmake --build build/debug --target course)",
+                         course.error());
+            return 1;
+        }
+        app.open_course(std::move(*course), *options->course);
+    }
     std::optional<std::size_t> answer_frame = options->answer_frame;
     const auto start = std::chrono::steady_clock::now();
     int last_report_second = 0;

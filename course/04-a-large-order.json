@@ -1,0 +1,33 @@
+{
+  "question": "What happens when an order is larger than what the best price offers?",
+  "clients": { "1": "the sellers", "2": "a large buyer" },
+  "intro": "The best price offers only so much. An order bigger than that takes it all and goes on to the next price, and the next, until it is filled or its limit is reached. This is walking the book, and it is how a large order moves the price.",
+  "steps": [
+    {
+      "request": { "client": 1, "new": { "id": 1, "side": "sell", "price": 101, "qty": 5 } },
+      "say": "Sellers offer 5 at 101,",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 5 } } ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 2, "side": "sell", "price": 102, "qty": 5 } },
+      "say": "5 more at 102,",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 5 } } ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 3, "side": "sell", "price": 103, "qty": 5 } },
+      "say": "and 5 at 103: three price levels on the sell side.",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 5 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 1, "side": "buy", "price": 103, "qty": 12 } },
+      "ask": "A buyer wants 12 at once, and will pay up to 103. What does it buy, at what prices, and what does it pay on average?",
+      "say": "It takes all 5 at 101, all 5 at 102, and 2 at 103: 1,221 for 12, an average of 101.75 a share, where the best price was 101. And the best ask has moved from 101 to 103: the large order moved the price against itself. That cost, paid for wanting a lot at once, is market impact.",
+      "claims": [
+        { "trades": [ { "price": 101, "qty": 5, "aggressor": "buy" }, { "price": 102, "qty": 5, "aggressor": "buy" }, { "price": 103, "qty": 2, "aggressor": "buy" } ] },
+        { "told": { "client": 2, "filled": { "id": 1, "price": 103, "qty": 2, "leaves": 0 } } },
+        { "bestAsk": { "price": 103, "qty": 3 } },
+        { "resting": { "client": 2, "id": 1, "qty": null } }
+      ]
+    }
+  ]
+}

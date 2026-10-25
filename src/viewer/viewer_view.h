@@ -27,11 +27,12 @@ struct ViewerActions {
     std::optional<std::uint32_t> show_ticker; // show this ticker's book
     std::optional<std::uint64_t> replay_to;   // in a replay: the books after this update
     std::optional<std::size_t> answer_to;     // in an answer: show this frame
+    std::optional<std::size_t> choose;        // with a course: show this (0: your questions; a lesson, from 1)
     bool clear_point = false;
     bool clear_follow = false;
 
     [[nodiscard]] bool any() const noexcept {
-        return point_at || follow || show_ticker || replay_to || answer_to || clear_point || clear_follow;
+        return point_at || follow || show_ticker || replay_to || answer_to || choose || clear_point || clear_follow;
     }
 };
 
@@ -78,6 +79,8 @@ inline constexpr const char* kAnswerStart = "|<##answer_start";
 inline constexpr const char* kAnswerBack = "<##answer_back";
 inline constexpr const char* kAnswerForward = ">##answer_forward";
 inline constexpr const char* kAnswerEnd = ">|##answer_end";
+// The choice of what the pane shows, with a course: your questions, or a lesson.
+inline constexpr const char* kLessonChoice = "##lesson";
 
 // A short label, formatted into a fixed buffer: built without allocating, which matters for labels
 // built for every visible row on every paint. Text that doesn't fit is cut; the labels here are far

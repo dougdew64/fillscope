@@ -3,6 +3,7 @@
 // answer_system_test.cpp.
 #include "answer/answer.h"
 #include "answer/check.h"
+#include "answer/course.h"
 #include "answer/scenario.h"
 #include "answer/wire.h"
 #include "feed/book.h"
@@ -191,6 +192,44 @@ TEST(ReadScenario, RefusesAClaimThatIsntOne) {
         const std::string said = refusal(with_claim(Json::parse(claim)));
         EXPECT_NE(said.find(why), std::string::npos) << claim << ": " << said;
     }
+}
+
+// ---- The course's manifest ----
+
+TEST(ReadCourse, ReadsTheLessonsInOrder) {
+    const auto course = read_course(Json::parse(R"({"title": "A course", "lessons": [
+        {"title": "First", "scenario": "01-first.json", "read": "a chapter"},
+        {"title": "Second", "scenario": "02-second.json"}]})"));
+    ASSERT_TRUE(course) << course.error();
+    EXPECT_EQ(course->title, "A course");
+    ASSERT_EQ(course->lessons.size(), 2u);
+    EXPECT_EQ(course->lessons[0], (Lesson{.title = "First", .scenario = "01-first.json", .read = "a chapter"}));
+    EXPECT_EQ(course->lessons[1].read, "");
+    EXPECT_EQ(lesson_answer("/built", course->lessons[1]), std::filesystem::path{"/built/02-second/answer.json"});
+}
+
+// A lesson names a plain file in course/, once; anything else is refused, saying why.
+TEST(ReadCourse, RefusesALessonItCantPlay) {
+    const auto refusal_of = [](const char* lessons) {
+        const auto course = read_course(Json::parse(std::string{R"({"title": "A course", "lessons": )"} + lessons + "}"));
+        return course ? std::string{} : course.error();
+    };
+    const std::vector<std::pair<const char*, const char*>> cases = {
+        {R"([])", "at least one"},
+        {R"([{"title": "A", "scenario": "../secret.json"}])", "must be a .json file's name in course/"},
+        {R"([{"title": "A", "scenario": "elsewhere/a.json"}])", "must be a .json file's name in course/"},
+        {R"([{"title": "A", "scenario": "a.b.json"}])", "must be a .json file's name in course/"},
+        {R"([{"title": "A", "scenario": "a.txt"}])", "must be a .json file's name in course/"},
+        {R"([{"title": "A", "scenario": "course.json"}])", "must be a .json file's name in course/"},
+        {R"([{"title": "A", "scenario": "a.json"}, {"title": "B", "scenario": "a.json"}])", "is another lesson's too"},
+        {R"([{"scenario": "a.json"}])", "needs a 'title' and a 'scenario'"},
+        {R"([{"title": "A", "scenario": "a.json", "level": "easy"}])", "'level' isn't one of its fields"},
+    };
+    for (const auto& [lessons, why] : cases) {
+        EXPECT_NE(refusal_of(lessons).find(why), std::string::npos) << lessons << ": " << refusal_of(lessons);
+    }
+    EXPECT_FALSE(read_course(Json::parse(R"({"lessons": [{"title": "A", "scenario": "a.json"}]})")));
+    EXPECT_FALSE(read_course_file("/no/such/course.json"));
 }
 
 // ---- The back end's files, as bytes ----

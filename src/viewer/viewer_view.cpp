@@ -195,22 +195,22 @@ void draw_answer_controls(const AnswerShown& shown, ViewerActions& actions) {
         actions.answer_to = last;
     }
     tooltip([] { return std::string{"To the end: the last step played"}; });
-    ImGui::SameLine();
-    // A step that asks first takes two frames, its question and then the step played; each says
-    // which, so the two aren't taken for two steps.
+    // Where the user is, on a line of its own below the buttons, wrapped to the pane. A step that
+    // asks first takes two frames, its question and then the step played; each says which, so the
+    // two aren't taken for two steps.
     const AnswerFrame& frame = answer.frames[shown.frame];
     const std::size_t steps = answer.scenario.steps.size();
     if (frame.step == 0) {
         const std::size_t asking = answer.frames.size() - 1 - steps;
-        text(asking == 0 ? std::format("introduction; {} steps", steps)
+        wrapped(asking == 0 ? std::format("introduction; {} steps", steps)
                          : std::format("introduction; {} steps, {} asking a question first, so {} presses to the end", steps,
                                        asking, last));
     } else if (frame.asking) {
-        text(std::format("step {} of {}: the question", frame.step, steps));
+        wrapped(std::format("step {} of {}: the question", frame.step, steps));
     } else if (!answer.scenario.steps[frame.step - 1].ask.empty()) {
-        text(std::format("step {} of {}: what happened", frame.step, steps));
+        wrapped(std::format("step {} of {}: what happened", frame.step, steps));
     } else {
-        text(std::format("step {} of {}", frame.step, steps));
+        wrapped(std::format("step {} of {}", frame.step, steps));
     }
 }
 
@@ -259,9 +259,44 @@ void draw_step_played(const LoadedAnswer& answer, std::size_t step, const Book& 
     }
 }
 
-// The answer's pane: its question, where the user is in it, and that frame's text.
+// With a course: what the pane shows, the user's own questions or one of its lessons.
+void draw_course_choice(const CourseChoice& course, ViewerActions& actions) {
+    const auto label = [&course](std::size_t choice) {
+        return choice == 0 ? std::string{"Your questions"}
+                           : std::format("{}. {}", choice, course.course.lessons[choice - 1].title);
+    };
+    ImGui::SetNextItemWidth(-1.0f);  // the pane's width
+    {
+        // BeginCombo reports no label to the Test Engine, which finds items by their labels, so it
+        // is reported here, under the ID BeginCombo gives it. (The macro refers to the context as g;
+        // it is empty in the viewer itself.)
+        [[maybe_unused]] ImGuiContext& g = *ImGui::GetCurrentContext();
+        IMGUI_TEST_ENGINE_ITEM_INFO(ImGui::GetID(kLessonChoice), kLessonChoice, ImGuiItemStatusFlags_Openable);
+    }
+    if (ImGui::BeginCombo(kLessonChoice, label(course.chosen).c_str())) {
+        for (std::size_t choice = 0; choice <= course.course.lessons.size(); ++choice) {
+            // A std::string, not a Label: a lesson's title may pass a Label's 64 characters, and the
+            // cut would take the ##choice that keeps the entries apart.
+            if (ImGui::Selectable(std::format("{}##choice{}", label(choice), choice).c_str(), choice == course.chosen) &&
+                choice != course.chosen) {
+                actions.choose = choice;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    tooltip([&course] { return std::format("{}: its lessons, in order, or your own questions", course.course.title); });
+    if (course.chosen > 0 && !course.course.lessons[course.chosen - 1].read.empty()) {
+        wrapped(std::format("Read: {}", course.course.lessons[course.chosen - 1].read));
+    }
+    ImGui::Separator();
+}
+
+// The answer's pane: what it shows, its question, where the user is in it, and that frame's text.
 void draw_answer(const ViewerView& view, ViewerActions& actions) {
     const AnswerShown& shown = *view.state.answer;
+    if (view.state.course) {
+        draw_course_choice(*view.state.course, actions);
+    }
     if (!shown.answer) {
         if (shown.problem) {
             ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);

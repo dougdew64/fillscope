@@ -8,6 +8,7 @@ Newest first.
 
 | Date | Decision |
 |---|---|
+| 2026-10-25 | A course: lessons kept in the repository (`course/`), each an answer's scenario, chosen from a drop-down in the viewer's answer pane beside the owner's own questions. Kept, unlike answers, because each is played through the real matcher and every claim checked whenever the tests run, so a lesson can't silently become false. Built by its own target, not the default build, so the mutation check's rebuilds don't replay it. Asked for by the owner, who has no textbook yet for the domain and found it hard to know what to ask; Larry Harris's *Trading and Exchanges* recommended alongside. |
 | 2026-10-25 | Answers' phase after the profit-and-loss claim: strategies in the loop. Ghosh's market maker and liquidity taker run as clients of a scenario, beside the scripted ones, in one deterministic loop with the matcher, so an answer can ask what a strategy will send, and why, and what if its settings changed; the owner's aim is to understand how a client running a strategy responds to market data. |
 | 2026-10-25 | Answers can be quizzes: a step's `ask` is shown before it is played, the replay giving the exact answer (step 13). Next after step 14, a claim of a client's profit and loss from its fills, with the price an open position is valued at stated. |
 | 2026-10-25 | Answers (steps 11 to 14): Claude writes all of it, the claims and their checking included, so the tool exists while the owner learns the concepts it teaches; the owner's hand-written code comes later, in trader inference's detector. |

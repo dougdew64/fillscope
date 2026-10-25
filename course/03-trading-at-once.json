@@ -1,0 +1,33 @@
+{
+  "question": "What happens when an order can trade as soon as it arrives?",
+  "clients": { "1": "a seller", "2": "a buyer" },
+  "intro": "An order priced so that it can trade at once with an order already waiting is said to cross the spread, or to be marketable. It trades straight away, and the price is the waiting order's. Whatever part of it can't trade waits in the book like any other order.",
+  "steps": [
+    {
+      "request": { "client": 1, "new": { "id": 1, "side": "sell", "price": 101, "qty": 5 } },
+      "say": "A seller offers 5 at 101. It waits: the best ask.",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 5 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 1, "side": "buy", "price": 105, "qty": 2 } },
+      "ask": "A buyer wants 2, and will pay up to 105. The seller asks 101. At what price do they trade?",
+      "say": "At 101: the order that was waiting sets the price. The buyer would have paid 105, and pays 4 less a share. That is called price improvement, and it is why a limit is the worst price you accept, not the price you pay.",
+      "claims": [
+        { "trades": [ { "price": 101, "qty": 2, "aggressor": "buy" } ] },
+        { "told": { "client": 2, "filled": { "id": 1, "price": 101, "qty": 2, "leaves": 0 } } },
+        { "bestAsk": { "price": 101, "qty": 3 } }
+      ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 2, "side": "buy", "price": 101, "qty": 5 } },
+      "ask": "The buyer wants 5 more at 101, but only 3 are offered there. What happens to the other 2?",
+      "say": "It buys the 3 at once, and the other 2 wait in the book as a bid at 101. The buyer arrived as a taker and became a maker for what was left: Ghosh's exchange never drops the unfilled part of an order.",
+      "claims": [
+        { "trades": [ { "price": 101, "qty": 3, "aggressor": "buy" } ] },
+        { "resting": { "client": 2, "id": 2, "qty": 2 } },
+        { "bestBid": { "price": 101, "qty": 2 } },
+        { "bestAsk": null }
+      ]
+    }
+  ]
+}

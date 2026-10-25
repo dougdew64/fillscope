@@ -1,0 +1,34 @@
+{
+  "question": "What is an order, and what is the book?",
+  "clients": { "1": "a buyer", "2": "a seller" },
+  "intro": "An exchange keeps, for each stock, a book: the orders waiting to trade. In Ghosh's exchange every order is a limit order: a side (buy or sell), a quantity, and a limit, the worst price its trader will accept: the most a buyer will pay, the least a seller will take. An order that can't trade at once waits in the book. The waiting buy orders are the bids; the waiting sell orders are the asks.",
+  "steps": [
+    {
+      "request": { "client": 1, "new": { "id": 1, "side": "buy", "price": 98, "qty": 5 } },
+      "say": "A buyer will pay up to 98 for 5. No one is selling, so the order waits in the book: a bid of 98 for 5. It is now the best bid, the highest price anyone will pay.",
+      "claims": [ { "bestBid": { "price": 98, "qty": 5 } }, { "bestAsk": null }, { "trades": [] } ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 2, "side": "buy", "price": 99, "qty": 3 } },
+      "say": "The buyer adds a second bid, for 3 at 99. A higher bid is a better one for a seller, so 99 is now the best bid; 98 waits below it.",
+      "claims": [ { "bestBid": { "price": 99, "qty": 3 } }, { "resting": { "client": 1, "id": 1, "qty": 5 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 1, "side": "sell", "price": 102, "qty": 4 } },
+      "ask": "A seller offers 4, and will take no less than 102. The best bid is 99. Does anything trade?",
+      "say": "Nothing trades: the seller wants at least 102 and no buyer will pay more than 99. The two sides don't cross, so the sell order waits too: an ask of 102. The gap between the best bid and the best ask, 3 here, is the spread.",
+      "claims": [ { "trades": [] }, { "bestAsk": { "price": 102, "qty": 4 } }, { "bestBid": { "price": 99, "qty": 3 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 2, "side": "sell", "price": 101, "qty": 2 } },
+      "say": "The seller offers 2 more, at 101. A lower ask is a better one for a buyer, so 101 is the best ask now, and the spread has narrowed to 2.",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 2 } }, { "trades": [] } ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 3, "side": "buy", "price": 99, "qty": 4 } },
+      "ask": "The buyer bids 4 more at 99, a price already bid. What does the book show at 99 now?",
+      "say": "Orders at one price add up: the book shows 7 bid at 99, two orders, 3 and then 4, queued in the order they arrived. That queue is the next lesson.",
+      "claims": [ { "bestBid": { "price": 99, "qty": 7 } }, { "resting": { "client": 1, "id": 2, "qty": 3 } }, { "resting": { "client": 1, "id": 3, "qty": 4 } } ]
+    }
+  ]
+}

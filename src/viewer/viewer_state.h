@@ -34,6 +34,8 @@ struct ViewerState {
     // Set when the viewer shows answers (--answer): the answer file it watches, and what it shows
     // of it. An answer's market data is shown as a replay, stepped a frame at a time.
     std::optional<AnswerShown> answer;
+    // Set when it also offers a course: its lessons, and which is chosen.
+    std::optional<CourseChoice> course;
 };
 
 }  // namespace fillscope

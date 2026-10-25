@@ -4,6 +4,7 @@
 #pragma once
 
 #include "answer/answer.h"
+#include "answer/course.h"
 #include "answer/scenario.h"
 #include "feed/book.h"
 #include "feed/market_data_file.h"
@@ -71,6 +72,20 @@ struct FileStamp {
 
 // The file's stamp, or nothing if it doesn't exist.
 [[nodiscard]] std::optional<FileStamp> stamp_of(const std::filesystem::path& file);
+
+// The course the viewer offers (viewer --course), beside the user's own questions: which is chosen.
+// Choosing one makes the viewer watch its answer file instead.
+struct CourseChoice {
+    Course course;
+    std::filesystem::path built;      // where the build wrote the lessons' answers
+    std::filesystem::path questions;  // the answer file of the user's own questions
+    std::size_t chosen = 0;           // 0 for the user's questions; otherwise the lesson, from 1
+
+    // The answer file of what is chosen.
+    [[nodiscard]] std::filesystem::path chosen_file() const {
+        return chosen == 0 ? questions : lesson_answer(built, course.lessons.at(chosen - 1));
+    }
+};
 
 // The answer the viewer watches for, and what it shows of it.
 struct AnswerShown {

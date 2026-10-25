@@ -311,6 +311,11 @@ The first real answers, to the owner's first questions; whatever they show missi
 scripted demo plays one, as part of the tests (charter §2, priority 3).
 **Done when:** the owner has stepped through answers to the owner's own questions, and the demo runs in
 the test suite.
+**Status:** the owner has stepped through an answer of the owner's own, and asked of it; what it
+showed missing is fixed (the halves of a step that asks first named; the pane describing the market
+data, what each client was told, and the book). Added by the owner (2026-10-25): a course, eight
+lessons in `course/`, chosen from a drop-down in the pane, each tested ([ARCHITECTURE.md](ARCHITECTURE.md),
+§10, *The course*). The demo remains.
 
 
 ## Later

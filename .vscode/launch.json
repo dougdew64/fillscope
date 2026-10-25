@@ -26,14 +26,15 @@
     },
     {
       // Answers: the assistant's answer to a question, written by fillscope-answer to
-      // .fillscope/answer.json, shown as it is written and stepped through in a pane beside the book.
+      // .fillscope/answer.json, shown as it is written and stepped through in a pane beside the book;
+      // and the course's lessons, chosen from the pane's drop-down.
       "name": "viewer (answers)",
       "type": "lldb",
       "request": "launch",
       "program": "${workspaceFolder}/build/debug/viewer",
-      "args": ["--answer", "${workspaceFolder}/.fillscope/answer.json"],
+      "args": ["--answer", "${workspaceFolder}/.fillscope/answer.json", "--course", "${workspaceFolder}/build/debug/course"],
       "cwd": "${workspaceFolder}",
-      "preLaunchTask": "build"
+      "preLaunchTask": "build the course"
     },
     {
       // A snapshot every 5 seconds, where the book's exchange has a minute, so a viewer started late

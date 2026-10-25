@@ -123,6 +123,7 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 | `backend/` | The trading system Fillscope observes: a fork of the one in Ghosh's book, a git submodule ([PLAN.md](PLAN.md)) | its own build file; programs `exchange_main`, `trading_main`, `exchange_replay` |
 | `src/feed/` | The exchange's market data as Fillscope reads it: decoding, receiving, and the books it describes | library `fillscope_feed` |
 | `src/viewer/` | The viewer: its core (no Dear ImGui) and its drawing | library `fillscope_viewer_core`, program `viewer` |
+| `course/` | The course's lessons, each an answer's scenario, and its manifest (§10) | played into the build's `course/` by the target `course` |
 | `src/answer/` | The answer tool: an answer's scenario played through the back end's replay, its claims checked, and the answer written for the viewer (§10) | library `fillscope_answer`, program `fillscope-answer` |
 | `src/common/` | Helpers the others share: `Fd`, a file descriptor's owner; `parse_number`, strict parsing of a number from text; `write_atomically`, replacing a file so a reader never sees part of it | library `fillscope_common`, and headers |
 | `tools/vscode-debug-state/` | The VS Code extension that publishes the debugger's state | JavaScript, run by VS Code |
@@ -835,6 +836,31 @@ chat at a step is about that step, and the assistant can rebuild exactly what yo
 **Pictures of it.** `--answer-frame N` opens an answer at frame N, and `--screenshot FILE`, with
 `--exit-after`, writes the window as the viewer exits (a PPM, read back from the frame just drawn).
 They let the assistant see what it built, which it otherwise can't, and suit demos.
+
+### The course
+`course/` holds a course of lessons: each lesson is a scenario like any answer's, and
+`course/course.json`, its manifest, lists them in order, each with a title and, once a passage of a
+book is matched to it, what to read alongside (`read_course`, `course.h`). The lessons are the one
+kind of explanation kept in the repository, which is only justified because nothing in them is
+taken on trust: each is played through the real matcher and every claim checked, every time the
+tests run.
+
+**Built, not run by the viewer.** The build target `course` plays each lesson through the answer
+tool into the build's `course/` (a lesson's answer at `course/<its name>/answer.json`), one at a
+time, since each replay builds a matching engine; only lessons changed since are played again. It
+is left out of the default build, because the mutation check rebuilds the back end and the tool
+hundreds of times, and would replay every lesson each time. The **viewer (answers)** launch builds
+it first, and `viewer --course DIR` offers it: a drop-down at the top of the answer pane lists "Your
+questions" (the answer file watched) and each lesson; choosing one makes the viewer watch that
+answer instead, shown from its start. The context names the lesson (`background.answer.lesson`),
+so a question asked in a lesson is about it.
+
+**Tested as the build plays it.** `course_system_tests` plays every lesson through the tool and
+`exchange_replay` into a scratch directory, reads each back as the viewer does (`load_answer`, every
+claim checked again), and requires the manifest to name exactly the lessons `course/` holds. So a
+lesson made false by a change to the back end or the tool fails the tests, rather than being
+shown. A lesson's name has one dot, before `json`, so the build and the viewer name its directory
+alike.
 
 **What tests it:** `viewer_tests`: the frames, loading (claims checked again, whose each order is,
 and every refusal: no answer, not an answer, stale, a replay file gone, a scenario that can't be

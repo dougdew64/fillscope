@@ -118,7 +118,12 @@ Context make_context(const ViewerState& state, const Selection& selection) {
                                   .question = answer.scenario.question,
                                   .step = frame.step,
                                   .steps = answer.scenario.steps.size(),
-                                  .asking = frame.asking};
+                                  .asking = frame.asking,
+                                  .lesson = {}};
+        if (state.course && state.course->chosen > 0) {
+            feed.answer->lesson = std::format("lesson {}, \"{}\"", state.course->chosen,
+                                              state.course->course.lessons.at(state.course->chosen - 1).title);
+        }
     }
 
     if (const auto& pointed = selection.pointed()) {
@@ -240,7 +245,8 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
         "update lastSeq, and point and follow carry a replayAddress that rebuilds that state: apply the market data "
         "file's updates 1 to seq. In an answer (background.answer), the user is at that step of it, 0 being its "
         "intro; while 'asking', its question is shown and the step not yet played, so the books are as before it. "
-        "A viewer showing answers with none to show says why in background.noAnswer. "
+        "A viewer showing answers with none to show says why in background.noAnswer. An answer that is a lesson of "
+        "the course names it in background.answer.lesson. "
         "'writer' says which viewer wrote this file and whether it is still running.";
 
     const Context::Feed& feed = context.feed;
@@ -267,7 +273,9 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
                                                         {"question", feed.answer->question},
                                                         {"step", feed.answer->step},
                                                         {"steps", feed.answer->steps},
-                                                        {"asking", feed.answer->asking}}
+                                                        {"asking", feed.answer->asking},
+                                                        {"lesson", feed.answer->lesson.empty() ? nlohmann::ordered_json(nullptr)
+                                                                                                : nlohmann::ordered_json(feed.answer->lesson)}}
                                : nlohmann::ordered_json(nullptr)},
         {"noAnswer", or_null(feed.no_answer)},
     };
@@ -342,9 +350,10 @@ ContextBarText bar_text(const Context& context) {
         text.background = std::format("no answer shown: {}", *feed.no_answer);
     } else if (feed.answer) {
         const AnswerPlace& answer = *feed.answer;
-        text.background = answer.step == 0 ? std::format("answer to \"{}\": its introduction", answer.question)
-                                           : std::format("answer to \"{}\": step {} of {}{}", answer.question, answer.step,
-                                                         answer.steps, answer.asking ? ", its question (not yet played)" : "");
+        const std::string what = answer.lesson.empty() ? std::format("answer to \"{}\"", answer.question) : answer.lesson;
+        text.background = answer.step == 0 ? std::format("{}: its introduction", what)
+                                           : std::format("{}: step {} of {}{}", what, answer.step, answer.steps,
+                                                         answer.asking ? ", its question (not yet played)" : "");
     } else if (feed.replay) {
         text.background = std::format("replay of {} at update {} of {}", feed.replay->market_data_file, feed.last_seq,
                                       feed.replay->seq);

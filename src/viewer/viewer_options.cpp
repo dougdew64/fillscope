@@ -39,7 +39,8 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string_view option{args[i]};
         if (option != "--exit-after" && option != "--incremental" && option != "--snapshot" && option != "--replay" &&
-            option != "--answer" && option != "--answer-frame" && option != "--screenshot" && option != "--context-file") {
+            option != "--answer" && option != "--answer-frame" && option != "--course" && option != "--screenshot" &&
+            option != "--context-file") {
             return std::unexpected{std::format("unknown option '{}'", option)};
         }
         if (i + 1 == args.size()) {
@@ -69,6 +70,11 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
                 return std::unexpected{std::format("--answer-frame: {}", frame.error())};
             }
             options.answer_frame = *frame;
+        } else if (option == "--course") {
+            if (value.empty()) {
+                return std::unexpected{"--course needs a directory"};
+            }
+            options.course = value;
         } else if (option == "--screenshot") {
             if (value.empty()) {
                 return std::unexpected{"--screenshot needs a file"};
@@ -96,6 +102,9 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
         // An answer brings its own market data, so a replay or a stream given with it would be
         // silently ignored.
         return std::unexpected{"--answer shows an answer's own market data: give it without --replay, --incremental or --snapshot"};
+    }
+    if (options.course && !options.answer) {
+        return std::unexpected{"--course offers lessons beside an answer file: give it with --answer"};
     }
     if (options.answer_frame && !options.answer) {
         return std::unexpected{"--answer-frame chooses where an answer opens: give it with --answer"};

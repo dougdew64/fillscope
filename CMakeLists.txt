@@ -75,7 +75,7 @@ target_link_libraries(imgui_app PUBLIC glfw OpenGL::GL)
 # The answer tool (src/answer/): plays an answer's scenario through the back end's exchange_replay,
 # checks its claims, and writes the answer for the viewer.
 add_library(fillscope_answer STATIC
-  src/answer/scenario.cpp src/answer/wire.cpp src/answer/check.cpp src/answer/answer.cpp)
+  src/answer/scenario.cpp src/answer/wire.cpp src/answer/check.cpp src/answer/answer.cpp src/answer/course.cpp)
 target_include_directories(fillscope_answer PUBLIC src)
 target_link_libraries(fillscope_answer PUBLIC fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
 target_compile_options(fillscope_answer PRIVATE ${FILLSCOPE_WARNINGS})
@@ -84,6 +84,31 @@ target_link_libraries(fillscope-answer PRIVATE fillscope_answer)
 target_compile_options(fillscope-answer PRIVATE ${FILLSCOPE_WARNINGS})
 target_compile_definitions(fillscope-answer PRIVATE FILLSCOPE_EXCHANGE_REPLAY="$<TARGET_FILE:exchange_replay>")
 add_dependencies(fillscope-answer exchange_replay)
+
+# The course (course/): each lesson played through the answer tool into the build's course/, where
+# the viewer offers them (viewer --course). Not built by default: every rebuild of the tool or the
+# back end would replay every lesson, which the mutation check, rebuilding hundreds of times, can't
+# afford. The viewer's launch builds it (the "build the course" task), and course_system_tests plays
+# every lesson. One replay at a time (a job pool): each builds a matching engine, about 800 MB.
+set(COURSE_DIR ${PROJECT_SOURCE_DIR}/course)
+file(READ ${COURSE_DIR}/course.json course_manifest)
+configure_file(${COURSE_DIR}/course.json ${PROJECT_BINARY_DIR}/course/course.json COPYONLY)
+set_property(GLOBAL APPEND PROPERTY JOB_POOLS replay=1)
+string(JSON lesson_count LENGTH "${course_manifest}" lessons)
+math(EXPR last_lesson "${lesson_count} - 1")
+set(course_answers)
+foreach(i RANGE ${last_lesson})
+  string(JSON scenario GET "${course_manifest}" lessons ${i} scenario)
+  get_filename_component(stem ${scenario} NAME_WE)
+  set(answer ${PROJECT_BINARY_DIR}/course/${stem}/answer.json)
+  add_custom_command(OUTPUT ${answer}
+    COMMAND $<TARGET_FILE:fillscope-answer> ${COURSE_DIR}/${scenario} --answer ${answer}
+    DEPENDS fillscope-answer exchange_replay ${COURSE_DIR}/${scenario}
+    JOB_POOL replay
+    COMMENT "Playing the lesson ${scenario}")
+  list(APPEND course_answers ${answer})
+endforeach()
+add_custom_target(course DEPENDS ${course_answers})
 
 add_library(fillscope_viewer_core STATIC
   src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp

@@ -1,0 +1,34 @@
+{
+  "question": "Why would a trader split a large order into smaller ones?",
+  "clients": { "1": "the maker", "2": "a large buyer" },
+  "intro": "A large order sent all at once walks the book and pays more for each price level it reaches. A trader who can wait sends it in slices, giving the market time to offer more at the better prices between them.",
+  "steps": [
+    {
+      "request": { "client": 1, "new": { "id": 1, "side": "sell", "price": 101, "qty": 10 } },
+      "say": "The maker offers 10 at 101,",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 2, "side": "sell", "price": 102, "qty": 10 } },
+      "say": "and 10 more at 102.",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 1, "side": "buy", "price": 101, "qty": 10 } },
+      "ask": "A buyer needs 20, but sends only 10, at 101. What would 20 at once have cost, and why might it wait?",
+      "say": "20 at once would have taken 10 at 101 and 10 at 102: 2,030. Instead it buys only the 10 at the best price, 1,010, and waits.",
+      "claims": [ { "trades": [ { "price": 101, "qty": 10, "aggressor": "buy" } ] }, { "bestAsk": { "price": 102, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 3, "side": "sell", "price": 101, "qty": 10 } },
+      "say": "The maker offers 10 at 101 again, refilling the best price.",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 2, "side": "buy", "price": 101, "qty": 10 } },
+      "ask": "The buyer sends its second slice, 10 at 101. What has it paid for all 20, against 20 at once?",
+      "say": "Another 10 at 101: 2,020 for all 20, 10 less than sending them at once. Slicing saved money because the maker refilled the best price. A maker that noticed the same buyer coming back might not: it could raise its offer instead. The slices make a pattern, of the same side and size, that others can learn to see.",
+      "claims": [ { "trades": [ { "price": 101, "qty": 10, "aggressor": "buy" } ] }, { "bestAsk": { "price": 102, "qty": 10 } } ]
+    }
+  ]
+}

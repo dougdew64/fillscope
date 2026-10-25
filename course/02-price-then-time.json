@@ -1,0 +1,44 @@
+{
+  "question": "When several orders could trade, which goes first?",
+  "clients": { "1": "the first buyer", "2": "the second buyer", "3": "a seller" },
+  "intro": "When an order arrives that can trade, the exchange has to choose whom it trades with. Ghosh's exchange, like most, uses price-time priority: the best price first, and at one price, whoever came first.",
+  "steps": [
+    {
+      "request": { "client": 1, "new": { "id": 1, "side": "buy", "price": 100, "qty": 5 } },
+      "say": "The first buyer bids 5 at 100.",
+      "claims": [ { "bestBid": { "price": 100, "qty": 5 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 1, "side": "buy", "price": 100, "qty": 5 } },
+      "say": "The second buyer bids 5 at the same price, and queues behind the first: the book shows 10 at 100, the first buyer's order first in line.",
+      "claims": [ { "bestBid": { "price": 100, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 3, "new": { "id": 1, "side": "sell", "price": 100, "qty": 3 } },
+      "ask": "A seller sells 3 at 100. Both buyers bid 100. Whose order fills?",
+      "say": "The first buyer's: same price, so the one that arrived first. It fills 3 of its 5 and keeps its place at the front, with 2 left. The second buyer gets nothing yet.",
+      "claims": [
+        { "trades": [ { "price": 100, "qty": 3, "aggressor": "sell" } ] },
+        { "told": { "client": 1, "filled": { "id": 1, "price": 100, "qty": 3, "leaves": 2 } } },
+        { "resting": { "client": 1, "id": 1, "qty": 2 } },
+        { "resting": { "client": 2, "id": 1, "qty": 5 } }
+      ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 2, "side": "buy", "price": 101, "qty": 5 } },
+      "say": "The second buyer, tired of waiting, bids 5 at 101. A better price goes ahead of every order at a worse one, however early they came: 101 is now the best bid.",
+      "claims": [ { "bestBid": { "price": 101, "qty": 5 } } ]
+    },
+    {
+      "request": { "client": 3, "new": { "id": 2, "side": "sell", "price": 100, "qty": 6 } },
+      "ask": "The seller sells 6, and will take as little as 100. Who fills, in what order, and at what prices?",
+      "say": "First the best price: the second buyer's 5 at 101. The seller gets 101, more than it asked: a trade happens at the resting order's price. Then the 1 left goes to the best bid after that, 100, and there to the first in line, the first buyer, who now has 1 left.",
+      "claims": [
+        { "trades": [ { "price": 101, "qty": 5, "aggressor": "sell" }, { "price": 100, "qty": 1, "aggressor": "sell" } ] },
+        { "told": { "client": 2, "filled": { "id": 2, "price": 101, "qty": 5, "leaves": 0 } } },
+        { "told": { "client": 1, "filled": { "id": 1, "price": 100, "qty": 1, "leaves": 1 } } },
+        { "bestBid": { "price": 100, "qty": 6 } }
+      ]
+    }
+  ]
+}

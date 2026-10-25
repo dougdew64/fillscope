@@ -1,0 +1,62 @@
+{
+  "question": "How does a market maker provide liquidity?",
+  "ticker": 0,
+  "clients": { "1": "the maker", "2": "a buyer", "3": "a seller" },
+  "intro": "Liquidity is being able to trade now, at a price close to the last one. Without anyone waiting in the book, a buyer who arrives has to wait for a seller to show up. A market maker keeps an order to buy and an order to sell resting in the book at once, so whoever arrives can trade immediately. Its pay is the gap between its two prices, the spread.",
+  "steps": [
+    {
+      "request": { "client": 1, "new": { "id": 1, "side": "buy", "price": 99, "qty": 10 } },
+      "say": "The maker offers to buy 10 at 99. Nothing can trade with it, so it rests in the book: anyone who wants to sell now can sell to it at 99.",
+      "claims": [ { "bestBid": { "price": 99, "qty": 10 } }, { "bestAsk": null }, { "trades": [] } ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 2, "side": "sell", "price": 101, "qty": 10 } },
+      "say": "It also offers to sell 10 at 101. The book now has a bid of 99 and an ask of 101: a spread of 2. Both sides of the market are the maker's.",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 10 } }, { "bestBid": { "price": 99, "qty": 10 } } ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 1, "side": "buy", "price": 101, "qty": 3 } },
+      "ask": "A buyer arrives wanting 3 now, and will pay up to 101. What happens, and at what price?",
+      "say": "It trades at once: the buyer's order meets the maker's sell at 101, the resting order's price. The buyer got what it wanted without waiting, because the maker was already there. That is the liquidity the maker provides.",
+      "claims": [
+        { "trades": [ { "price": 101, "qty": 3, "aggressor": "buy" } ] },
+        { "told": { "client": 2, "filled": { "id": 1, "price": 101, "qty": 3, "leaves": 0 } } },
+        { "told": { "client": 1, "filled": { "id": 2, "price": 101, "qty": 3, "leaves": 7 } } },
+        { "resting": { "client": 2, "id": 1, "qty": null } },
+        { "bestAsk": { "price": 101, "qty": 7 } }
+      ]
+    },
+    {
+      "request": { "client": 3, "new": { "id": 1, "side": "sell", "price": 99, "qty": 3 } },
+      "ask": "Now a seller wants to sell 3 at once, and will accept as little as 99. Who buys, and what has the maker earned so far?",
+      "say": "The maker's bid buys it, at 99. The maker has now sold 3 at 101 and bought 3 at 99: it holds the same shares it started with, and 6 more in cash, 2 for each share. Neither the buyer nor the seller had to wait for the other; the maker stood between them, and the spread is its pay for that.",
+      "claims": [
+        { "trades": [ { "price": 99, "qty": 3, "aggressor": "sell" } ] },
+        { "told": { "client": 1, "filled": { "id": 1, "price": 99, "qty": 3, "leaves": 7 } } },
+        { "bestBid": { "price": 99, "qty": 7 } }
+      ]
+    },
+    {
+      "request": { "client": 1, "new": { "id": 3, "side": "sell", "price": 101, "qty": 3 } },
+      "say": "The maker tops its offer back up to 10. Its new order joins the queue at 101 behind its own earlier one: at one price, orders fill in the order they arrived.",
+      "claims": [
+        { "bestAsk": { "price": 101, "qty": 10 } },
+        { "resting": { "client": 1, "id": 2, "qty": 7 } },
+        { "resting": { "client": 1, "id": 3, "qty": 3 } }
+      ]
+    },
+    {
+      "request": { "client": 2, "new": { "id": 2, "side": "buy", "price": 102, "qty": 12 } },
+      "ask": "A bigger buyer wants 12 and will pay up to 102, but the maker offers only 10 at 101. What happens to the other 2?",
+      "say": "The buyer takes all 10 the maker offers, its older order first, at the maker's price of 101. The other 2 find nothing to trade with, so they rest in the book as a bid at 102: in Ghosh's exchange an order never disappears unfilled. A maker's liquidity is only as deep as its orders. And the maker has now sold 13 and bought 3: it holds 10 fewer shares than it began with, a risk it will want to undo.",
+      "claims": [
+        { "trades": [ { "price": 101, "qty": 7, "aggressor": "buy" }, { "price": 101, "qty": 3, "aggressor": "buy" } ] },
+        { "told": { "client": 2, "filled": { "id": 2, "price": 101, "qty": 7, "leaves": 5 } } },
+        { "told": { "client": 2, "filled": { "id": 2, "price": 101, "qty": 3, "leaves": 2 } } },
+        { "resting": { "client": 2, "id": 2, "qty": 2 } },
+        { "bestBid": { "price": 102, "qty": 2 } },
+        { "bestAsk": null }
+      ]
+    }
+  ]
+}

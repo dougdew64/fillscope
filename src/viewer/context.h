@@ -97,6 +97,7 @@ struct AnswerPlace {
     std::size_t step = 0;   // 0 for its intro, else its step, from 1
     std::size_t steps = 0;  // how many it has
     bool asking = false;    // the step's question is shown, and the step not yet played
+    std::string lesson;     // the course's lesson it is ("lesson 2, \"The spread\""); empty for a question
 
     friend bool operator==(const AnswerPlace&, const AnswerPlace&) = default;
 };
