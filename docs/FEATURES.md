@@ -63,7 +63,14 @@ The stages of the roadmap, each a change to the fork.
       carry. The score is defined before the detector is written: for each trade, flagged as part
       of a slice or not, against whether the slicer sent it, which gives hits, misses and false
       alarms exactly. The display's horizontal axis is the update number, since the data has no
-      time. Who writes what is open.
+      time.
+    - **Who writes what (the owner, 2026-10-25).** The owner writes the detector and designs its
+      interface (what goes in, what comes out), and may write some of its tests. Claude writes the
+      fork's ground-truth output, the planted strategy, the scorer (the detector's check, so not
+      written by the detector's author), and the tests, the owner's code included. Claude builds
+      the display first, checking it in screenshots; the owner then judges it, and either it stays
+      Claude's or the owner takes it over to polish. Whether the owner also writes the strategy's
+      evasion step (the second scene) is decided once the display works.
     - **The patterns.** A large order sliced into equal pieces: repeated trades of one side and
       quantity. Cancel and replace: a cancel, and an order added close by in price soon after,
       likely the same trader adjusting; a client can't modify an order, so this is what moving one
@@ -85,3 +92,11 @@ The stages of the roadmap, each a change to the fork.
       sizes and is lost; the detector improves and finds it again.
     - **Rests on** the animated replay (4), a new strategy in the fork, and the fork's
       ground-truth output.
+14. **A GPU sweep of the detector's settings, with Vulkan.** Scoring the slicing detector (13) at
+    thousands of settings (window size, minimum count) over a whole recording, each setting
+    independent of the others, which suits a GPU's compute shaders; the result, hits against false
+    alarms as the threshold moves, shows how good the detector can be. Every score the GPU gives
+    must equal the CPU scorer's exactly, a check that doesn't depend on the GPU code. The detector
+    itself stays on the CPU: it does a little sequential work per trade, which a GPU would slow
+    down. Mesa's lavapipe runs Vulkan on the CPU, so the tests can run without a GPU, in CI too.
+    Rests on 13.
