@@ -41,7 +41,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | CI | `.github/` | §9 (in part) | |
 | The tests, by area | `tests/feed/`, `tests/viewer/`, `tests/common/`, `tests/docs/`, `tests/support/`, `tests/vscode-debug-state/`, `tests/attribution/`, `tests/code_map/`, `tests/backend/backend_system_test.py`, `tests/*/CMakeLists.txt` | §9 | |
 | The debugger tests | `tests/backend/replay_debugger_test.cpp`, `tests/backend/replay_lldb_driver.py` | §6, *What keeps both working*; [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md) | |
-| The test machinery: registration, selection, the checks of the tests | `tests/CMakeLists.txt`, `tests/scripts/*.py`, `tests/scripts/run-tests.sh` | §9, *How the tests are checked*, *Why a mutation check, and what it costs*; [RUNNING.md](RUNNING.md) | 2026-10-24: why there is a mutation check, why it costs so much here, and why a very large codebase couldn't run one this way |
+| The test machinery: registration, selection, the checks of the tests | `tests/CMakeLists.txt`, `tests/scripts/*.py`, `tests/scripts/run-tests.sh` | §9, *How the tests are checked*, *Why a mutation check, and what it costs*; [RUNNING.md](RUNNING.md) | 2026-10-24: why there is a mutation check, why it costs so much here, and why a very large codebase couldn't run one this way; how a mutant begins life, finds its place, and is deleted; where the test programs are, what CTest is beside GoogleTest, what `RUN_ALL_TESTS` returns, and what `last-pass.json` records |
 
 ## The back end (`backend/Chapter12/`)
 | Part | Files | Explained in | Asked about |

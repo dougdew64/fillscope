@@ -455,6 +455,31 @@ data stream is only a group and a port, and a test that listened on the book's o
 a replay's updates instead of its exchange's. How tests are selected, tiered and run, and how a
 test gets its ports, is in [RUNNING.md](RUNNING.md).
 
+**The pieces of a test run.** Several tools stack up, each handing over to the next:
+- **A test** is a C++ function written with GoogleTest: `TEST(LFQueue, WritingToAFullQueueStopsTheProgram) { … }`.
+  The macro also defines a global variable whose initializer registers the test, before `main`
+  runs, so a program's tests are whichever test files are linked into it. `main` calls
+  `RUN_ALL_TESTS()`, which runs them and returns 0 if all passed, 1 otherwise: the program's exit
+  status. (UI tests, the extension's Node tests and the Python tests have their own frameworks, and
+  end the same way, in an exit status.)
+- **A test program** has a source (`backend/Chapter12/tests/lf_queue_test.cpp` and others), a
+  recipe in a `CMakeLists.txt` (`add_executable(lowlatency_tests …)`), and the program the build
+  makes (`build/debug/backend/Chapter12/tests/lowlatency_tests`, and its sanitizer copy in
+  `build/asan`). The build directories aren't in the repository; git ignores them.
+- **CTest** runs tests by name, and to it a test is only a named command that passes by exiting
+  with 0. Fillscope's GoogleTest programs are registered one CTest test per GoogleTest test (CTest
+  test `FeedSocket.ReceivesWhatIsSentToItsGroup` runs `feed_tests` with
+  `--gtest_filter=FeedSocket.ReceivesWhatIsSentToItsGroup`); the back end's own tests are one CTest
+  test for the whole program, since they share one matching engine that takes seconds to make. The
+  other test programs, such as the Python system test, are one CTest test each.
+- **The manifest**, `build/debug/test-manifest.txt`, written by the build, lists every test program:
+  its name, its tier, its binary, and the files it uses at run time.
+- **The record of passing runs**, `build/debug/last-pass.json`, holds one fingerprint per program:
+  a hash of its binary (of its contents, or of its size and time if it is 8 MiB or more), its run-time
+  files, the shared libraries it loads, the `FILLSCOPE_` environment variables and every
+  `CMakeLists.txt`. `iterate.py` takes each fingerprint before the tests run and records it only if
+  the whole run passes; a program whose fingerprint differs from its record is affected, and runs.
+
 **How the tests are checked.** Two checks ask whether the tests themselves can be trusted:
 - **The mutation check** (`tests/scripts/mutants.py`). A test can pass while testing nothing: an
   assertion left out, a wrong expectation, a test that never reaches the code it is named for. So
@@ -463,7 +488,13 @@ test gets its ports, is in [RUNNING.md](RUNNING.md).
   ask's price. For each, it rebuilds what the edit affects, runs the tests named for that mutant,
   and requires one of them to fail; a mutant that survives is a blind spot in the tests. A mutant
   names the tests expected to catch it, so a change to one test needs only the mutants that name
-  it (the script runs a subset by mutant name).
+  it (the script runs a subset by mutant name). A mutant finds its place by text, not by line
+  number: each edit's old text must occur exactly once in its file, so the mutant survives edits
+  elsewhere in the file, and when its own code changes it fails as a problem rather than mutating
+  nothing. A mutant is born with its test, as that test's proof, or from a bug once fixed, to keep
+  it found; it changes when its code or test does, since the check forces that; and it is deleted
+  when the claim it guards no longer exists (76 had been, by 2026-10-24, most when the stand-ins
+  retired with the code they tested).
 - **The selection check** (`tests/scripts/selection_check.py`). Between edits, `iterate.py` runs
   only the test programs an edit affects, judged from what the build produced rather than a
   hand-kept list. If it judged wrongly, a test that should run wouldn't, and the tests would look
