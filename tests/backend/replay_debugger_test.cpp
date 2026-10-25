@@ -324,7 +324,9 @@ TEST_F(ReplayLockstep, ABadCommandLineIsRefused) {
         std::format("--publish {}:+99", group()),
         std::format("--publish {}:0", group()),
         "--publish not.an.address:24000",
-        "--publish 233.252.18.1"};
+        "--publish 233.252.18.1",
+        "--steps",
+        "--steps a.steps --steps b.steps"};
     for (const std::string& bad : bad_lines) {
         const auto result = test::run_command(kReplay + " three.rec " + bad);
         EXPECT_EQ(result.status, 2) << bad << "\n" << result.output;
@@ -333,6 +335,14 @@ TEST_F(ReplayLockstep, ABadCommandLineIsRefused) {
     const auto good = test::run_command(kReplay + " three.rec --publish " + stream + " --interval-ms 0");
     EXPECT_EQ(good.status, 0) << good.output;
     EXPECT_NE(good.output.find(kFinished), std::string::npos) << good.output;
+    // The steps file alone is enough to replay for (the fork's tests check what it holds).
+    const auto steps = test::run_command(kReplay + " three.rec --steps three.steps");
+    EXPECT_EQ(steps.status, 0) << steps.output;
+    EXPECT_NE(steps.output.find("steps written to three.steps"), std::string::npos) << steps.output;
+    std::ifstream written{"three.steps", std::ios::binary};
+    std::string magic(8, '\0');
+    written.read(magic.data(), 8);
+    EXPECT_EQ(magic, "LLSTEP01");
 }
 
 // Without --self-stop or a breakpoint, a replay under a debugger runs straight through.

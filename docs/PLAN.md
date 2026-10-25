@@ -260,6 +260,14 @@ rejected), with each one's client and order ids. The market data file is unchang
 **Done when:** a recording's replay gives, for every request, exactly the updates and responses the
 matcher produced for it, checked against a live run of the same requests; tested in the fork,
 with the format in its README.
+**Status:** done (2026-10-25, the fork's `b72751b`). `replay()` returns each request's step, and
+`exchange_replay --steps FILE` writes them (`LLSTEP01`, format in the fork's `replay.h`). Checked
+by the fork's tests (each step's update range and every response field, for a resting order, a
+crossing one, a cancel and a rejected cancel; the running matcher's own updates and responses equal
+its recording's replay; the file's layout and errors), Fillscope's test of the replay's command
+line, and four mutants. Also fixed: the link test took 0.31 s under AddressSanitizer, and timed out
+twice under a full run's load; it now skips lines with no link before its regular expression, 0.04
+s.
 
 ### 12. The answer tool
 A command-line tool reads a scenario (named clients, and requests in order, each with its

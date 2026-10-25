@@ -207,6 +207,13 @@ requests in the same order give the same updates: the file is the live stream, b
 (`feed_system_tests` checks it against a live run). `read_market_data_file` reads it, checking its
 updates are numbered 1, 2, 3, ...
 
+The market data doesn't say which request caused which update, or what each client was told. So
+`exchange_replay --steps FILE` also writes, for each request, the numbers of the updates it made
+and the responses the matcher sent to clients for it: accepted, filled (each side of a trade is
+told), canceled, cancel rejected. The format is in the back end's `exchange/matcher/replay.h`;
+the back end's tests check the running matcher's own updates and responses are the same. It is
+what an answer steps through, a request at a time ([FEATURES.md](FEATURES.md), item 15).
+
 **Lockstep on a replay** ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)): after each request,
 `exchange_replay` calls the back end's lockstep anchor, `fillscope_request_anchor(request_number,
 updates_published)`, where a debugger stops; with `--publish GROUP:PORT`, it first sends that

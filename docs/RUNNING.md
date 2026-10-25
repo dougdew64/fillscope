@@ -181,7 +181,7 @@ python3 -I tests/scripts/mutants.py --list   #   which would run, running none
 python3 -I tests/scripts/selection_check.py  # iterate.py and mutants.py choose exactly right
 ```
 **How long each takes** (measured on the development machine, with both builds already current):
-`run-tests.sh` about 2 minutes (2026-10-23); the selection check about 4 (2026-10-24, with its
+`run-tests.sh` about 2.5 minutes (2026-10-25); the selection check about 4 (2026-10-24, with its
 mutant cases); the mutation check, every mutant (`--all`, or anything the check's own code
 depends on changed), about 23, for 192 mutants, each a rebuild and a test run (2026-10-24: about
 10 minutes of rebuilds, and about 7 of the back end's system tests, which wait more than they

@@ -33,7 +33,9 @@ std::vector<std::string> relative_links(const std::string& markdown) {
             in_code_block = !in_code_block;
             continue;
         }
-        if (in_code_block) {
+        // Every link has "](", and most lines none: std::regex is slow (several times slower under
+        // AddressSanitizer), so it runs only on the lines that could hold a link.
+        if (in_code_block || line.find("](") == std::string::npos) {
             continue;
         }
         for (auto it = std::sregex_iterator(line.begin(), line.end(), link); it != std::sregex_iterator(); ++it) {
