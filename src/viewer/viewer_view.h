@@ -60,6 +60,7 @@ struct ViewerView {
 inline constexpr const char* kViewerWindow = "viewer";
 inline constexpr const char* kBookTable = "book";
 inline constexpr const char* kHistoryTable = "history";
+inline constexpr const char* kContextHeading = "Context, as published for the assistant:";
 inline constexpr const char* kClearPointButton = "x##clear_point";
 inline constexpr const char* kClearFollowButton = "x##clear_follow";
 // A replay's controls: to its start, back one update, forward one, to its end, and a slider.

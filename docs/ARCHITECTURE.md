@@ -262,7 +262,8 @@ follows it. A followed order's history is drawn below.
 The screen shows one ticker's book at a time; the ticker buttons, 0 to 7, choose which, and hovering
 over one shows how many orders its book holds.
 
-**The context bar shows the context's three parts**, one line each. The first, always there, is
+**The context bar shows the context's three parts**, one line each, indented under the heading
+"Context, as published for the assistant:" so they read as its contents. The first, always there, is
 the **background**: where the books come from and how current they are ("exchange live at update
 5012", or recovering and why, or a replay and where in it), which book is on screen ("showing
 ticker 0"), and any recoveries or market data error. The other two lines appear only when you

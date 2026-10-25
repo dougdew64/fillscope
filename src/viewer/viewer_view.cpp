@@ -53,15 +53,16 @@ std::string_view sends(const std::optional<std::string>& publish_error) {
 
 // The context bar: what the assistant has been given, drawn from the last published context and
 // never from the live selection, so the bar and the file can't disagree.
+// A heading on its own line, and its parts indented beneath it, so the background reads as part
+// of the context rather than as the heading's continuation.
 void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
-    ImGui::TextUnformatted("Context");
-    ImGui::SameLine();
+    text(kContextHeading);
+    ImGui::Indent();
     if (!view.published_bar) {
         text(view.publish_error ? "nothing published" : "nothing published yet");
     } else {
         const ContextBarText& bar = *view.published_bar;
         text(bar.background);
-        ImGui::Indent();
         if (bar.point) {
             text(*bar.point);
             ImGui::SameLine();
@@ -78,7 +79,6 @@ void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
             }
             tooltip([&] { return std::format("Stop following it: {}", sends(view.publish_error)); });
         }
-        ImGui::Unindent();
     }
     if (view.publish_error) {
         // Push and pop must pair; the style stack is checked at the end of the frame.
@@ -86,6 +86,7 @@ void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
         text(std::format("NOT published: {}", *view.publish_error));
         ImGui::PopStyleColor();
     }
+    ImGui::Unindent();
 }
 
 // The market data's state and the viewer's own liveness.

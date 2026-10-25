@@ -72,6 +72,12 @@ void set_up(ImGuiTestContext* ctx, UiVars& vars) {
 
 bool contains(const std::string& text, std::string_view part) { return text.find(part) != std::string::npos; }
 
+// Whether the context bar's heading is followed, on the next line, by a background starting with
+// `background`: the background belongs under the heading, not beside it.
+bool bar_starts(const std::string& text, std::string_view background) {
+    return contains(text, std::format("{}\n{}", fillscope::kContextHeading, background));
+}
+
 // The context file as it is now.
 nlohmann::json read_context(const UiVars& vars) {
     std::ifstream in{vars.app->publisher().file()};
@@ -232,11 +238,11 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
     viewer_test(engine, "the_context_bar_starts_with_the_background", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         ctx->Yield();
-        IM_CHECK(contains(vars.text, "Context waiting for the exchange's market data · showing ticker 0"));
+        IM_CHECK(bar_starts(vars.text, "waiting for the exchange's market data · showing ticker 0"));
         add_book(vars);
         // Updates arriving aren't the user's doing, so the bar changes once the publisher's interval
         // has passed and the file says so, not before.
-        IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "Context exchange live at update 6 · showing ticker 0"); }));
+        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "exchange live at update 6 · showing ticker 0"); }));
         IM_CHECK(!contains(vars.text, "Pointing at"));
         IM_CHECK(!contains(vars.text, "Following"));
         const nlohmann::json context = read_context(vars);
@@ -533,7 +539,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK_EQ(read_context(vars)["point"]["replayAddress"]["seq"].get<int>(), 1);
         IM_CHECK(read_context(vars)["point"]["replayAddress"]["marketDataFile"].get<std::string>().ends_with("/runs/a.dat"));
-        IM_CHECK(contains(vars.text, "Context replay of "));
+        IM_CHECK(bar_starts(vars.text, "replay of "));
         ctx->ItemInputValue(std::format("**/{}", fillscope::kReplaySlider).c_str(), 7);
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "after update 7 of 8"));
