@@ -247,8 +247,11 @@ rather than code: a change is done when the local gate passes, and CI is checked
 ### 11 to 14. Answers: scenarios the real matcher plays, explained step by step
 Decided by the owner on 2026-10-25, in place of the pause planned after step 10: the owner learns
 the domain with this, beside Ghosh's book, so it comes first. What it is, and the rules it keeps,
-are in [FEATURES.md](FEATURES.md), item 15. Who writes what is decided before step 11's code is
-written (charter §4).
+are in [FEATURES.md](FEATURES.md), item 15. **Who writes what** (the owner, 2026-10-25): Claude
+writes all four steps, the claims and their checking included, so the tool exists while the owner
+is learning the concepts it teaches; the owner's hand-written code comes later, in trader
+inference's detector. The viewer's pane, like that display, is Claude's first, and the owner keeps
+it as Claude's or takes it over to polish.
 
 ### 11. The replay says what each request did
 The fork's `exchange_replay` also writes, for each request it replays, the range of updates it
@@ -282,8 +285,6 @@ scripted demo plays one, as part of the tests (charter §2, priority 3).
 **Done when:** the owner has stepped through answers to the owner's own questions, and the demo runs in
 the test suite.
 
-## Waiting on the owner
-- **Who writes what in steps 11 to 14** (charter §4).
 
 ## Later
 The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are

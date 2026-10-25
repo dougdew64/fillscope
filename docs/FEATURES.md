@@ -147,4 +147,4 @@ The stages of the roadmap, each a change to the fork.
       only add and cancel; the only modify in the market data is a resting order partly filled.
       Clients are numbers, and a role ("the maker") is the answer's name for one; a scenario needs
       no trading-client program, since the requests are written directly.
-    - **Who writes what** is decided before the steps' code is written (charter §4).
+    - **Who writes what:** Claude, all of it ([PLAN.md](PLAN.md), steps 11 to 14).
