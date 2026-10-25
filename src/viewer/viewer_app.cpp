@@ -61,7 +61,7 @@ void ViewerApp::watch_answer(const std::filesystem::path& file) {
 }
 
 void ViewerApp::poll_answer(Clock::time_point now) {
-    if (!state_.answer || (answer_polled_at_ && now - *answer_polled_at_ < kAnswerPollInterval)) {
+    if (!state_.answer || (state_.course && !state_.course->chosen) || (answer_polled_at_ && now - *answer_polled_at_ < kAnswerPollInterval)) {
         return;
     }
     answer_polled_at_ = now;
@@ -102,7 +102,7 @@ void ViewerApp::open_course(Course course, const std::filesystem::path& built) {
         return;
     }
     state_.course = CourseChoice{.course = std::move(course), .built = std::filesystem::absolute(built),
-                                 .questions = state_.answer->file, .chosen = 0};
+                                 .questions = state_.answer->file, .chosen = std::nullopt};
 }
 
 void ViewerApp::choose(std::size_t choice) {

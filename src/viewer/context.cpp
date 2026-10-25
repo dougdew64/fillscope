@@ -1,6 +1,7 @@
 #include "viewer/context.h"
 
 #include <algorithm>
+#include <cctype>
 #include <format>
 #include <span>
 
@@ -106,7 +107,9 @@ Context make_context(const ViewerState& state, const Selection& selection) {
         here = ReplayAddress{.market_data_file = feed.replay->market_data_file, .recording = feed.replay->recording,
                              .seq = books.last_seq()};
     }
-    if (state.answer && !state.answer->answer) {
+    if (state.course && !state.course->chosen) {
+        feed.no_answer = "nothing chosen yet: neither a lesson nor the user's latest question";
+    } else if (state.answer && !state.answer->answer) {
         feed.no_answer = state.answer->problem ? std::format("the answer at {} can't be shown: {}", state.answer->file.string(),
                                                              *state.answer->problem)
                                                : std::format("waiting for an answer at {}", state.answer->file.string());
@@ -121,8 +124,8 @@ Context make_context(const ViewerState& state, const Selection& selection) {
                                   .asking = frame.asking,
                                   .lesson = {}};
         if (state.course && state.course->chosen > 0) {
-            feed.answer->lesson = std::format("lesson {}, \"{}\"", state.course->chosen,
-                                              state.course->course.lessons.at(state.course->chosen - 1).title);
+            feed.answer->lesson = std::format("lesson {}, \"{}\"", *state.course->chosen,
+                                              state.course->course.lessons.at(*state.course->chosen - 1).title);
         }
     }
 
@@ -374,6 +377,8 @@ ContextBarText bar_text(const Context& context) {
             break;
         }
     }
+    // Each line begins with a capital, as the pointing and following lines do; a lesson's title has one.
+    text.background[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text.background[0])));
     text.background += std::format(" · showing ticker {}", feed.shown_ticker);
     if (feed.recovery_count > 0) {
         text.background += std::format(" · {}", plural(feed.recovery_count, "recovery", "recoveries"));

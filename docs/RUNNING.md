@@ -249,9 +249,9 @@ Ask a question about the market in the editor's chat; the assistant answers with
 makes the answer. To see it: Run and Debug, then **viewer (answers)** (it builds first), which
 watches `.fillscope/answer.json` and shows each answer written there, a pane beside the book. `>`
 steps forward: a step's question, if it asks one, then the step played; `<` back; `|<` and `>|` to
-the start and the end. Leave it open: the next answer replaces the shown one. The drop-down at the
-top of the pane offers the course's lessons (`course/`), in order, beside "Your questions". From a
-terminal: `cmake --build build/debug --target course` to play the lessons, then `build/debug/viewer
+the start and the end. The drop-down at the top of the pane offers "Your latest question" and the
+course's lessons (`course/`), in order; nothing is shown until you choose. With "Your latest
+question" chosen, leave it open: the next answer replaces the shown one. From a terminal: `cmake --build build/debug --target course` to play the lessons, then `build/debug/viewer
 --answer .fillscope/answer.json --course build/debug/course`; `--answer-frame N` opens an answer at
 frame N.
 

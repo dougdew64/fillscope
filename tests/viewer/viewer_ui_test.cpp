@@ -240,11 +240,11 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
     viewer_test(engine, "the_context_bar_starts_with_the_background", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         ctx->Yield();
-        IM_CHECK(bar_starts(vars.text, "waiting for the exchange's market data · showing ticker 0"));
+        IM_CHECK(bar_starts(vars.text, "Waiting for the exchange's market data · showing ticker 0"));
         add_book(vars);
         // Updates arriving aren't the user's doing, so the bar changes once the publisher's interval
         // has passed and the file says so, not before.
-        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "exchange live at update 6 · showing ticker 0"); }));
+        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "Exchange live at update 6 · showing ticker 0"); }));
         IM_CHECK(!contains(vars.text, "Pointing at"));
         IM_CHECK(!contains(vars.text, "Following"));
         const nlohmann::json context = read_context(vars);
@@ -517,7 +517,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "Waiting for an answer at"));
         IM_CHECK(contains(vars.text, "market data: none until an answer is shown"));
-        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "no answer shown: waiting for an answer at"); }));
+        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "No answer shown: waiting for an answer at"); }));
         fillscope::test::write_maker_and_taker(answer, "What happens when a taker trades with a maker?");
         IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "Press > to begin."); }));
         IM_CHECK(contains(vars.text, "introduction; 3 steps, 1 asking a question first, so 4 presses to the end"));
@@ -526,7 +526,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(contains(vars.text, "ticker 0: no orders"));
         // In an answer, only its own controls move the books.
         IM_CHECK(!ctx->ItemExists(std::format("**/{}", fillscope::kReplayForward).c_str()));
-        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "answer to \"What happens when a taker trades with a maker?\": its introduction"); }));
+        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "Answer to \"What happens when a taker trades with a maker?\": its introduction"); }));
 
         const std::string forward = std::format("**/{}", fillscope::kAnswerForward);
         ctx->ItemClick(forward.c_str());
@@ -611,14 +611,15 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         std::filesystem::rename(answer.string() + ".tmp", answer);
         IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "Can't show the answer: the answer is stale"); }));
         IM_CHECK(yield_until(ctx, [&] { return !contains(vars.text, "Second question?"); }));
-        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "no answer shown: the answer at"); }));
+        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "No answer shown: the answer at"); }));
         IM_CHECK(contains(vars.text, "market data: none until an answer is shown"));
         IM_CHECK(contains(vars.text, "ticker 0: no orders"));
     });
 
-    // A course (viewer --course): the pane's drop-down offers its lessons beside your own questions;
-    // choosing one shows it from its start, and the context names the lesson; choosing "Your
-    // questions" goes back to the answer file watched.
+    // A course (viewer --course): the pane's drop-down offers its lessons beside your latest
+    // question. Nothing is chosen at first, so no answer is shown, though the questions' file holds
+    // one. Choosing a lesson shows it from its start, under its title rather than its question, and
+    // the context names the lesson; choosing "Your latest question" shows the answer file watched.
     viewer_test(engine, "a_lesson_is_chosen_from_the_course", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         const std::filesystem::path dir = scratch_root() / ctx->Test->Name;
@@ -636,25 +637,30 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         vars.app->watch_answer(questions);
         vars.app->open_course(std::move(*course), built);
         ctx->SetRef(fillscope::kViewerWindow);
-        IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "My own question?"); }));
-        IM_CHECK(contains(vars.text, "Your questions"));
+        IM_CHECK(yield_until(ctx, [&] { return bar_starts(vars.text, "No answer shown: nothing chosen yet"); }));
+        IM_CHECK(contains(vars.text, "Choose a lesson, or your latest question"));
+        IM_CHECK(!contains(vars.text, "My own question?"));
+        IM_CHECK(contains(vars.text, "ticker 0: no orders"));
+        IM_CHECK(read_context(vars)["background"]["answer"].is_null());
 
         ctx->ItemClick(std::format("**/{}", fillscope::kLessonChoice).c_str());
         ctx->ItemClick("//$FOCUSED/2. The second lesson##choice2");
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "Lesson two?"));
+        IM_CHECK(contains(vars.text, "2. The second lesson"));
+        IM_CHECK(!contains(vars.text, "Lesson two?"));  // the title names it, above
         IM_CHECK(contains(vars.text, "Press > to begin."));
+        IM_CHECK(read_context(vars)["background"]["answer"]["question"] == "Lesson two?");
         IM_CHECK(read_context(vars)["background"]["answer"]["lesson"] == "lesson 2, \"The second lesson\"");
-        IM_CHECK(bar_starts(vars.text, "lesson 2, \"The second lesson\": its introduction"));
+        IM_CHECK(bar_starts(vars.text, "Lesson 2, \"The second lesson\": its introduction"));
 
         ctx->ItemClick(std::format("**/{}", fillscope::kLessonChoice).c_str());
         ctx->ItemClick("//$FOCUSED/1. The first lesson##choice1");
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "Lesson one?"));
+        IM_CHECK(read_context(vars)["background"]["answer"]["question"] == "Lesson one?");
         IM_CHECK(contains(vars.text, "Read: a chapter"));
 
         ctx->ItemClick(std::format("**/{}", fillscope::kLessonChoice).c_str());
-        ctx->ItemClick("//$FOCUSED/Your questions##choice0");
+        ctx->ItemClick("//$FOCUSED/Your latest question##choice0");
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "My own question?"));
         IM_CHECK(read_context(vars)["background"]["answer"]["lesson"].is_null());
@@ -695,7 +701,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK_EQ(read_context(vars)["point"]["replayAddress"]["seq"].get<int>(), 1);
         IM_CHECK(read_context(vars)["point"]["replayAddress"]["marketDataFile"].get<std::string>().ends_with("/runs/a.dat"));
-        IM_CHECK(bar_starts(vars.text, "replay of "));
+        IM_CHECK(bar_starts(vars.text, "Replay of "));
         ctx->ItemInputValue(std::format("**/{}", fillscope::kReplaySlider).c_str(), 7);
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "after update 7 of 8"));

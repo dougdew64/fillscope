@@ -851,9 +851,11 @@ time, since each replay builds a matching engine; only lessons changed since are
 is left out of the default build, because the mutation check rebuilds the back end and the tool
 hundreds of times, and would replay every lesson each time. The **viewer (answers)** launch builds
 it first, and `viewer --course DIR` offers it: a drop-down at the top of the answer pane lists "Your
-questions" (the answer file watched) and each lesson; choosing one makes the viewer watch that
-answer instead, shown from its start. The context names the lesson (`background.answer.lesson`),
-so a question asked in a lesson is about it.
+latest question" (the answer file given with `--answer`) and each lesson. Nothing is chosen at
+first, and then nothing is watched or shown, and `background.noAnswer` says so: the viewer shows
+nothing the user didn't choose. Choosing one makes the viewer watch that answer, shown from its
+start; a lesson's title, in the drop-down, stands in for its question. The context names the lesson
+(`background.answer.lesson`), so a question asked in a lesson is about it.
 
 **Tested as the build plays it.** `course_system_tests` plays every lesson through the tool and
 `exchange_replay` into a scratch directory, reads each back as the viewer does (`load_answer`, every

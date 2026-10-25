@@ -18,6 +18,7 @@ constexpr ImVec4 kTrueColor{0.45f, 0.85f, 0.45f, 1.0f};  // a claim the replay b
 constexpr ImVec4 kFollowedRowColor{0.45f, 0.38f, 0.10f, 0.65f};
 constexpr ImVec4 kBidColor{0.45f, 0.85f, 0.45f, 1.0f};
 constexpr ImVec4 kAskColor{0.95f, 0.50f, 0.45f, 1.0f};
+constexpr ImVec4 kContextBarColor{0.16f, 0.22f, 0.30f, 1.0f};  // a muted slate blue behind the context bar
 
 // Draws text that is already formatted. TextUnformatted takes the characters as they are, with no
 // printf-style % processing, so a '%' in the text can't be misread as a format directive.
@@ -52,19 +53,21 @@ std::string_view sends(const std::optional<std::string>& publish_error) {
                          : "sends it to the assistant now";
 }
 
-// The context bar: what the assistant has been given, drawn from the last published context and
-// never from the live selection, so the bar and the file can't disagree.
+// The context bar's lines: what the assistant has been given, drawn from the last published context
+// and never from the live selection, so the bar and the file can't disagree.
 // A heading on its own line, and its parts indented beneath it, so the background reads as part
 // of the context rather than as the heading's continuation.
-void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
+void draw_context_bar_lines(const ViewerView& view, ViewerActions& actions) {
     text(kContextHeading);
     ImGui::Indent();
     if (!view.published_bar) {
         text(view.publish_error ? "nothing published" : "nothing published yet");
     } else {
         const ContextBarText& bar = *view.published_bar;
+        ImGui::Bullet();  // one per item of context, so each reads as a separate one
         text(bar.background);
         if (bar.point) {
+            ImGui::Bullet();
             text(*bar.point);
             ImGui::SameLine();
             if (ImGui::SmallButton(kClearPointButton)) {
@@ -73,6 +76,7 @@ void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
             tooltip([&] { return std::format("Stop pointing at it: {}", sends(view.publish_error)); });
         }
         if (bar.follow) {
+            ImGui::Bullet();
             text(*bar.follow);
             ImGui::SameLine();
             if (ImGui::SmallButton(kClearFollowButton)) {
@@ -88,6 +92,24 @@ void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
         ImGui::PopStyleColor();
     }
     ImGui::Unindent();
+}
+
+// The context bar, on a background of its own so it stands apart from the market below it. The
+// background's height is known only once the lines are drawn, so they are drawn first, onto a
+// draw-list channel above the one the background then goes on. (A child window would colour it too,
+// but would change the IDs of the buttons inside it, by which the UI tests find them.)
+void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->ChannelsSplit(2);
+    draw->ChannelsSetCurrent(1);
+    ImGui::BeginGroup();
+    draw_context_bar_lines(view, actions);
+    ImGui::EndGroup();
+    draw->ChannelsSetCurrent(0);
+    const ImVec2 window = ImGui::GetWindowPos();
+    const float bottom = ImGui::GetItemRectMax().y + ImGui::GetStyle().ItemSpacing.y / 2;
+    draw->AddRectFilled(window, {window.x + ImGui::GetWindowWidth(), bottom}, ImGui::GetColorU32(kContextBarColor));
+    draw->ChannelsMerge();
 }
 
 // The market data's state and the viewer's own liveness.
@@ -171,6 +193,18 @@ void wrapped(std::string_view s) {
     ImGui::PopTextWrapPos();
 }
 
+// The space between paragraphs of an answer: half a line, so it grows with the text.
+void paragraph_break() {
+    ImGui::Dummy(ImVec2{0.0f, ImGui::GetTextLineHeight() * 0.5f});
+}
+
+// A divider between the parts of a pane, with a paragraph's space on either side.
+void divider() {
+    paragraph_break();
+    ImGui::Separator();
+    paragraph_break();
+}
+
 // An answer's controls and where the user is in it. Each control asks for a frame; the loop shows it
 // (ViewerApp::answer_to), moving the books with it.
 void draw_answer_controls(const AnswerShown& shown, ViewerActions& actions) {
@@ -221,7 +255,7 @@ void draw_step_played(const LoadedAnswer& answer, std::size_t step, const Book& 
     const CheckedStep& checked = answer.checked[step - 1];
     const bool cancel_step = std::holds_alternative<Cancel>(answer.scenario.steps[step - 1].request.action);
     wrapped(answer.scenario.steps[step - 1].say);
-    ImGui::Spacing();
+    paragraph_break();
     if (checked.update_count == 0) {
         text("Market data: none. It changes no book.");
     } else {
@@ -234,6 +268,7 @@ void draw_step_played(const LoadedAnswer& answer, std::size_t step, const Book& 
         ImGui::Unindent();
     }
     if (!checked.responses.empty()) {
+        paragraph_break();
         wrapped("The exchange tells (privately: each client only its own):");
         ImGui::Indent();
         for (const ClientResponse& response : checked.responses) {
@@ -241,11 +276,13 @@ void draw_step_played(const LoadedAnswer& answer, std::size_t step, const Book& 
         }
         ImGui::Unindent();
     }
+    paragraph_break();
     text("The book after this step:");
     ImGui::Indent();
     wrapped(describe_top(book, answer));
     ImGui::Unindent();
     if (!checked.claims.empty()) {
+        paragraph_break();
         text("Claims, checked against the replay:");
         ImGui::Indent();
         for (const ClaimResult& claim : checked.claims) {
@@ -259,10 +296,11 @@ void draw_step_played(const LoadedAnswer& answer, std::size_t step, const Book& 
     }
 }
 
-// With a course: what the pane shows, the user's own questions or one of its lessons.
+// With a course: what the pane shows, the user's latest question or one of its lessons; nothing, until
+// one is chosen.
 void draw_course_choice(const CourseChoice& course, ViewerActions& actions) {
     const auto label = [&course](std::size_t choice) {
-        return choice == 0 ? std::string{"Your questions"}
+        return choice == 0 ? std::string{"Your latest question"}
                            : std::format("{}. {}", choice, course.course.lessons[choice - 1].title);
     };
     ImGui::SetNextItemWidth(-1.0f);  // the pane's width
@@ -273,7 +311,8 @@ void draw_course_choice(const CourseChoice& course, ViewerActions& actions) {
         [[maybe_unused]] ImGuiContext& g = *ImGui::GetCurrentContext();
         IMGUI_TEST_ENGINE_ITEM_INFO(ImGui::GetID(kLessonChoice), kLessonChoice, ImGuiItemStatusFlags_Openable);
     }
-    if (ImGui::BeginCombo(kLessonChoice, label(course.chosen).c_str())) {
+    const std::string shown = course.chosen ? label(*course.chosen) : std::string{"Choose a lesson, or your latest question"};
+    if (ImGui::BeginCombo(kLessonChoice, shown.c_str())) {
         for (std::size_t choice = 0; choice <= course.course.lessons.size(); ++choice) {
             // A std::string, not a Label: a lesson's title may pass a Label's 64 characters, and the
             // cut would take the ##choice that keeps the entries apart.
@@ -284,11 +323,11 @@ void draw_course_choice(const CourseChoice& course, ViewerActions& actions) {
         }
         ImGui::EndCombo();
     }
-    tooltip([&course] { return std::format("{}: its lessons, in order, or your own questions", course.course.title); });
-    if (course.chosen > 0 && !course.course.lessons[course.chosen - 1].read.empty()) {
-        wrapped(std::format("Read: {}", course.course.lessons[course.chosen - 1].read));
+    tooltip([&course] { return std::format("{}: its lessons, in order, or the answer to your latest question", course.course.title); });
+    if (course.chosen > 0 && !course.course.lessons[*course.chosen - 1].read.empty()) {
+        wrapped(std::format("Read: {}", course.course.lessons[*course.chosen - 1].read));
     }
-    ImGui::Separator();
+    divider();
 }
 
 // The answer's pane: what it shows, its question, where the user is in it, and that frame's text.
@@ -296,6 +335,9 @@ void draw_answer(const ViewerView& view, ViewerActions& actions) {
     const AnswerShown& shown = *view.state.answer;
     if (view.state.course) {
         draw_course_choice(*view.state.course, actions);
+        if (!view.state.course->chosen) {
+            return;
+        }
     }
     if (!shown.answer) {
         if (shown.problem) {
@@ -308,30 +350,34 @@ void draw_answer(const ViewerView& view, ViewerActions& actions) {
         return;
     }
     const LoadedAnswer& answer = *shown.answer;
-    wrapped(answer.scenario.question);
-    ImGui::Separator();
+    // A lesson's title, in the drop-down above, says what its question would; an answer of the
+    // user's own is named only by its question.
+    if (!view.state.course || view.state.course->chosen == 0) {
+        wrapped(answer.scenario.question);
+        divider();
+    }
     draw_answer_controls(shown, actions);
-    ImGui::Separator();
+    divider();
     const AnswerFrame& frame = answer.frames[shown.frame];
     if (frame.step == 0) {
         if (!answer.scenario.intro.empty()) {
             wrapped(answer.scenario.intro);
         }
-        ImGui::Spacing();
+        paragraph_break();
         text("Press > to begin.");
         return;
     }
     const ScenarioStep& step = answer.scenario.steps[frame.step - 1];
     wrapped(std::format("Step {}. {}", frame.step, describe(step.request, answer.scenario)));
-    ImGui::Spacing();
+    paragraph_break();
     if (frame.asking) {
         text("The book before this step:");
         ImGui::Indent();
         wrapped(describe_top(view.state.books.book(answer.scenario.ticker), answer));
         ImGui::Unindent();
-        ImGui::Spacing();
+        paragraph_break();
         wrapped(step.ask);
-        ImGui::Spacing();
+        paragraph_break();
         text("Press > to see what happens.");
         return;
     }
@@ -578,15 +624,17 @@ ViewerActions draw_viewer(const ViewerView& view) {
         ImGui::SameLine();
         ImGui::BeginChild(kMarketPane);
     }
+    paragraph_break();
     draw_status(view);
     if (view.state.replay && !answering) {
         draw_replay(view, actions);
     }
-    ImGui::Separator();
+    divider();
     draw_tickers(view, actions);
+    paragraph_break();
     draw_book(view, actions);
     if (view.published && view.published->follow) {
-        ImGui::Separator();
+        divider();
         draw_history(*view.published->follow);
     }
     if (answering) {

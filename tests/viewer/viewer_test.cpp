@@ -371,7 +371,7 @@ TEST(ContextJson, AReplaySaysWhichAndEveryAddressRebuildsItsState) {
 
 TEST(ContextBar, SaysWhereInTheReplayTheBooksAre) {
     EXPECT_EQ(bar_text(make_context(replay_at(3), Selection{})).background,
-              "replay of /runs/a.dat at update 3 of 4 · showing ticker 0");
+              "Replay of /runs/a.dat at update 3 of 4 · showing ticker 0");
 }
 
 // ---- to_json ----
@@ -475,13 +475,13 @@ TEST(ContextJson, ARecoveringFeedSaysWhyAndListsItsRecoveries) {
 // ---- bar_text ----
 
 TEST(ContextBar, SaysWhereTheFeedIsAndWhichTickerIsShown) {
-    EXPECT_EQ(bar_text(make_context(ViewerState{}, Selection{})).background, "waiting for the exchange's market data · showing ticker 0");
+    EXPECT_EQ(bar_text(make_context(ViewerState{}, Selection{})).background, "Waiting for the exchange's market data · showing ticker 0");
     ViewerState state = three_bids();
     state.shown_ticker = 2;
-    EXPECT_EQ(bar_text(make_context(state, Selection{})).background, "exchange live at update 3 · showing ticker 2");
+    EXPECT_EQ(bar_text(make_context(state, Selection{})).background, "Exchange live at update 3 · showing ticker 2");
     state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
     EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
-              "exchange: recovering, the books are as of update 3 (update 5 arrived when 4 was next) · showing ticker 2");
+              "Exchange: recovering, the books are as of update 3 (update 5 arrived when 4 was next) · showing ticker 2");
 }
 
 TEST(ContextBar, CountsRecoveriesAndShowsTheLastError) {
@@ -490,7 +490,7 @@ TEST(ContextBar, CountsRecoveriesAndShowsTheLastError) {
     recover_from_snapshot(state.books, 4, {});
     state.feed_error = "bad datagram";
     EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
-              "exchange live at update 5 · showing ticker 0 · 1 recovery · last error: bad datagram");
+              "Exchange live at update 5 · showing ticker 0 · 1 recovery · last error: bad datagram");
 }
 
 TEST(ContextBar, SaysWhereAPointedOrderIsOrHowItLeft) {
@@ -951,17 +951,17 @@ TEST_F(Answers, TheContextSaysWhereInTheAnswerTheUserIs) {
     EXPECT_EQ(json["background"]["answer"]["asking"], true);
     EXPECT_EQ(json["background"]["answer"]["question"], "What happens?");
     EXPECT_EQ(bar_text(asking).background,
-              "answer to \"What happens?\": step 3 of 3, its question (not yet played) · showing ticker 0");
+              "Answer to \"What happens?\": step 3 of 3, its question (not yet played) · showing ticker 0");
     state.answer->frame = 0;
     EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
-              "answer to \"What happens?\": its introduction · showing ticker 0");
+              "Answer to \"What happens?\": its introduction · showing ticker 0");
     EXPECT_TRUE(to_json(make_context(state, Selection{}), Writer{}, 1, 0)["background"]["noAnswer"].is_null());
     state.answer->answer.reset();
     EXPECT_FALSE(make_context(state, Selection{}).feed.answer) << "no answer shown, none named";
     EXPECT_TRUE(to_json(make_context(state, Selection{}), Writer{}, 1, 0)["background"]["answer"].is_null());
     // Showing answers, with none to show, says why: not "waiting for the exchange".
     EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
-              std::format("no answer shown: waiting for an answer at {} · showing ticker 0", file().string()));
+              std::format("No answer shown: waiting for an answer at {} · showing ticker 0", file().string()));
     state.answer->problem = "the answer is stale";
     EXPECT_EQ(to_json(make_context(state, Selection{}), Writer{}, 1, 0)["background"]["noAnswer"],
               std::format("the answer at {} can't be shown: the answer is stale", file().string()));

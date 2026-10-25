@@ -73,17 +73,18 @@ struct FileStamp {
 // The file's stamp, or nothing if it doesn't exist.
 [[nodiscard]] std::optional<FileStamp> stamp_of(const std::filesystem::path& file);
 
-// The course the viewer offers (viewer --course), beside the user's own questions: which is chosen.
-// Choosing one makes the viewer watch its answer file instead.
+// The course the viewer offers (viewer --course), beside the user's latest question: which is
+// chosen. Nothing is, at first, and then no answer is watched or shown; choosing one makes the
+// viewer watch its answer file.
 struct CourseChoice {
     Course course;
     std::filesystem::path built;      // where the build wrote the lessons' answers
     std::filesystem::path questions;  // the answer file of the user's own questions
-    std::size_t chosen = 0;           // 0 for the user's questions; otherwise the lesson, from 1
+    std::optional<std::size_t> chosen;  // 0 for the user's latest question; otherwise the lesson, from 1
 
-    // The answer file of what is chosen.
+    // The answer file of what is chosen (when something is).
     [[nodiscard]] std::filesystem::path chosen_file() const {
-        return chosen == 0 ? questions : lesson_answer(built, course.lessons.at(chosen - 1));
+        return chosen.value() == 0 ? questions : lesson_answer(built, course.lessons.at(chosen.value() - 1));
     }
 };
 
