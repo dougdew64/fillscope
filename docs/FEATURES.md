@@ -48,3 +48,30 @@ The stages of the roadmap, each a change to the fork.
 12. **Demo recordings:** each feature shown by a scripted demo that is part of the test suite
     (charter §2, priority 3), recorded with the Dear ImGui Test Engine, which already drives the
     viewer's UI tests (charter §3, decision 4).
+
+## Inferring traders from anonymous orders
+13. **Which orders belong to one trader, inferred from the market data alone.** The market data
+    names no client: an order carries an id the exchange assigned, which lasts its whole life, and a
+    trade carries no order id, only the side of the incoming order that caused it. The exchange's
+    recording of the requests does name each order's client, so every guess can be scored against
+    what really happened.
+    - **The patterns.** A large order sliced into equal pieces: repeated trades of one side and
+      quantity. Cancel and replace: a cancel, and an order added close by in price soon after,
+      likely the same trader adjusting; a client can't modify an order, so this is what moving one
+      looks like. A market maker: a buy and a sell added together, the same size, and canceled and
+      re-added together, likely one trader quoting both sides. "Soon" and "together" are counted
+      in updates, not time: neither the market data nor the recording carries a time, so a replay
+      gives the same guesses every run.
+    - **The planted trader.** A new strategy in the fork's trading client that slices a large order,
+      run among the book's market-making, liquidity-taking and random clients, whose orders are the
+      background it must be found in.
+    - **The score.** What the detector caught, what it missed, and what it flagged wrongly, against
+      the recording. A guess is shown as a guess, never as a fact about who placed an order (charter
+      §2, priority 1).
+    - **The display.** Each order a dot, time across and price up, gray at first; the orders the
+      detector groups take one color per inferred trader, joined by lines. Then the truth outlined,
+      with the hits, misses and false alarms, and the score.
+    - **The demo,** in three scenes: the slicer uses equal sizes and is caught; it randomizes its
+      sizes and is lost; the detector improves and finds it again.
+    - **Rests on** the animated replay (4) and a new strategy in the fork. Who writes the detector
+      is open (charter §4).
