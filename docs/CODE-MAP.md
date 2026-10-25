@@ -31,7 +31,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The viewer program: start, options, stop signals | `src/viewer/main.cpp`, `src/viewer/viewer_options.*`, `src/viewer/stop_signals.*` | §4, *The loop* (in part); the options in [RUNNING.md](RUNNING.md) | 2026-10-24: what the viewer is, beside the exchange and the client; how to stop it |
 | The viewer's loop and state | `src/viewer/viewer_app.*`, `src/viewer/viewer_state.h` | §4, *The loop*, *The pieces* | |
 | Drawing, and clicks | `src/viewer/viewer_view.*` | §4, *What it draws*; §8 | 2026-10-24: what the ticker buttons choose |
-| The context: what is published | `src/viewer/context.*` | §4, *The pieces*, *An order pointed at* | 2026-10-24: what "showing ticker 0" in the bar means |
+| The context: what is published | `src/viewer/context.*` | §4, *What it draws*, *The pieces*, *An order pointed at* | 2026-10-24: what "showing ticker 0" in the bar means; 2026-10-25: whether "exchange live at update N" is part of the context |
 | Publishing the context | `src/viewer/context_publisher.*` | §4, *Publishing* | |
 | Shared helpers: a descriptor's owner, number parsing | `src/common/` | §2 (in part) | |
 | The debug-state extension | `tools/vscode-debug-state/` | §5; [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md) | |

@@ -260,8 +260,21 @@ Clicking a row points at its order, clicking a price points at its level, clicki
 follows it. A followed order's history is drawn below.
 
 The screen shows one ticker's book at a time; the ticker buttons, 0 to 7, choose which, and hovering
-over one shows how many orders its book holds. The bar's "showing ticker N" tells the assistant which book is on
-screen, so a question like "why is the best bid empty?" is about the book you are looking at.
+over one shows how many orders its book holds.
+
+**The context bar shows the context's three parts**, one line each. The first, always there, is
+the **background**: where the books come from and how current they are ("exchange live at update
+5012", or recovering and why, or a replay and where in it), which book is on screen ("showing
+ticker 0"), and any recoveries or market data error. The other two lines appear only when you
+have pointed at something (the **point**) or followed an order (the **follow**). The background is
+there because neither of the others means anything without it: an order's place in its queue is
+true as of one update, and only while the books are live or exactly replayed. Showing the ticker
+lets a question like "why is the best bid empty?" be about the book you are looking at.
+
+The background's update number can trail the status line below it, "market data: live, the books
+are as of update N", by up to a tenth of a second. The status line is drawn from the books
+themselves; the bar is drawn from the file, which is written at most once per 100 ms while only
+market data is arriving (*Publishing*, below).
 
 ### The pieces
 | Type (file) | Holds | Why it is shaped this way |
