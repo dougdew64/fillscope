@@ -95,7 +95,7 @@ nothing: it shows the first order as soon as the exchange publishes it.
 **Why separate processes:** a debugger stop freezes the whole process it is debugging. With the
 viewer in its own process, it keeps painting while you step through the exchange, so the books on
 screen and the debugger stay in step ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)). The back end
-is already several processes talking over sockets, as trading systems do (charter decision 8).
+is already several processes talking over sockets, as trading systems do (charter decision 7).
 
 **Why the viewer listens to multicast:** an exchange publishes its market data to whoever listens,
 by multicast: one datagram reaches every member of a group. So the viewer reads exactly what the

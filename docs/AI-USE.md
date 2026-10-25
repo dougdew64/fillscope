@@ -1,7 +1,7 @@
 # How AI is used here, and what checks it
 
 **Purpose:** each use of AI to write code in Fillscope, what checks its output, and the defects
-those checks caught (charter decision 7). **Status:** record. **Read when:** judging how far the
+those checks caught (charter decision 6). **Status:** record. **Read when:** judging how far the
 AI-built parts can be trusted, or adding a new use.
 
 The rule: AI output is trusted only through a check that doesn't depend on the AI. Code written by

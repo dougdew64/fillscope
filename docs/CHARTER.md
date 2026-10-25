@@ -34,38 +34,28 @@ Where two priorities conflict, the higher wins.
 1. **What it is:** the front end, an observatory, for a fork of the trading system in Ghosh's book
    ([PacktPublishing/Building-Low-Latency-Applications-with-CPP](https://github.com/PacktPublishing/Building-Low-Latency-Applications-with-CPP),
    MIT): its exchange and trading clients are the back end. The fork is a public repository of its
-   own, changed on a branch; Fillscope pins one commit of it. Its first substantial change is
-   deterministic replay. How the change is carried out is in [PLAN.md](PLAN.md).
-2. **The features that distinguish it:** fill explanations grounded in exact state; per-order
-   counterfactuals made exact by deterministic replay; how much of a result depends on the queue and
-   latency assumptions; an animated replay; debugger lockstep with the matching engine.
-3. **No AI in the app.** The app makes its state observable and publishes the context of what is
+   own, changed on a branch; Fillscope pins one commit of it. What is built is in
+   [ARCHITECTURE.md](ARCHITECTURE.md), and what is to be built in [FEATURES.md](FEATURES.md).
+2. **No AI in the app.** The app makes its state observable and publishes the context of what is
    selected, to a file it replaces on every change (`.fillscope/context.json`); an assistant works
-   beside it in the editor, reading the source and that context, and runs counterfactual replays
-   through a command-line tool.
-4. **C++ on Linux throughout,** including the UI: Dear ImGui with ImPlot. Everything builds with
+   beside it in the editor, reading the source and that context.
+3. **C++ on Linux throughout,** including the UI: Dear ImGui with ImPlot. Everything builds with
    GCC, with AddressSanitizer and UndefinedBehaviorSanitizer, and ThreadSanitizer for threaded code.
-5. **Tests below the UI first:** core unit tests, replay fidelity checks, the command-line tool. UI
-   tests and demo recordings with the Dear ImGui Test Engine. **Claude tests all the code
-   aggressively, the owner's included,** so that nothing is built on undetected defects; the owner
-   writes some tests too. In the fork, what Fillscope relies on and every change made to it are
+4. **Tests below the UI first:** core unit tests and replay fidelity checks; UI tests with the Dear
+   ImGui Test Engine. **Claude tests all the code aggressively, the owner's included,** so that
+   nothing is built on undetected defects; the owner writes some tests too. In the fork, what Fillscope relies on and every change made to it are
    tested; the upstream code as a whole is not retrofitted with tests. A bug found in it is fixed
    in the fork, with a test, and recorded.
-6. **Market data is never committed.** Hand-made message files for unit tests, a small synthetic
-   generator for demos, real days downloaded locally.
-7. **AI output is trusted only through a check that doesn't depend on the AI.** Each use of AI
+5. **Market data is never committed.** Hand-made message files for unit tests; real days
+   downloaded locally.
+6. **AI output is trusted only through a check that doesn't depend on the AI.** Each use of AI
    answers three questions: is understanding the point (then the code is hand-written)? Can the
    output be checked independently of the AI? Is it reproducible (prefer AI-built artifacts that a
    deterministic step turns into code)? Each use, its check, and the defects the checks caught are
-   documented publicly. The proposed ITCH parser (§4) is the first worked example: AI builds a
-   model of the specification, checked mechanically and against an independent model; a
-   deterministic generator writes the decoders; they must agree with the hand-written ones on every
-   message of a real trading day.
-8. **Several processes and threads, not one.** The parts of the system communicate over sockets,
+   documented publicly.
+7. **Several processes and threads, not one.** The parts of the system communicate over sockets,
    as real trading systems do. The exact split, and how replay stays deterministic across it, are
    decided as the design develops ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)).
 
 ## 4. Open questions
 - Which code the owner writes: decided stage by stage, as the owner learns each stage's domain.
-- The ITCH parser: hand-written for the messages the book needs, the rest generated from a model of
-  the specification checked against it (proposed).

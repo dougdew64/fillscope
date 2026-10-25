@@ -5,16 +5,15 @@ it rests on. **Status:** live plan; an item is removed when it is built (git kee
 is deleted when empty. **Read when:** choosing what to build next, or asking what Fillscope will do.
 
 The items aren't in order yet: they are ordered, and the next ones broken into steps in
-[PLAN.md](PLAN.md), after the pause that follows its steps 1 to 10. Why each is wanted is in the
-[charter](CHARTER.md), which decides what Fillscope is; this file only tracks what is left to
-build. Known defects and test gaps are in [TECH-DEBT.md](TECH-DEBT.md).
+[PLAN.md](PLAN.md), after the pause that follows its steps 1 to 10. The [charter](CHARTER.md)'s
+rules bind every one of them. Known defects and test gaps are in [TECH-DEBT.md](TECH-DEBT.md).
 
 Built so far: the back end, built and tested by Fillscope at a pinned commit; the live view of the
 exchange's books; deterministic replay; and the matching engine stepped in a debugger while the
 book view follows ([ARCHITECTURE.md](ARCHITECTURE.md)).
 
 ## What Fillscope shows
-The features that distinguish it (charter §3, decision 2).
+The features that distinguish it.
 1. **Fill explanations grounded in exact state.** Click an order and ask "why didn't this fill?".
    The answer comes from the simulator's exact state at that moment: the book on arrival, the queue
    ahead, the trades and cancels that followed, the latency applied. Rests on fill simulation (7).
@@ -28,12 +27,12 @@ The features that distinguish it (charter §3, decision 2).
 ## What the back end gains
 The stages of the roadmap, each a change to the fork.
 
-5. **Replay of Nasdaq TotalView-ITCH 5.0 data into the exchange.** Its parser is the first worked
-   example of checking AI output (charter §3, decision 7): AI builds a model of the specification,
-   checked mechanically and against an independent model; a deterministic generator writes the
-   decoders; they must agree with the hand-written ones on every message of a real trading day.
-   Which messages are hand-written is open (charter §4). The data is downloaded locally, never
-   committed.
+5. **Replay of Nasdaq TotalView-ITCH 5.0 data into the exchange.** Its parser is to be the first
+   worked example of checking AI output (charter §3, decision 6). Proposed, not yet decided:
+   hand-written decoders for the messages the book needs, and the rest generated. AI builds a
+   model of the specification, checked mechanically and against an independent model; a
+   deterministic generator writes the decoders from it; they must agree with the hand-written ones
+   on every message of a real trading day. The data is downloaded locally, never committed.
 6. **Backtesting on simulated time, with recovery from a snapshot.** Latency in a backtest is
    simulated, not the network's ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)).
 7. **Fill simulation:** queue position, latency, fees.
@@ -42,8 +41,10 @@ The stages of the roadmap, each a change to the fork.
 
 ## Tools around the app
 10. **A command-line tool for counterfactual replays,** which an assistant working beside the app
-    runs (charter §3, decision 3).
-11. **A small synthetic market data generator for demos** (charter §3, decision 6).
+    runs, since no AI runs in it (charter §3, decision 2). It is tested below the UI, with the
+    core unit tests and replay fidelity checks.
+11. **A small synthetic market data generator for demos,** since market data is never committed
+    (charter §3, decision 5).
 12. **Demo recordings:** each feature shown by a scripted demo that is part of the test suite
     (charter §2, priority 3), recorded with the Dear ImGui Test Engine, which already drives the
-    viewer's UI tests (charter §3, decision 5).
+    viewer's UI tests (charter §3, decision 4).
