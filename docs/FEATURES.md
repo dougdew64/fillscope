@@ -4,8 +4,8 @@
 it rests on. **Status:** live plan; an item is removed when it is built (git keeps it), and the file
 is deleted when empty. **Read when:** choosing what to build next, or asking what Fillscope will do.
 
-The items aren't in order yet: they are ordered, and the next ones broken into steps in
-[PLAN.md](PLAN.md), after the pause that follows its steps 1 to 10. The [charter](CHARTER.md)'s
+Answers (15) are being built now, as [PLAN.md](PLAN.md)'s steps 11 to 14; the other items aren't
+in order yet. The [charter](CHARTER.md)'s
 rules bind every one of them. Known defects and test gaps are in [TECH-DEBT.md](TECH-DEBT.md).
 
 Built so far: the back end, built and tested by Fillscope at a pinned commit; the live view of the
@@ -111,3 +111,40 @@ The stages of the roadmap, each a change to the fork.
     itself stays on the CPU: it does a little sequential work per trade, which a GPU would slow
     down. Mesa's lavapipe runs Vulkan on the CPU, so the tests can run without a GPU, in CI too.
     Rests on 13.
+
+## Teaching the domain
+15. **Answers: a scenario the real matcher plays, explained step by step.** The owner asks, in the
+    editor's chat, about a scenario (a maker quoting, a taker crossing, a slicer); the assistant
+    answers with a scenario of client requests and an explanation of each; a tool plays the requests
+    through Ghosh's matching engine, and the viewer shows the result step by step, the explanation in a pane beside the
+    book. At any step the owner can point at an order and ask more; the context file already says
+    which order, and as of which update, and will say which step of which answer too. Modelled on HRW's Answers (the assistant writes a file the app
+    picks up and shows), and on HRW's lesson that explanation nothing checks rots.
+    **In progress:** [PLAN.md](PLAN.md), steps 11 to 14 (the owner, 2026-10-25).
+    - **No AI in the app** (charter §3, decision 2). The context file goes from the viewer to the
+      assistant; an answer goes the other way, as a file the assistant writes,
+      `.fillscope/answer.json` (ignored by git, replaced for each question), which the viewer picks
+      up while it runs and shows at once. An answer is about the moment: it is never committed.
+    - **The rows are the matcher's, not the assistant's.** An answer gives requests (which client
+      sends what, in what order), never books or trades. A command-line tool turns them into a
+      recording, in the format `exchange_main --record` writes, and replays it with
+      `exchange_replay`, so every book, trade and response shown is the real engine's output. A
+      wrong explanation is then contradicted by the rows rather than illustrated by them: the check
+      that doesn't depend on the AI (charter §3, decision 6).
+    - **Claims are checked.** Where a step's text states a fact (the best ask is 101, for 5; this
+      order rests with 3; client 3 was told it filled 5 at 101), the claim is written in a form the
+      tool checks against the replay's real state, and the viewer marks it true or false. The tool
+      refuses an answer with a false claim, so the assistant corrects it before it is shown; the
+      viewer shows the result as well, so a claim is never taken on trust.
+    - **A step is one request:** the order sent, and the trades, book changes and responses to the
+      clients that it causes. The market data file doesn't say which request caused which updates
+      ([market_data_file.h](../src/feed/market_data_file.h)), so the fork's replay writes, for each
+      request, the range of updates it caused and the responses it sent to clients. The same
+      output gives trader inference its truth (13).
+    - **What the scenarios must respect, in Ghosh's exchange:** every order is a limit order (a
+      price and a quantity), and whatever doesn't trade rests in the book; there are no market
+      orders and no immediate-or-cancel, so a taker is a limit order priced to cross. A client can
+      only add and cancel; the only modify in the market data is a resting order partly filled.
+      Clients are numbers, and a role ("the maker") is the answer's name for one; a scenario needs
+      no trading-client program, since the requests are written directly.
+    - **Who writes what** is decided before the steps' code is written (charter §4).

@@ -244,11 +244,47 @@ the check's own code changes; a stretch of work in the back end, where a change 
 dozens of mutants, is when to weigh them again. CI is treated as a backstop, a working habit
 rather than code: a change is done when the local gate passes, and CI is checked once afterwards.
 
+### 11 to 14. Answers: scenarios the real matcher plays, explained step by step
+Decided by the owner on 2026-10-25, in place of the pause planned after step 10: the owner learns
+the domain with this, beside Ghosh's book, so it comes first. What it is, and the rules it keeps,
+are in [FEATURES.md](FEATURES.md), item 15. Who writes what is decided before step 11's code is
+written (charter §4).
+
+### 11. The replay says what each request did
+The fork's `exchange_replay` also writes, for each request it replays, the range of updates it
+caused and the responses the matcher sent to clients (accepted, filled, canceled, cancel
+rejected), with each one's client and order ids. The market data file is unchanged.
+**Done when:** a recording's replay gives, for every request, exactly the updates and responses the
+matcher produced for it, checked against a live run of the same requests; tested in the fork,
+with the format in its README.
+
+### 12. The answer tool
+A command-line tool reads a scenario (named clients, and requests in order, each with its
+explanation and its claims), writes it as a recording, replays it (step 11), checks every claim
+against the real state after its step, and writes `.fillscope/answer.json` for the viewer. A
+scenario Ghosh's exchange can't express (a market order, a modify) is refused, saying why; so is
+one with a false claim, saying which, what was claimed and what is true.
+**Done when:** each kind of claim is checked both ways (a true one passes, a false one is refused),
+an impossible request is refused, and the answer file records the replay it rests on, so the viewer
+can tell an answer from a stale one.
+
+### 13. The viewer plays an answer
+The viewer picks up `.fillscope/answer.json` while it runs, and shows it: the books after each
+step, a step at a time forward and back, the step's explanation and its claims (each marked true or
+false, as the viewer finds it) in a pane beside the book. The context file names the answer and the
+step, so a question asked at a step is about that step.
+**Done when:** UI tests step through an answer and check the pane and the books at each step, a new
+answer replaces the shown one, and a claim made false by a changed replay shows as false.
+
+### 14. A first answer, and the demo
+The first real answers, to the owner's first questions; whatever they show missing is fixed. A
+scripted demo plays one, as part of the tests (charter §2, priority 3).
+**Done when:** the owner has stepped through answers to the owner's own questions, and the demo runs in
+the test suite.
+
 ## Waiting on the owner
-- **A pause once steps 1 to 10 have landed** (the owner, 2026-10-23): the owner learns the work done,
-  asking questions, whose answers go into [ARCHITECTURE.md](ARCHITECTURE.md), before the roadmap
-  continues.
+- **Who writes what in steps 11 to 14** (charter §4).
 
 ## Later
 The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are
-ordered and broken into steps here after the pause.
+ordered and broken into steps here when steps 11 to 14 have landed.
