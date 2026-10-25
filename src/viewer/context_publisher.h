@@ -2,6 +2,7 @@
 // .fillscope/context.json in the viewer's working directory (viewer_options.h).
 #pragma once
 
+#include "common/atomic_file.h"
 #include "viewer/context.h"
 
 #include <chrono>
@@ -13,14 +14,6 @@
 #include <string_view>
 
 namespace fillscope {
-
-// Replaces `file` with `text` atomically: written to a temporary file in the same directory, flushed
-// to disk, then renamed over the old one. Rename within one filesystem is atomic on Linux, so a
-// reader sees the whole old file or the whole new one, never part of either. Creates the file's
-// directory if it has one and it doesn't exist. On failure, says what failed and why, and leaves no
-// temporary file behind.
-[[nodiscard]] std::expected<void, std::string> write_atomically(const std::filesystem::path& file,
-                                                                std::string_view text);
 
 // Why a context is being published: the user did something, or something else changed (market
 // data arrived). An enum rather than a bool, so a call reads update(context, PublishTrigger::user_action,

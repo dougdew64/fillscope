@@ -9,7 +9,8 @@ procedure. **Read when:** building, running or changing it.
 | `backend/` | the trading system Fillscope observes: a git submodule, the `fillscope` branch of the fork of the system in Ghosh's book, pinned to one commit ([PLAN.md](PLAN.md)); its code is in `backend/Chapter12/`, and its programs are `exchange_main`, `trading_main` and `exchange_replay` |
 | `src/feed/` | the exchange's market data as Fillscope reads it: `market_update.h`, an update and its bytes; `feed_socket.h`, a listener on one of the exchange's multicast streams; `book.h`, one ticker's book; `book_builder.h`, every book kept in step with the market data, recovering from snapshots |
 | `src/viewer/` | `viewer_state.h`, the books and the ticker shown; `context.h`, what the user points at and follows and the context built from it; `context_publisher.h`, the file it is published to; `viewer_view.h`, what the viewer draws; `viewer_app.h`, its loop; `viewer_options.h`, its command line; `main.cpp`, the window |
-| `src/common/` | helpers the others share: `fd.h`, a file descriptor's owner; `parse.h`, strict parsing of a number from text |
+| `src/answer/` | the answer tool, `fillscope-answer` (below): `scenario.h`, an answer's requests and claims; `wire.h`, the back end's recording and steps files as bytes; `check.h`, checking a claim; `answer.h`, making an answer |
+| `src/common/` | helpers the others share: `fd.h`, a file descriptor's owner; `parse.h`, strict parsing of a number from text; `atomic_file.h`, replacing a file so a reader never sees part of it |
 | `tools/vscode-debug-state/` | the VS Code extension that publishes the debugger's state ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)) |
 | `tools/attribution/` | `attribution.py`, which writes [ATTRIBUTION.md](ATTRIBUTION.md): per file, the owner's lines and the lines co-authored with Claude (`python3 -I tools/attribution/attribution.py`; `--check` checks the committed report). The back end keeps a copy, which writes its own report with upstream's lines too (`--upstream`; its `CLAUDE.md` gives the command) |
 | `tools/code_map/` | `code_map.py`, which checks that [CODE-MAP.md](CODE-MAP.md) puts every code file in exactly one part (`python3 -I tools/code_map/code_map.py --check`) |
@@ -122,6 +123,14 @@ the slower program adds the tier to its name.
   every stop is in the request anchor, in `lockstep_anchor.cpp`, at the right line, with the
   request's number and the updates published, and (through the LLDB driver, which is the viewer)
   with every update published through that request already arrived.
+- **`answer_tests` (GoogleTest, `unit`):** the answer tool's parts: reading a scenario and every
+  way one is refused, the bytes of a request, a recording and a steps file, each kind of claim true
+  and false, and a replay that isn't the scenario's.
+- **`answer_system_tests` (GoogleTest, `system`):** the answer tool run whole, through the real
+  `exchange_replay`: an answer written when every claim holds, a false claim refused with the
+  earlier answer left as it was, and how the matcher matches (a fill at the resting order's price,
+  a sweep across two prices, an order's unfilled rest resting, a cancel, a rejected cancel). About
+  8 seconds: each run builds a matching engine.
 - **`feed_tests` (GoogleTest, `unit`):** Fillscope's reading of the market data: decoding (the
   back end's own test bytes among others), a book, keeping the books in step and every way recovery
   starts and ends, each order's history, a replay's market data file, and receiving real multicast
@@ -181,9 +190,9 @@ python3 -I tests/scripts/mutants.py --list   #   which would run, running none
 python3 -I tests/scripts/selection_check.py  # iterate.py and mutants.py choose exactly right
 ```
 **How long each takes** (measured on the development machine, with both builds already current):
-`run-tests.sh` about 2.5 minutes (2026-10-25); the selection check about 4 (2026-10-24, with its
+`run-tests.sh` about 4 minutes (2026-10-25); the selection check about 5 (2026-10-25, with its
 mutant cases); the mutation check, every mutant (`--all`, or anything the check's own code
-depends on changed), about 23, for 192 mutants, each a rebuild and a test run (2026-10-24: about
+depends on changed), about 17, for 210 mutants (2026-10-25), each a rebuild and a test run (2026-10-24: about
 10 minutes of rebuilds, and about 7 of the back end's system tests, which wait more than they
 compute). Run as it normally is, it runs only the mutants a change reached: after a change to the
 viewer's drawing code, 18 of the 192 in about 40 seconds; with nothing changed, none, in under 2
@@ -226,6 +235,13 @@ move the books to any update of the run. From a terminal: `exchange_main --recor
 so its last context file says it has stopped. `--incremental GROUP:PORT` and `--snapshot GROUP:PORT`
 choose the market data streams (by default the exchange's). The viewer prints on stderr when
 publishing the context fails and when it works again, and if it can't join a stream.
+
+## Answers
+`build/debug/fillscope-answer SCENARIO` plays an answer's scenario through the back end's matcher
+and checks its claims; if all hold, it writes `.fillscope/answer.json` (`--answer FILE` chooses
+another), with the replay's files in `.fillscope/answer/` beside it. If a claim is false, or a
+request is something Ghosh's exchange can't do, it says why and writes nothing. The format, and
+what the viewer will do with an answer, are in [ARCHITECTURE.md](ARCHITECTURE.md), §10.
 
 ## Pointing and following
 The buttons along the top choose the ticker whose book is shown. In the book, **click an order's

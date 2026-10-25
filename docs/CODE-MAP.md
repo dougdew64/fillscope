@@ -33,13 +33,14 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | Drawing, and clicks | `src/viewer/viewer_view.*` | §4, *What it draws*; §8 | 2026-10-24: what the ticker buttons choose |
 | The context: what is published | `src/viewer/context.*` | §4, *What it draws*, *The pieces*, *An order pointed at* | 2026-10-24: what "showing ticker 0" in the bar means; 2026-10-25: whether "exchange live at update N" is part of the context |
 | Publishing the context | `src/viewer/context_publisher.*` | §4, *Publishing* | 2026-10-25: where the context bar is defined |
-| Shared helpers: a descriptor's owner, number parsing | `src/common/` | §2 (in part) | |
+| Answers: a scenario played through the real matcher, its claims checked | `src/answer/` | §10 | 2026-10-25: whether an answer goes through the running exchange and the network to the viewer |
+| Shared helpers: a descriptor's owner, number parsing, a file replaced atomically | `src/common/` | §2 (in part); §4, *Publishing* | |
 | The debug-state extension | `tools/vscode-debug-state/` | §5; [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md) | |
 | The attribution report | `tools/attribution/` | [AI-USE.md](AI-USE.md) (in part) | |
 | The code map's check | `tools/code_map/` | this document's opening | |
 | The build, and the editor's configurations | `CMakeLists.txt`, `.vscode/`, `.gitignore`, `.gitmodules` | not yet; how to use them is in [RUNNING.md](RUNNING.md) | |
 | CI | `.github/` | §9 (in part) | |
-| The tests, by area | `tests/feed/`, `tests/viewer/`, `tests/common/`, `tests/docs/`, `tests/support/`, `tests/vscode-debug-state/`, `tests/attribution/`, `tests/code_map/`, `tests/backend/backend_system_test.py`, `tests/*/CMakeLists.txt` | §9 | |
+| The tests, by area | `tests/answer/`, `tests/feed/`, `tests/viewer/`, `tests/common/`, `tests/docs/`, `tests/support/`, `tests/vscode-debug-state/`, `tests/attribution/`, `tests/code_map/`, `tests/backend/backend_system_test.py`, `tests/*/CMakeLists.txt` | §9 | |
 | The debugger tests | `tests/backend/replay_debugger_test.cpp`, `tests/backend/replay_lldb_driver.py` | §6, *What keeps both working*; [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md) | |
 | The test machinery: registration, selection, the checks of the tests | `tests/CMakeLists.txt`, `tests/scripts/*.py`, `tests/scripts/run-tests.sh` | §9, *Three times the tests run*, *Whether the tests can be trusted*, *Why a mutation check, and what it costs*; [RUNNING.md](RUNNING.md) | 2026-10-24: why there is a mutation check, why it costs so much here, and why a very large codebase couldn't run one this way; how a mutant begins life, finds its place, and is deleted; where the test programs are, what CTest is beside GoogleTest, what `RUN_ALL_TESTS` returns, and what `last-pass.json` records; 2026-10-25: whether the selection check decides which programs run |
 

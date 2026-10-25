@@ -148,3 +148,33 @@ The stages of the roadmap, each a change to the fork.
       Clients are numbers, and a role ("the maker") is the answer's name for one; a scenario needs
       no trading-client program, since the requests are written directly.
     - **Who writes what:** Claude, all of it ([PLAN.md](PLAN.md), steps 11 to 14).
+    - **Quizzes, as answers** (the owner, 2026-10-25). A step may carry an `ask`: a question the
+      pane shows before the step is played ("the taker sends buy 8 at 102: what trades, and what's
+      left?"), its explanation revealed when the owner steps on. The right answer is the replay's,
+      so it is exact and checked; part of step 13. Predicting a client's next request is a
+      different question, a trader's choice rather than the exchange's: it has one right answer
+      only for a client following stated rules, and its check is reasoning about a strategy, not the
+      matcher.
+    - **Next, after step 14: who made money, and how much.** A fifth kind of claim, a client's
+      profit and loss: its cash and position from the fills the matcher reported (the buyer pays
+      price times quantity and gains the shares, the seller the reverse), and what an open position
+      is valued at, stated (the mid-price, or the last trade), since a profit not yet taken depends
+      on it. Ghosh's exchange charges no fees, which the answer says; fees are part of fill
+      simulation (7).
+    - **The phase after: strategies in the loop** (the owner, 2026-10-25). Some clients of a
+      scenario are Ghosh's own strategies, with their settings ("client 1 is a market maker,
+      threshold 0.6, clip 10"), and only the others' requests are scripted. One deterministic loop
+      runs the matcher and the strategies: each request's market updates go to every strategy, and
+      what a strategy sends goes back to the matcher, in a fixed order. Its output is an ordinary
+      recording, so the steps, the replay and the viewer serve it unchanged. Then "what will the
+      maker send now?" is answered by the maker's own code; why, by its inputs published at each
+      step (its fair price, the trade ratio, the threshold), which claims can state and the tool
+      check; and "what if its threshold were lower?" by the same outside world played again. It
+      can be exact because the strategies' decisions read no clock: the market maker quotes at the
+      best prices, stepping a quote back a tick when its fair price (the best bid and ask weighted
+      by the opposite side's quantity) is within its threshold, and the liquidity taker sends its
+      clip when a trade's size against what was left passes its threshold (the back end's
+      `trading/strategy/market_maker.h`, `liquidity_taker.h`, `feature_engine.h`); the trade engine
+      reads the time only to notice a quiet market. Rests on the book's market-making and
+      liquidity-taking clients run and tested, and on running its trading engine without its
+      threads and sockets, which is most of what backtesting on simulated time (6) needs too.

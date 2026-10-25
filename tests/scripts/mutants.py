@@ -43,6 +43,11 @@ FD = "src/common/fd.h"
 REPLAY_DRIVER = "tests/backend/replay_lldb_driver.py"
 CONTEXT = "src/viewer/context.cpp"
 PUBLISHER = "src/viewer/context_publisher.cpp"
+ATOMIC_FILE = "src/common/atomic_file.cpp"
+ANSWER_SCENARIO = "src/answer/scenario.cpp"
+ANSWER_WIRE = "src/answer/wire.cpp"
+ANSWER_CHECK = "src/answer/check.cpp"
+ANSWER = "src/answer/answer.cpp"
 VIEWER_STATE = "src/viewer/viewer_state.cpp"
 VIEWER_STATE_HEADER = "src/viewer/viewer_state.h"
 DOC_LINKS = "tests/docs/doc_links_test.cpp"
@@ -359,6 +364,53 @@ MUTANTS = [
     ("the steps file is written short of a request's step", REPLAY,
      [("    if (requests.size() != steps.size()) {", "    if (false) {")],
      "lowlatency:Replay.TheStepsFileIsAHeaderThenEachRequestAndWhatItDid"),
+    # The answer tool: each a way a false explanation would be shown, or a scenario played as
+    # something it doesn't say.
+    ("a scenario reuses a client's order id", ANSWER_SCENARIO,
+     [("    if (!ids_used.insert({*who, *id}).second) {", "    if (ids_used.insert({*who, *id}).second && false) {")],
+     "ReadScenario.EachNewOrderNeedsAnIdOfItsOwn"),
+    ("a scenario's price may have a fraction", ANSWER_SCENARIO,
+     [("    if (!found->is_number_integer()) {", "    if (!found->is_number()) {")],
+     "ReadScenario.RefusesAnOrderTheMatcherCouldntTake"),
+    ("a scenario's unknown field is ignored", ANSWER_SCENARIO,
+     [("            return key;\n", "")],
+     "ReadScenario.RefusesAMisspeltOrMissingPart|ReadScenario.RefusesAnOrderTheMatcherCouldntTake"),
+    ("a request's client and ticker are swapped", ANSWER_WIRE,
+     [("            at = put(bytes.data(), at, request.client);\n            at = put(bytes.data(), at, ticker);\n",
+       "            at = put(bytes.data(), at, ticker);\n            at = put(bytes.data(), at, request.client);\n")],
+     "Wire.ARequestIsTheBackEndsThirtyBytes"),
+    ("a steps file's missing responses are read", ANSWER_WIRE,
+     [("        if ((bytes.size() - at) / kResponseSize < responses) {", "        if (false) {")],
+     "WireFiles.AStepsFileThatIsntWholeIsRefused"),
+    ("a best-price claim ignores the quantity", ANSWER_CHECK,
+     [(".holds = actual == claim.best", ".holds = actual.has_value() == claim.best.has_value() && (!actual || actual->price == claim.best->price)")],
+     "Claims.TheBestPriceOnASide"),
+    ("a trades claim counts the trades only", ANSWER_CHECK,
+     [(".holds = actual == claim.trades", ".holds = actual.size() == claim.trades.size()")],
+     "Claims.TheStepsTradesExactly"),
+    ("a trade's aggressor is taken as the buyer", ANSWER_CHECK,
+     [(".aggressor = update.side});", ".aggressor = Side::buy});")],
+     "Claims.TheAggressorIsTheIncomingOrdersSide"),
+    ("a resting claim ignores the quantity", ANSWER_CHECK,
+     [("    result.holds = actual == claim.qty;", "    result.holds = actual.has_value() == claim.qty.has_value();")],
+     "Claims.AnOrderRestingOrNot"),
+    ("a told claim takes another client's response", ANSWER_CHECK,
+     [("        if (response.client != claim.client || response.client_order_id != claim.id) {",
+       "        if (response.client_order_id != claim.id) {")],
+     "Claims.WhatAClientWasTold"),
+    ("a told claim ignores what is left", ANSWER_CHECK,
+     [("(!claim.leaves || response.leaves_qty == *claim.leaves)", "true")],
+     "Claims.WhatAClientWasTold"),
+    ("an answer checks a replay that isn't its scenario's", ANSWER,
+     [("        if (step.request != encode_request(wanted.request, scenario.ticker)) {", "        if (false) {")],
+     "CheckScenario.RefusesAReplayThatIsntTheScenarios"),
+    ("an answer finds no order's exchange id", ANSWER,
+     [("            if (response.type == ResponseType::accepted) {", "            if (response.type == ResponseType::rejected) {")],
+     "answer_system_tests"),
+    ("an answer with a false claim is written", ANSWER,
+     [("    if (const std::string wrong = false_claims(*checked); !wrong.empty()) {",
+       "    if (const std::string wrong = false_claims(*checked); false && !wrong.empty()) {")],
+     "answer_system_tests"),
     ("a recording's partial last request is read", RECORDING,
      [("    if (body % sizeof(MEClientRequest) != 0) {", "    if (false) {")],
      "lowlatency:RequestRecording.SaysWhyARecordingCantBeRead"),
@@ -657,11 +709,11 @@ MUTANTS = [
     ("an infinite --exit-after is accepted", "src/viewer/viewer_options.cpp",
      [("if (!(*seconds >= 0) || std::isinf(*seconds)) {", "if (!(*seconds >= 0)) {")],
      "ParseViewerArgs"),
-    ("a bare file name is refused", PUBLISHER,
+    ("a bare file name is refused", ATOMIC_FILE,
      [("if (const std::filesystem::path directory = file.parent_path(); !directory.empty()) {",
        "if (const std::filesystem::path directory = file.parent_path(); true) {")],
      "Publisher.ABareFileName"),
-    ("the viewer's failed write leaves its temporary file", PUBLISHER,
+    ("the viewer's failed write leaves its temporary file", ATOMIC_FILE,
      [("        ::unlink(temporary.c_str());\n", "")],
      "Publisher.AFailedWriteIsRetried + node:a failed write throws and leaves no temporary file"),
     ("finish says the viewer is still running", PUBLISHER,

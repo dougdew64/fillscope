@@ -60,6 +60,10 @@ target_include_directories(fillscope_feed PUBLIC src)
 target_compile_options(fillscope_feed PRIVATE ${FILLSCOPE_WARNINGS})
 
 # src/viewer: the Dear ImGui viewer.
+# The helpers the viewer and the answer tool share: the file a reader never sees half of.
+add_library(fillscope_common STATIC src/common/atomic_file.cpp)
+target_include_directories(fillscope_common PUBLIC src)
+target_compile_options(fillscope_common PRIVATE ${FILLSCOPE_WARNINGS})
 add_library(imgui_app STATIC ${IMGUI_SOURCES}
   ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp)
@@ -72,7 +76,7 @@ add_library(fillscope_viewer_core STATIC
   src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp
   src/viewer/stop_signals.cpp)
 target_include_directories(fillscope_viewer_core PUBLIC src)
-target_link_libraries(fillscope_viewer_core PUBLIC fillscope_feed nlohmann_json::nlohmann_json)
+target_link_libraries(fillscope_viewer_core PUBLIC fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
 target_compile_options(fillscope_viewer_core PRIVATE ${FILLSCOPE_WARNINGS})
 
 # The parts that draw with Dear ImGui are compiled into each program that uses them (the viewer, and
@@ -98,6 +102,19 @@ if(FILLSCOPE_TESTS)
   set(LOWLATENCY_TESTS ON CACHE BOOL "Build the back end's tests" FORCE)
 endif()
 add_subdirectory(backend/Chapter12)
+
+# The answer tool (src/answer/): plays an answer's scenario through the back end's exchange_replay,
+# checks its claims, and writes the answer for the viewer.
+add_library(fillscope_answer STATIC
+  src/answer/scenario.cpp src/answer/wire.cpp src/answer/check.cpp src/answer/answer.cpp)
+target_include_directories(fillscope_answer PUBLIC src)
+target_link_libraries(fillscope_answer PUBLIC fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
+target_compile_options(fillscope_answer PRIVATE ${FILLSCOPE_WARNINGS})
+add_executable(fillscope-answer src/answer/main.cpp)
+target_link_libraries(fillscope-answer PRIVATE fillscope_answer)
+target_compile_options(fillscope-answer PRIVATE ${FILLSCOPE_WARNINGS})
+target_compile_definitions(fillscope-answer PRIVATE FILLSCOPE_EXCHANGE_REPLAY="$<TARGET_FILE:exchange_replay>")
+add_dependencies(fillscope-answer exchange_replay)
 
 if(FILLSCOPE_TESTS)
   enable_testing()

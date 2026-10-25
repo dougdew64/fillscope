@@ -278,14 +278,24 @@ one with a false claim, saying which, what was claimed and what is true.
 **Done when:** each kind of claim is checked both ways (a true one passes, a false one is refused),
 an impossible request is refused, and the answer file records the replay it rests on, so the viewer
 can tell an answer from a stale one.
+**Status:** done (2026-10-25). `fillscope-answer SCENARIO [--answer FILE]` (`src/answer/`; the
+format and how it works in [ARCHITECTURE.md](ARCHITECTURE.md), §10). Checked by `answer_tests` (22:
+every refusal, the bytes, each claim true and false, a replay that isn't the scenario's),
+`answer_system_tests` (6, on real replays: they pin down a fill at the resting price, a sweep, an
+unfilled rest resting, a cancel and a rejected one, and a false claim refused), and 14 mutants, one
+of which found that no test had a sell crossing. The viewer's atomic write moved to `src/common/`,
+for both to share.
 
 ### 13. The viewer plays an answer
 The viewer picks up `.fillscope/answer.json` while it runs, and shows it: the books after each
 step, a step at a time forward and back, the step's explanation and its claims (each marked true or
 false, as the viewer finds it) in a pane beside the book. The context file names the answer and the
-step, so a question asked at a step is about that step.
+step, so a question asked at a step is about that step. A step may carry an `ask`, a question shown
+before the step is played, its explanation revealed when the owner steps on: so an answer can be a
+quiz on what the exchange will do (the scenario's format and the tool take it too).
 **Done when:** UI tests step through an answer and check the pane and the books at each step, a new
-answer replaces the shown one, and a claim made false by a changed replay shows as false.
+answer replaces the shown one, a claim made false by a changed replay shows as false, and a step's
+`ask` shows before the step and its explanation only after.
 
 ### 14. A first answer, and the demo
 The first real answers, to the owner's first questions; whatever they show missing is fixed. A

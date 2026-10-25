@@ -123,14 +123,17 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 | `backend/` | The trading system Fillscope observes: a fork of the one in Ghosh's book, a git submodule ([PLAN.md](PLAN.md)) | its own build file; programs `exchange_main`, `trading_main`, `exchange_replay` |
 | `src/feed/` | The exchange's market data as Fillscope reads it: decoding, receiving, and the books it describes | library `fillscope_feed` |
 | `src/viewer/` | The viewer: its core (no Dear ImGui) and its drawing | library `fillscope_viewer_core`, program `viewer` |
-| `src/common/` | Helpers the others share: `Fd`, a file descriptor's owner, and `parse_number`, strict parsing of a number from text | headers only |
+| `src/answer/` | The answer tool: an answer's scenario played through the back end's replay, its claims checked, and the answer written for the viewer (§10) | library `fillscope_answer`, program `fillscope-answer` |
+| `src/common/` | Helpers the others share: `Fd`, a file descriptor's owner; `parse_number`, strict parsing of a number from text; `write_atomically`, replacing a file so a reader never sees part of it | library `fillscope_common`, and headers |
 | `tools/vscode-debug-state/` | The VS Code extension that publishes the debugger's state | JavaScript, run by VS Code |
 | `tools/attribution/` | The report of who wrote each file's lines ([AI-USE.md](AI-USE.md)), Fillscope's and, with upstream's lines too, the back end's (a copy) | Python script |
 | `tools/code_map/` | The check that [CODE-MAP.md](CODE-MAP.md) puts every code file in one part | Python script |
 | `tests/` | One directory per area, mirroring the above | test programs per area, each in one cost tier |
 
-Dependencies point one way: the viewer depends on the feed, and both use `src/common/`. Nothing in
-Fillscope links the back end: it is read only through its market data. (Tests run its programs.)
+Dependencies point one way: the viewer and the answer tool depend on the feed, and all three use
+`src/common/`. Nothing in Fillscope links the back end: it is read only through its files, its market
+data among them. The answer tool runs one of its programs, `exchange_replay`, and the tests run
+them all.
 
 ## 3. The market data (`src/feed/`)
 **The problem:** rebuild every order book exactly as the exchange has it, from what the exchange
@@ -651,7 +654,141 @@ Before committing, `run-tests.sh` runs everything in both builds, about two minu
 check, run locally, runs the 18 mutants of the programs the change reached. After the push, CI
 runs everything again from a clean container, every mutant included, while work goes on.
 
-## 10. A reading order for the code
+## 10. Answers (`src/answer/`)
+**The problem:** teach how an exchange works, maker, taker, slicer, by showing it happen, without
+the explanation ever being able to show something the exchange wouldn't do. You ask a question in
+the editor's chat; the assistant answers with a *scenario*: a short list of client requests, what to
+say about each, and the facts it claims each one leads to. The answer tool plays those requests
+through the back end's real matching engine and checks every claim against what the engine did;
+the viewer shows the result a step at a time, the explanation in a pane beside the book
+([PLAN.md](PLAN.md), step 13, not yet built). It is HRW's Answers, rebuilt for an exchange
+([FEATURES.md](FEATURES.md), item 15).
+
+**Nothing goes through the running exchange or the network.** The requests are written as a
+recording and replayed by `exchange_replay`, the back end's fresh matching engine with no clients,
+no order server and no sockets, as any recording is (§3, *Replaying*). Its market data goes to a
+file, byte for byte what the exchange would have published, and the viewer reads that file, as
+`viewer --replay` does, so an answer can be stepped back and forth rather than watched go by.
+
+**The rows are the engine's, never the assistant's.** A scenario contains requests, and only
+requests: it can't say what the book looks like or what traded. Those come from replaying the
+requests through Ghosh's matcher, as `exchange_replay` replays any recording (§3, *Replaying*). So
+if the assistant misunderstands matching, the rows contradict its explanation rather than
+illustrate it. And the facts it states in words are claims, each checked the same way: a false one
+stops the answer from being written at all. This is the charter's rule that AI output is trusted
+only through a check that doesn't depend on the AI.
+
+### A scenario
+Written by the assistant as JSON; this one answers "what happens when a taker trades with a
+maker?":
+
+```json
+{
+  "question": "What happens when a taker trades with a maker?",
+  "ticker": 0,
+  "clients": { "1": "the maker", "3": "the taker" },
+  "intro": "A maker posts orders that wait in the book; a taker sends orders that trade with them at once.",
+  "steps": [
+    { "request": { "client": 1, "new": { "id": 10, "side": "buy", "price": 99, "qty": 10 } },
+      "say": "The maker offers to buy 10 at 99. Nothing can trade with it, so it rests in the book.",
+      "claims": [ { "bestBid": { "price": 99, "qty": 10 } }, { "trades": [] } ] },
+    { "request": { "client": 1, "new": { "id": 11, "side": "sell", "price": 101, "qty": 10 } },
+      "say": "And to sell 10 at 101. The gap between 99 and 101 is the spread.",
+      "claims": [ { "bestAsk": { "price": 101, "qty": 10 } } ] },
+    { "request": { "client": 3, "new": { "id": 30, "side": "buy", "price": 101, "qty": 4 } },
+      "say": "The taker buys 4, priced at 101 so it crosses the maker's sell, and trades at once.",
+      "claims": [
+        { "trades": [ { "price": 101, "qty": 4, "aggressor": "buy" } ] },
+        { "told": { "client": 1, "filled": { "id": 11, "price": 101, "qty": 4, "leaves": 6 } } },
+        { "bestAsk": { "price": 101, "qty": 6 } } ] }
+  ]
+}
+```
+
+- **`clients`** gives each client number a role, so the answer says "the maker", not "client 1".
+  Every client a request or a claim names must have one.
+- **`request`** is a `new` order (the client's own id for it, side, price, quantity) or a `cancel`
+  of one of the client's ids. Each new order needs an id of its own: the exchange keys a client's
+  orders by id, and a second order under one would overwrite the first's entry.
+- **`say`** is the explanation of the step.
+- **`claims`** are the facts the step states, five kinds: `bestBid` or `bestAsk` (the best price on
+  that side, and the total resting there; `null` for an empty side); `trades` (exactly the step's
+  trades, in order, so a trade left out is as false as one made up); `resting` (a client's order
+  rests with this quantity, or with `null`, doesn't rest); and `told` (a client was sent a response
+  about one of its orders: `accepted`, `filled`, `canceled` or `cancelRejected`, with any of its
+  price, quantity and quantity left, each checked if given).
+
+**What a scenario can't say** is refused when it is read, in the domain's words, rather than played
+as something else. Ghosh's exchange has only limit orders: every order has a price, and whatever
+doesn't trade rests in the book; there is no market order, and no immediate-or-cancel. So a taker
+is a limit order priced to cross, and a scenario with a `market` request is refused, saying so. A
+client can't modify an order either, only cancel it and send a new one, and a `modify` is refused
+the same way. The matcher's own limits (256 clients, 8 tickers, a client's order ids below
+1,048,576) are refused too, before the back end ever sees them; so is any field the format doesn't
+have, so that a misspelt claim (`bestbid`) is never silently left unchecked.
+
+### Making an answer
+`fillscope-answer SCENARIO [--answer FILE]` (by default `.fillscope/answer.json`):
+
+1. **Reads the scenario** (`read_scenario`, `scenario.h`), refusing it as above.
+2. **Writes its requests as a recording**, `.fillscope/answer/scenario.rec`, in the format the
+   exchange records (`write_recording`, `wire.h`).
+3. **Replays it**: runs the back end's `exchange_replay` on it, with `--steps`, in
+   `.fillscope/answer/`, where the replay writes its log too. The market data goes to
+   `market.dat`; what each request did (the updates it made, and the responses the matcher sent to
+   clients) to `steps.dat` (§3, *Replaying*).
+4. **Reads both back** (`read_market_data_file`, and `read_steps_file` in `wire.h`), and checks
+   the replay is the scenario's: one step per request, each step's request the scenario's request,
+   byte for byte, and the steps' updates following on from 1 to the last.
+5. **Checks every claim** (`check_scenario`, `answer.h`), below.
+6. **If all hold, writes the answer** atomically (`write_atomically`, as the context is written).
+   If any is false it prints each, what was claimed and what is true, and leaves the answer file as
+   it was: a false answer is never shown.
+
+It exits 0 when it has written the answer, 1 when it refused, and 2 for a bad command line. A run
+takes about 1.3 seconds, nearly all of it the replay building its matching engine.
+
+**The answer file** holds the question, the roles, and each step: its request in words ("The
+taker sends order 30: buy 4 at 101."), what it says, the numbers of the updates it made, the
+responses in words, and its claims as sentences, each with `holds`. It names the market data file
+the steps rest on, with a fingerprint of it, so the viewer can tell a current answer from one whose
+replay has since changed. And it carries the scenario as written: the viewer reads it with the same
+`read_scenario`, and will check the claims against its own books, rather than trust the file's
+word for it.
+
+### How a claim is checked
+`check_scenario` follows the replay step by step, as the viewer will: a fresh `BookBuilder` is
+given each step's updates in turn, so after step N the books are exactly the replay's after
+request N. A claim about step N is checked against four things (`StepState`, `check.h`):
+
+- **The book after the step**, the scenario's ticker: `bestBid`, `bestAsk` and `resting` read it.
+- **The step's own updates**: the trades among them, for `trades`. A trade's side in the market
+  data is that of the incoming order that crossed (the matcher's `match`), so it is the aggressor.
+- **The step's own responses**, for `told`, which holds if any response to that client, about that
+  order, has the claimed kind and every number given.
+- **Which exchange id each client's order has.** A scenario names an order by its client and the
+  client's id for it; the book knows it by the exchange's id. The accepted responses pair the two,
+  so `resting` can find the order: "the exchange never accepted that order" if no response did.
+
+Each claim is also turned into the sentence the pane will show: "The best ask is 101, for 6.", "This
+step trades 4 at 101 (an incoming buy crossing).", "The maker is told order 11 filled 4 at 101, with
+6 left." A false one says what is true instead: "the best ask is 101, for 6".
+
+**Why the bytes are read here, not by including the back end's headers:** as with the market data
+(§3), Fillscope writes the recording and reads the steps from their layouts (`wire.h`), a second,
+independent reading of the formats; the back end's tests pin them down from its side. A mismatch
+between the two shows as a step that isn't the scenario's request, which the tool refuses.
+
+**What tests it:** `answer_tests` (the unit tier): every refusal of a scenario, the bytes of a
+request, a recording and a steps file (field by field, against the back end's layout), each kind of
+claim true and false, and a replay that isn't the scenario's. `answer_system_tests` (the system
+tier, since each run starts a replay, about 800 MB): the tool run whole on real replays, which also
+pins down how Ghosh's exchange matches, as an answer will state it: an order filled at the resting
+order's price, the incoming order told first; a buy sweeping two prices, best first; what an order
+can't fill resting in the book; a cancel, and a cancel of an order no longer there rejected with no
+update; and a false claim refused with the earlier answer left as it was.
+
+## 11. A reading order for the code
 1. `src/feed/market_update.h`: what the exchange sends.
 2. `src/feed/book.h`, then `book_builder.h`: a book, and keeping every book in step.
 3. `src/viewer/main.cpp`, then `viewer_app.cpp`: the viewer's setup, and its loop.
@@ -659,3 +796,5 @@ runs everything again from a clean container, every mutant included, while work 
 5. `src/viewer/viewer_view.cpp`: drawing and clicks.
 6. `src/feed/market_update.cpp`, `feed_socket.cpp` and `market_data_file.cpp`: the bytes, the socket and
    a replay's file underneath.
+7. `src/answer/scenario.h`, `check.h`, then `answer.cpp`: an answer's scenario, its claims, and
+   making one.

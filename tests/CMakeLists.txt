@@ -102,6 +102,7 @@ target_include_directories(imgui_te PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DI
 target_compile_definitions(imgui_te PUBLIC IMGUI_USER_CONFIG="imconfig_test_engine.h")
 target_link_libraries(imgui_te PUBLIC Threads::Threads)
 
+add_subdirectory(answer)
 add_subdirectory(attribution)
 add_subdirectory(code_map)
 add_subdirectory(common)
