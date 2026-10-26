@@ -36,9 +36,11 @@ Where two priorities conflict, the higher wins.
    MIT): its exchange and trading clients are the back end. The fork is a public repository of its
    own, changed on a branch; Fillscope pins one commit of it. What is built is in
    [ARCHITECTURE.md](ARCHITECTURE.md), and what is to be built in [FEATURES.md](FEATURES.md).
-2. **No AI in the app.** The app makes its state observable and publishes the context of what is
-   selected, to a file it replaces on every change (`.fillscope/context.json`); an assistant works
-   beside it in the editor, reading the source and that context.
+2. **The assistant isn't in the app.** The app makes its state observable and publishes the context
+   of what is selected, to a file it replaces on every change (`.fillscope/context.json`); the
+   assistant works beside it in the editor, reading the source and that context. The rule is about
+   the assistant, not about methods: the app may use whatever its features need, a model trained
+   offline among them (a pattern detector, say).
 3. **C++ on Linux throughout,** including the UI: Dear ImGui with ImPlot. Everything builds with
    GCC, with AddressSanitizer and UndefinedBehaviorSanitizer, and ThreadSanitizer for threaded code.
 4. **Tests below the UI first:** core unit tests and replay fidelity checks; UI tests with the Dear

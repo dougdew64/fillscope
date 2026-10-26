@@ -55,8 +55,8 @@ The stages of the roadmap, each a change to the fork.
 9. **Throughput:** measured messages per second.
 
 ## Tools around the app
-10. **A command-line tool for counterfactual replays,** which an assistant working beside the app
-    runs, since no AI runs in it (charter §3, decision 2). It is tested below the UI, with the
+10. **A command-line tool for counterfactual replays,** which the assistant working beside the app
+    runs, since the assistant isn't in it (charter §3, decision 2). It is tested below the UI, with the
     core unit tests and replay fidelity checks.
 11. **A small synthetic market data generator for demos,** since market data is never committed
     (charter §3, decision 5).
@@ -139,8 +139,8 @@ The stages of the roadmap, each a change to the fork.
     picks up and shows), and on HRW's lesson that explanation nothing checks rots.
     **Built:** [PLAN.md](PLAN.md), steps 11 to 14 (2026-10-25); what remains is its next parts,
     below: who made money, and strategies in the loop.
-    - **No AI in the app** (charter §3, decision 2). The context file goes from the viewer to the
-      assistant; an answer goes the other way, as a file the assistant writes,
+    - **The assistant isn't in the app** (charter §3, decision 2). The context file goes from the
+      viewer to the assistant; an answer goes the other way, as a file the assistant writes,
       `.fillscope/answer.json` (ignored by git, replaced for each question), which the viewer picks
       up while it runs and shows at once. An answer is about the moment: it is never committed.
     - **The rows are the matcher's, not the assistant's.** An answer gives requests (which client

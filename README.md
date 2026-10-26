@@ -32,9 +32,9 @@ stepped in a debugger while the book view updates with each line is already buil
   check, the test infrastructure and tests of all the code, the hand-written code included, and
   the changes to the back end (deterministic replay, the lockstep anchor, its bug fixes and tests).
   [AI-USE.md](docs/AI-USE.md) lists each part and what checks it.
-- **No AI runs inside the app.** The app makes its state exactly observable and writes the context
-  of whatever you point at to a file, `.fillscope/context.json`, replaced on every change; an
-  assistant working beside it in the editor reads that context and the source, and will run
+- **The assistant isn't in the app.** The app makes its state exactly observable and writes the
+  context of whatever you point at to a file, `.fillscope/context.json`, replaced on every change;
+  the assistant, working beside it in the editor, reads that context and the source, and will run
   counterfactual replays from the command line.
 - **Every feature is demonstrable:** scripted UI tests drive the viewer with real clicks; they are
   planned to record the demo videos too ([docs/FEATURES.md](docs/FEATURES.md)).
