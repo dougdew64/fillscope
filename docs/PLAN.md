@@ -325,7 +325,11 @@ Decided by the owner on 2026-10-26: what it is, and why, is in [FEATURES.md](FEA
 **Who writes what** (the owner, 2026-10-26): Claude writes all four steps; the owner's hand-written
 code comes later. **Resuming** plays from the buffer at the pace the updates arrived, behind live,
 with a separate way back to live. **The viewer keeps the whole session,** written to a file as it
-arrives.
+arrives. **The viewer cleans up after itself** (the owner, 2026-10-26): when it exits, it deletes
+what it created for its own use, the buffer's file among them. So a live moment's address lasts as
+long as the viewer runs. A viewer that couldn't clean up (killed outright) leaves its files behind,
+and the next viewer to start removes those of viewers no longer running. The context file is not
+such a file: its last write, saying the viewer has stopped, is meant to be read afterwards.
 
 ### 15. The viewer keeps what it receives
 The viewer's core keeps every incremental update it applies, with the time it arrived, and can
@@ -354,15 +358,18 @@ whenever the screen isn't at the newest; the viewer program's test pauses and re
 viewer.
 
 ### 17. A live moment's address
-The viewer writes what it keeps to a file as it arrives, readable while it grows and after the
-viewer has stopped, even mid-write: the updates, their arrival times and the runs. The context
-file gives a live moment's address, that file and an update number, as a replay's does now; a
-command-line tool prints the books as of any update in such a file, so the assistant can rebuild
-exactly what the user was looking at, however much later the question comes. The viewer can open
-the file as a replay.
+The viewer writes what it keeps to a file as it arrives, readable while it grows, even mid-write:
+the updates, their arrival times and the runs. While the viewer runs, the context file gives a live
+moment's address, that file and an update number, as a replay's does now; a command-line tool
+prints the books as of any update in such a file, so the assistant can rebuild exactly what the user
+was looking at, however much later in the session the question comes. The viewer deletes the file
+when it exits, and its last context file gives no address; a viewer starting removes the files of
+viewers no longer running.
 **Done when:** on the real exchange, the books the tool rebuilds at the update a user pointed at
-equal the viewer's at that moment; a file cut short is read to its last whole update; the format is
-in [ARCHITECTURE.md](ARCHITECTURE.md).
+equal the viewer's at that moment; a file being written is read to its last whole update; the file
+is gone after the viewer exits by each way it can (closing the window, `--exit-after`, SIGTERM,
+SIGINT), and the last context file names none; a file left by a killed viewer is removed by the
+next one, and a running viewer's never is; the format is in [ARCHITECTURE.md](ARCHITECTURE.md).
 **Open:** the file's format (an extension of the market data file's, or one of its own).
 
 ### 18. The demo

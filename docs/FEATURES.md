@@ -199,8 +199,11 @@ The stages of the roadmap, each a change to the fork.
       as of which update.
     - **A live moment gets an address.** Written to a file as it arrives, the buffer gives every
       live moment what a replay's has: a file and an update number, from which the assistant
-      rebuilds exactly the books the user was looking at when they pointed, however much later the
-      question comes. Live now publishes that it has no such address.
+      rebuilds exactly the books the user was looking at when they pointed, however much later in
+      the session the question comes. Live now publishes that it has no such address.
+    - **The viewer cleans up after itself** (the owner, 2026-10-26): it deletes the buffer's file,
+      and anything else it made for its own use, when it exits, so an address lasts as long as the
+      viewer runs; files left by a viewer that was killed are removed by the next one to start.
     - **Behind live is never mistaken for live.** While the screen isn't at the newest update, it
       says so, and how far behind (in updates, and in time); the feed's health (received, recovering,
       seconds since the last update) is the live feed's, apart from the moment shown.
