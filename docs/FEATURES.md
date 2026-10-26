@@ -217,3 +217,13 @@ The stages of the roadmap, each a change to the fork.
       (1,100 in the live demo's first 21 seconds of trading), about 8 MB an hour.
     - **Rests on** replay (built); it gives the animated replay (4) live data as a source, and the
       live moments that fill explanations (1) and counterfactuals (2) need.
+17. **A viewer log, to diagnose a failure after it happened** (the owner, 2026-10-26). When the
+    viewer fails, crashes included, the assistant needs to find out why afterwards, from a file,
+    since the viewer's own output is gone with its terminal. What the viewer did and saw: how it was
+    started (its command line, the build), the feed's events (joining, errors, gaps and recoveries),
+    the context file's failures, the user's actions, the line it prints each second, and how it
+    ended (closed, a signal, an error). A crash ends the process before anything orderly can run, so
+    what is logged must already be on disk, and the crash itself recorded where possible (the fatal
+    signal, a backtrace, the sanitizers' reports). Kept when the viewer exits, unlike the files it
+    cleans up (16): it is meant to be read afterwards. Bounded, so a long session or many runs
+    can't fill the disk. Not yet planned.
