@@ -280,6 +280,40 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK_EQ(top_of(ctx, "**/sell##order10"), book_top);
     });
 
+    // The x ending the pointing line, and the following line's, stay inside the window at every
+    // width: each line once wrapped at the window's edge with its x after it, so a line that just
+    // fit put the x past the edge, where it couldn't be seen.
+    viewer_test(engine, "the_bars_x_stays_inside_the_window_at_every_width", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        add_book(vars);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        ctx->ItemClick("**/buy##order2");
+        ctx->ItemClick("**/2##follow");
+        ctx->Yield(2);
+        const ImVec2 size = ImGui::GetIO().DisplaySize;
+        for (const char* label : {fillscope::kClearPointButton, fillscope::kClearFollowButton}) {
+            const std::string x = std::format("**/{}", label);
+            ImGui::GetIO().DisplaySize = size;
+            ctx->Yield(2);
+            // From well past the line's end to well short of it, a pixel at a time.
+            const float line_end = ctx->ItemInfo(x.c_str()).RectFull.Min.x;
+            for (float width = line_end + 60.0f; width > line_end - 60.0f; width -= 1.0f) {
+                ImGui::GetIO().DisplaySize = ImVec2{width, size.y};
+                ctx->Yield(2);
+                const ImGuiWindow* window = ctx->GetWindowByRef(std::format("//{}", fillscope::kViewerWindow).c_str());
+                const ImRect button = ctx->ItemInfo(x.c_str()).RectFull;
+                // Inside the area the window's content is laid out in, short of its padding.
+                IM_CHECK_LE(button.Max.x, window->WorkRect.Max.x);
+                if (button.Max.x > window->WorkRect.Max.x) {
+                    break;  // the first width is enough to say what's wrong
+                }
+            }
+        }
+        ImGui::GetIO().DisplaySize = size;
+        ctx->Yield(2);
+    });
+
     viewer_test(engine, "clicking_a_price_points_at_its_level", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         add_book(vars);

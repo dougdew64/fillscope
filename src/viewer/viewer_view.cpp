@@ -32,6 +32,16 @@ void wrapped(std::string_view s) {
     ImGui::PopTextWrapPos();
 }
 
+// Text wrapped short of the pane's edge by the room `button`, a small button drawn after it on its
+// last line, takes: wrapped at the edge, a line that just fit would put the button past it.
+void wrapped_before(std::string_view s, const char* button) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float room = style.ItemSpacing.x + ImGui::CalcTextSize(button, nullptr, true).x + style.FramePadding.x * 2.0f;
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - room);
+    text(s);
+    ImGui::PopTextWrapPos();
+}
+
 // A tooltip for the item just drawn, while it is hovered. `describe` builds the text, and is called
 // only while hovered, so no tooltip text is built for the items nobody is pointing at.
 // std::invocable<F> is a C++20 concept: it accepts anything callable with no arguments.
@@ -81,7 +91,7 @@ void draw_context_bar_lines(const ViewerView& view, ViewerActions& actions) {
         wrapped(bar.background);
         if (bar.point) {
             ImGui::Bullet();
-            wrapped(*bar.point);
+            wrapped_before(*bar.point, kClearPointButton);
             ImGui::SameLine();
             if (ImGui::SmallButton(kClearPointButton)) {
                 actions.clear_point = true;
@@ -92,7 +102,7 @@ void draw_context_bar_lines(const ViewerView& view, ViewerActions& actions) {
         }
         if (bar.follow) {
             ImGui::Bullet();
-            wrapped(*bar.follow);
+            wrapped_before(*bar.follow, kClearFollowButton);
             ImGui::SameLine();
             if (ImGui::SmallButton(kClearFollowButton)) {
                 actions.clear_follow = true;
