@@ -142,7 +142,12 @@ the slower program adds the tier to its name.
   the viewer with real clicks, checked at every frame. About 1.5 seconds. Run and Debug, then
   **demo: a market maker**, shows it in a window at a pace to follow, about a minute; **demo:
   record a market maker** records it as a video for sharing, quicker and in a 1280 by 720 window,
-  about 75 seconds, to `build/debug/demo-a-market-maker.mp4` (it needs `ffmpeg`).
+  about 80 seconds, to `build/debug/demo-a-market-maker.mp4` (it needs `ffmpeg`).
+- **`viewer_live_demo` (the Test Engine's own, `system`):** the live demo, headless: the viewer
+  on the real exchange and a client trading at random, showing other tickers' books and pointing
+  at orders, its books checked against the demo's own. About 10 seconds. **demo: live trading**
+  shows it in a window; **demo: record live trading** records its 30 seconds to
+  `build/debug/demo-live-trading.mp4`.
 - **`feed_tests` (GoogleTest, `unit`):** Fillscope's reading of the market data: decoding (the
   back end's own test bytes among others), a book, keeping the books in step and every way recovery
   starts and ends, each order's history, a replay's market data file, and receiving real multicast

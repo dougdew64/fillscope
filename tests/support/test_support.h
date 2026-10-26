@@ -1,10 +1,12 @@
-// Helpers shared by the tests: shell commands, ports of a test's own, and sending to a multicast
-// group.
+// Helpers shared by the tests: shell commands, ports of a test's own, sending to a multicast group,
+// and running a back-end program.
 #pragma once
 
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <signal.h>
+#include <spawn.h>
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -19,6 +21,9 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
+
+extern char** environ;
 
 namespace fillscope::test {
 
@@ -97,5 +102,52 @@ inline bool send_multicast(const std::string& group, std::uint16_t port, const v
     ::close(fd);
     return ok;
 }
+
+// Whether something listens on TCP `port` on the loopback interface.
+inline bool tcp_port_open(std::uint16_t port) {
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return false;
+    }
+    const sockaddr_in address{.sin_family = AF_INET, .sin_port = htons(port), .sin_addr = {htonl(INADDR_LOOPBACK)}, .sin_zero = {}};
+    const bool open = ::connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof address) == 0;
+    ::close(fd);
+    return open;
+}
+
+// A back-end program, started in `directory` (it writes its logs there) and killed at the end: how
+// it shuts down isn't the subject of the tests, and takes a minute.
+class Program {
+public:
+    Program(const std::vector<std::string>& argv, const std::filesystem::path& directory) {
+        std::vector<char*> args;
+        for (const auto& arg : argv) {
+            args.push_back(const_cast<char*>(arg.c_str()));
+        }
+        args.push_back(nullptr);
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_addchdir_np(&actions, directory.c_str());
+        // Its output would bury the test's; its logs are in `directory`.
+        posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        started_ = posix_spawn(&pid_, args[0], &actions, nullptr, args.data(), environ) == 0;
+        posix_spawn_file_actions_destroy(&actions);
+    }
+    Program(const Program&) = delete;
+    Program& operator=(const Program&) = delete;
+    ~Program() {
+        if (started_) {
+            ::kill(pid_, SIGKILL);
+            ::waitpid(pid_, nullptr, 0);
+        }
+    }
+    [[nodiscard]] bool started() const { return started_; }
+    [[nodiscard]] bool running() const { return started_ && ::waitpid(pid_, nullptr, WNOHANG) == 0; }
+
+private:
+    pid_t pid_ = -1;
+    bool started_ = false;
+};
 
 }  // namespace fillscope::test

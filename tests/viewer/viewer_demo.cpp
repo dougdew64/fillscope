@@ -1,5 +1,5 @@
-// The demo: lesson 6 of the course, "How a market maker provides liquidity", played in the viewer
-// as a person would play it: chosen from the drop-down in the answer pane, then stepped through
+// The demos. The first: lesson 6 of the course, "How a market maker provides liquidity", played in
+// the viewer as a person would play it: chosen from the drop-down in the answer pane, then stepped through
 // with > to its end. At every frame it checks what is on screen against the lesson's answer, read
 // on its own (load_answer, every claim checked again): where the pane says the user is, the step's
 // question or its explanation, every claim marked true, and the book, one row per order resting
@@ -8,17 +8,29 @@
 // The lesson is played first, through the real answer tool and exchange_replay, into a scratch
 // directory, so the demo doesn't depend on the course having been built.
 //
+// The second, --live: the viewer on the real exchange, as the VS Code compound "viewer + exchange +
+// client" runs them, for 30 seconds from just before the first orders arrive. The demo starts the
+// exchange (on ports of its own) and the viewer, then the client, told to warm up for a second, so
+// trading begins about two seconds in. Then, at set times, it shows another ticker's book, points
+// at an order and stops pointing, and does both again. At each it checks the viewer's books
+// against its own, built from the same market data joined on its own: equal, as of the viewer's
+// last update, and every order shown with its row; and where the viewer says the user points.
+//
 //   viewer_demo FILLSCOPE_ANSWER COURSE_DIR [--watch | --record FILE.mp4]
+//   viewer_demo --live EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]
 //
 // In the tests, headless (the Test Engine's null backend) and at full speed. With --watch, in a
 // window, at a pace a person can follow: the mouse moves to each control before it clicks, and each
 // frame stays on screen for a few seconds. With --record, the same, and recorded as a video: the
 // Test Engine reads each frame back from the window and pipes it to ffmpeg, so the video holds the
-// window alone, its drawn mouse included. The run is the same every way, checks included. Exits 0
-// only if the demo ran, every check passed, and any recording was written.
+// window alone, its drawn mouse included. The run is the same every way, checks included (in the
+// tests, the live demo waits for the orders it needs rather than for the set times). Exits 0 only
+// if the demo ran, every check passed, and any recording was written.
 
 #include "answer/course.h"
 #include "feed/book.h"
+#include "feed/book_builder.h"
+#include "feed/feed_socket.h"
 #include "support/test_support.h"
 #include "viewer/answer_state.h"
 #include "viewer/viewer_app.h"
@@ -42,6 +54,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <vector>
 
 namespace {
 
@@ -67,23 +81,66 @@ struct Demo {
 };
 Demo g_demo;
 
+// The live demo's programs and market data, set up before the Test Engine starts.
+struct Live {
+    std::string exchange_main;
+    std::string trading_main;
+    std::optional<fillscope::test::Program> exchange;
+    std::optional<fillscope::test::Program> client;
+    std::optional<fillscope::FeedSocket> incremental;  // the viewer's two streams
+    std::optional<fillscope::FeedSocket> snapshot;
+    std::optional<fillscope::FeedSocket> own;           // the demo's own, for its checks
+    std::vector<fillscope::MarketUpdate> updates;       // every update the demo's own received
+    std::optional<std::string> own_error;               // its stream's last error, if it had one
+    bool held = false;  // the viewer takes in nothing meanwhile: what is checked or clicked stays put
+    std::chrono::steady_clock::time_point start;        // when the 30 seconds began
+};
+bool g_live_mode = false;
+Live g_live;
+// Ports of the demo's own (test_port), so nothing else on the machine using the exchange's usual
+// ones (a lockstep session in VS Code, another run of the tests) reaches it.
+const std::uint16_t kOrderPort = fillscope::test::test_port(0);
+const fillscope::Stream kIncremental{fillscope::kExchangeIncremental.group, fillscope::test::test_port(1)};
+const fillscope::Stream kSnapshot{fillscope::kExchangeSnapshot.group, fillscope::test::test_port(2)};
+constexpr auto kLiveLength = std::chrono::seconds{30};
+
+std::vector<std::string> with_endpoints(std::vector<std::string> args) {
+    for (std::string arg : {std::string{"--order-port"}, std::to_string(kOrderPort), std::string{"--incremental"},
+                            std::format("{}:{}", kIncremental.group, kIncremental.port), std::string{"--snapshot"},
+                            std::format("{}:{}", kSnapshot.group, kSnapshot.port)}) {
+        args.push_back(std::move(arg));
+    }
+    return args;
+}
+
 struct DemoVars {
     std::unique_ptr<fillscope::ViewerApp> app;
     std::string text;  // the text the viewer rendered last frame
 };
 
 // The viewer as `viewer --answer FILE --course DIR` starts it: the user's questions' file (empty
-// here), and the course beside it, nothing chosen.
+// here), and the course beside it, nothing chosen. Live, as plain `viewer` starts it.
 void set_up(ImGuiTestContext*, DemoVars& vars) {
     vars.app = std::make_unique<fillscope::ViewerApp>(scratch_root() / "context.json");
-    vars.app->watch_answer(scratch_root() / ".fillscope" / "answer.json");
-    vars.app->open_course(g_demo.course, g_demo.built);
+    if (!g_live_mode) {
+        vars.app->watch_answer(scratch_root() / ".fillscope" / "answer.json");
+        vars.app->open_course(g_demo.course, g_demo.built);
+    }
 }
 
-// One frame of the viewer's loop, as in src/viewer/main.cpp, with the rendered text captured.
+// One frame of the viewer's loop, as in src/viewer/main.cpp, with the rendered text captured. Live,
+// the demo's own stream is read too, after the viewer's.
 void viewer_frame(ImGuiTestContext* ctx) {
     DemoVars& vars = ctx->GetVars<DemoVars>();
     const auto now = std::chrono::steady_clock::now();
+    if (g_live_mode) {
+        if (!g_live.held) {
+            vars.app->receive(*g_live.incremental, *g_live.snapshot, now);
+        }
+        if (auto received = g_live.own->receive(g_live.updates, fillscope::ViewerApp::kMaxDatagramsPerPaint); received.error) {
+            g_live.own_error = std::move(received.error);
+        }
+    }
     vars.app->poll_answer(now);
     ImGui::LogToBuffer();
     (void)vars.app->paint(now);
@@ -96,11 +153,15 @@ bool contains(const std::string& text, std::string_view part) { return text.find
 // ffmpeg's arguments for an H.264 MP4, which players and sites accept widely, or nothing if this
 // ffmpeg has no H.264 encoder. Left to choose, ffmpeg falls back to MPEG-4 Part 2 where libx264 is
 // missing (Fedora's ffmpeg-free), which many players can't play. libx264 is preferred; libopenh264
-// takes a bit rate rather than a quality. The frames come in as the Test Engine sends them.
+// takes a bit rate rather than a quality. The frames come in as the Test Engine sends them, at most
+// $FPS a second but fewer when drawing and reading back a frame takes longer (the debug build), so
+// each is stamped with the time it arrives, and the video made $FPS a second from them, a frame
+// repeated where none came: it plays in the time the demo took.
 std::optional<std::string> h264_arguments(const std::string& ffmpeg) {
     const std::string encoders = fillscope::test::run_command(fillscope::test::shell_quote(ffmpeg) + " -hide_banner -encoders").output;
-    const std::string input = "-hide_banner -loglevel error -r $FPS -f rawvideo -pix_fmt rgba -s $WIDTHx$HEIGHT -i - -threads 0 -y ";
-    const std::string output = " -pix_fmt yuv420p -movflags +faststart $OUTPUT";
+    const std::string input =
+        "-hide_banner -loglevel error -use_wallclock_as_timestamps 1 -f rawvideo -pix_fmt rgba -s $WIDTHx$HEIGHT -i - -threads 0 -y ";
+    const std::string output = " -fps_mode cfr -r $FPS -pix_fmt yuv420p -movflags +faststart $OUTPUT";
     if (contains(encoders, " libx264 ")) {
         return input + "-c:v libx264 -preset medium -crf 20" + output;
     }
@@ -302,6 +363,246 @@ void play_the_lesson(ImGuiTestContext* ctx) {
     }
 }
 
+// A book's orders as the viewer lists them: asks above bids, each side's best price nearest the
+// middle, and within a price in the order they will fill.
+std::vector<fillscope::Order> rows_of(const fillscope::Book& book) {
+    std::vector<fillscope::Order> rows;
+    const std::vector<fillscope::Level> asks = book.levels(fillscope::Side::sell);
+    for (auto level = asks.rbegin(); level != asks.rend(); ++level) {
+        rows.insert(rows.end(), level->orders.begin(), level->orders.end());
+    }
+    for (const fillscope::Level& level : book.levels(fillscope::Side::buy)) {
+        rows.insert(rows.end(), level.orders.begin(), level.orders.end());
+    }
+    return rows;
+}
+
+// Holds the viewer's market data while it lives, so the books stay as they are across the frames a
+// check or a click takes (the mouse's way to a row takes a fraction of a second); what arrives
+// meanwhile waits in the sockets, as it does when a paint has taken its most, and is taken in after.
+struct Hold {
+    explicit Hold(ImGuiTestContext* ctx) {
+        g_live.held = true;
+        ctx->Yield(2);  // a frame drawn from the books as held
+    }
+    ~Hold() { g_live.held = false; }
+    Hold(const Hold&) = delete;
+    Hold& operator=(const Hold&) = delete;
+};
+
+// The book's rows the viewer drew in its last frame, as its rendered text has them, one line each
+// ("| buy | [ 182 ] | 85 | #1 | [ 25 ] | 85 |"): each row's side and order id, top to bottom. Read
+// from one frame's text, where asking the Test Engine about each row would take a frame a row.
+struct DrawnRow {
+    std::string side;
+    std::uint64_t order_id = 0;
+    friend bool operator==(const DrawnRow&, const DrawnRow&) = default;
+};
+
+std::vector<DrawnRow> drawn_rows(const std::string& text) {
+    std::vector<DrawnRow> rows;
+    const std::size_t header = text.find("| side | price |");
+    if (header == std::string::npos) {
+        return rows;
+    }
+    std::size_t line = text.find('\n', header);
+    while (line != std::string::npos && text.compare(line + 1, 2, "| ") == 0) {
+        const std::size_t end = text.find('\n', line + 1);
+        std::vector<std::string> cells;
+        std::string cell;
+        for (const char c : text.substr(line + 1, end == std::string::npos ? std::string::npos : end - line - 1)) {
+            if (c == '|') {
+                cells.push_back(cell);
+                cell.clear();
+            } else if (c != ' ' && c != '[' && c != ']') {
+                cell += c;
+            }
+        }
+        // "", side, price, level qty, queue, order, qty
+        if (cells.size() >= 6) {
+            rows.push_back({cells[1], std::stoull(cells[5])});
+        }
+        line = end;
+    }
+    return rows;
+}
+
+std::vector<DrawnRow> as_rows(const std::vector<fillscope::Order>& orders) {
+    std::vector<DrawnRow> rows;
+    for (const fillscope::Order& order : orders) {
+        rows.push_back({order.side == fillscope::Side::buy ? "buy" : "sell", order.order_id});
+    }
+    return rows;
+}
+
+// Live: the viewer's books against the demo's own, built from the updates its own stream received,
+// 1 to the viewer's last: equal, and no update missed or recovered from. The shown book's rows are
+// its orders, from the first, as many as the table has room for: drawn rows the book's first, in
+// its order, none skipped.
+void check_live(ImGuiTestContext* ctx) {
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    const Hold hold{ctx};
+    const fillscope::BookBuilder& books = vars.app->state().books;
+    // The demo's own stream may be a paint behind the viewer's.
+    for (int paints = 0; g_live.updates.size() < books.last_seq() && paints < 100; ++paints) {
+        ctx->Yield();
+    }
+    IM_CHECK_RETV(g_live.updates.size() >= books.last_seq(), void());
+    IM_CHECK(books.status() == fillscope::BookBuilder::Status::live);
+    IM_CHECK(books.recoveries().empty());
+    IM_CHECK(!vars.app->state().feed_error);
+    IM_CHECK(!g_live.own_error);
+    fillscope::BookBuilder own;
+    for (std::uint64_t seq = 1; seq <= books.last_seq(); ++seq) {
+        own.on_incremental(g_live.updates[seq - 1]);
+    }
+    for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
+        IM_CHECK(books.book(ticker).orders() == own.book(ticker).orders());
+    }
+    const std::vector<DrawnRow> rows = as_rows(rows_of(books.book(vars.app->state().shown_ticker)));
+    const std::vector<DrawnRow> drawn = drawn_rows(vars.text);
+    IM_CHECK(rows.empty() || !drawn.empty());
+    IM_CHECK(drawn.size() <= rows.size() && std::equal(drawn.begin(), drawn.end(), rows.begin()));
+}
+
+// Live: waits until `seconds` into the 30 seconds, when a person would do the next thing, and in the
+// tests, which don't wait for the times, until `ready` holds instead; either way, until it holds,
+// for at most 30 seconds more, with the exchange and the client still running.
+template <typename Ready>
+void wait_live(ImGuiTestContext* ctx, float seconds, Ready ready) {
+    const bool paced = ctx->EngineIO->ConfigRunSpeed != ImGuiTestRunSpeed_Fast;
+    const auto at = g_live.start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(seconds));
+    const auto deadline = std::max(at, std::chrono::steady_clock::now()) + std::chrono::seconds{30};
+    while ((paced && std::chrono::steady_clock::now() < at) || !ready()) {
+        IM_CHECK_RETV(std::chrono::steady_clock::now() < deadline, void());
+        IM_CHECK_RETV(g_live.exchange->running() && g_live.client->running(), void());
+        ctx->Yield();
+    }
+}
+
+// Moves the mouse aside, just right of the ticker buttons: off the books, so no tooltip covers them
+// and no row lights up, however the book grows.
+void mouse_aside_live(ImGuiTestContext* ctx) {
+    const ImRect last = ctx->ItemInfo(std::format("**/{}", fillscope::ticker_label(fillscope::BookBuilder::kTickers - 1).c_str()).c_str()).RectFull;
+    ctx->MouseMoveToPos(ImVec2{last.Max.x + last.GetWidth() * 3.0f, last.GetCenter().y});
+}
+
+// Shows `ticker`'s book with its button, once it has at least `orders` resting.
+void show_ticker(ImGuiTestContext* ctx, float seconds, std::uint32_t ticker, std::size_t orders) {
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    wait_live(ctx, seconds, [&] { return vars.app->state().books.book(ticker).order_count() >= orders; });
+    ctx->ItemClick(std::format("**/{}", fillscope::ticker_label(ticker).c_str()).c_str());
+    mouse_aside_live(ctx);
+    ctx->Yield(2);
+    IM_CHECK(vars.app->state().shown_ticker == ticker);
+    check_live(ctx);
+}
+
+// The order of the row `fraction` of the way down the shown book's rows drawn (0: the top row):
+// away from the middle, where the orders that trade are, so the one pointed at is likelier to stay.
+std::optional<fillscope::Order> drawn_order(ImGuiTestContext* ctx, float fraction) {
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    const std::vector<fillscope::Order> rows = rows_of(vars.app->state().books.book(vars.app->state().shown_ticker));
+    const std::size_t drawn = std::min(drawn_rows(vars.text).size(), rows.size());
+    if (drawn == 0) {
+        return std::nullopt;
+    }
+    return rows[std::min(drawn - 1, static_cast<std::size_t>(fraction * static_cast<float>(drawn)))];
+}
+
+// Points at the order `fraction` of the way down the rows drawn, clicked near its row's left end,
+// and checks the bar says so; at `until`, stops pointing, with the bar's x. The order may be
+// cancelled or filled meanwhile: the bar then says what became of it.
+void point_live(ImGuiTestContext* ctx, float seconds, float fraction, float until) {
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    const std::uint32_t ticker = vars.app->state().shown_ticker;
+    wait_live(ctx, seconds, [&] { return vars.app->state().books.book(ticker).order_count() > 0; });
+    std::optional<Hold> hold{std::in_place, ctx};
+    const auto chosen = drawn_order(ctx, fraction);
+    IM_CHECK_RETV(chosen.has_value(), void());
+    const fillscope::Order order = *chosen;
+    const ImRect row = ctx->ItemInfo(std::format("**/{}", fillscope::order_label(order).c_str()).c_str()).RectFull;
+    ctx->MouseMoveToPos(ImVec2{row.Min.x + row.GetHeight(), row.GetCenter().y});
+    ctx->MouseClick(ImGuiMouseButton_Left);
+    ctx->Yield(2);
+    const fillscope::PointTarget expected{fillscope::OrderRef{.ticker = ticker, .order_id = order.order_id}};
+    IM_CHECK(vars.app->selection().pointed() == expected);
+    IM_CHECK(contains(vars.text, std::format("Pointing at order {} of ticker {}", order.order_id, ticker)));
+    hold.reset();
+    mouse_aside_live(ctx);
+    check_live(ctx);
+    wait_live(ctx, until, [] { return true; });
+    ctx->ItemClick(std::format("**/{}", fillscope::kClearPointButton).c_str());
+    mouse_aside_live(ctx);
+    ctx->Yield(2);
+    IM_CHECK(!contains(vars.text, "Pointing at"));
+}
+
+// The live demo, recorded from just before the client starts to 30 seconds later.
+void play_live(ImGuiTestContext* ctx) {
+    ctx->SetRef(fillscope::kViewerWindow);
+    ctx->Yield(2);
+    mouse_aside_live(ctx);
+    if (g_demo.record) {
+        ImGuiCaptureArgs* args = ctx->CaptureArgs;
+        ImStrncpy(args->InOutputFile, g_demo.record->c_str(), sizeof(args->InOutputFile));
+        args->InPadding = 0.0f;
+        IM_CHECK(ctx->CaptureAddWindow(std::format("//{}", fillscope::kViewerWindow).c_str()));
+        args->InFlags |= ImGuiCaptureFlags_IncludeOtherWindows;
+        args->InSizeAlign = 1;
+        IM_CHECK(ctx->CaptureBeginVideo());
+    }
+    g_live.start = std::chrono::steady_clock::now();
+    g_live.client.emplace(with_endpoints({g_live.trading_main, "5", "RANDOM", "--warm-up-seconds", "1"}),
+                          scratch_root());
+    IM_CHECK(g_live.client->started());
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    // Ticker 0's book fills; then another ticker's, an order pointed at in each.
+    wait_live(ctx, 0.0f, [&] { return vars.app->state().books.updates_received() > 0; });
+    show_ticker(ctx, 8.0f, 0, 1);  // already shown: a check, and the button lit
+    show_ticker(ctx, 9.0f, 3, 3);
+    point_live(ctx, 12.0f, 0.0f, 16.0f);
+    show_ticker(ctx, 18.0f, 6, 3);
+    point_live(ctx, 21.0f, 0.5f, 25.0f);
+    show_ticker(ctx, 27.0f, 0, 1);
+    wait_live(ctx, std::chrono::duration<float>(kLiveLength).count(), [] { return true; });
+    check_live(ctx);
+    if (g_demo.record) {
+        IM_CHECK(ctx->CaptureEndVideo());
+    }
+}
+
+// Starts the exchange, once its port is open, and joins its streams for the viewer and for the demo.
+bool prepare_live(const std::string& exchange_main, const std::string& trading_main) {
+    g_live.exchange_main = std::filesystem::absolute(exchange_main);
+    g_live.trading_main = std::filesystem::absolute(trading_main);
+    std::filesystem::create_directories(scratch_root());
+    if (fillscope::test::tcp_port_open(kOrderPort)) {
+        std::fprintf(stderr, "viewer_demo: something already listens on the demo's order port, %u\n", kOrderPort);
+        return false;
+    }
+    for (auto [stream, socket] : {std::pair{&kIncremental, &g_live.incremental}, std::pair{&kSnapshot, &g_live.snapshot},
+                                  std::pair{&kIncremental, &g_live.own}}) {
+        auto joined = fillscope::FeedSocket::join(*stream);
+        if (!joined) {
+            std::fprintf(stderr, "viewer_demo: can't join %s:%u: %s\n", stream->group.c_str(), stream->port, joined.error().message().c_str());
+            return false;
+        }
+        socket->emplace(std::move(*joined));
+    }
+    g_live.exchange.emplace(with_endpoints({g_live.exchange_main}), scratch_root());
+    // Its port opens in about a second; the limit allows for the sanitizer build and a loaded machine.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (!fillscope::test::tcp_port_open(kOrderPort)) {
+        if (!g_live.exchange->running() || std::chrono::steady_clock::now() > deadline) {
+            std::fprintf(stderr, "viewer_demo: the exchange didn't open port %u\n", kOrderPort);
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    }
+    return true;
+}
+
 // Plays the lesson through the answer tool into the scratch directory, and reads it back.
 bool prepare(const std::string& answer_tool, const std::filesystem::path& course_dir) {
     auto course = fillscope::read_course_file(course_dir / "course.json");
@@ -341,10 +642,17 @@ bool prepare(const std::string& answer_tool, const std::filesystem::path& course
 }  // namespace
 
 int main(int argc, char** argv) {
+    // --live first, then the two programs' paths, as the lesson's two are given.
+    g_live_mode = argc > 1 && std::string_view{argv[1]} == "--live";
+    if (g_live_mode) {
+        --argc;
+        ++argv;
+    }
     const bool record = argc == 5 && std::string_view{argv[3]} == "--record";
     const bool watch = record || (argc == 4 && std::string_view{argv[3]} == "--watch");
     if (argc != 3 && !watch) {
-        std::fprintf(stderr, "usage: viewer_demo FILLSCOPE_ANSWER COURSE_DIR [--watch | --record FILE.mp4]\n");
+        std::fprintf(stderr, "usage: viewer_demo FILLSCOPE_ANSWER COURSE_DIR [--watch | --record FILE.mp4]\n"
+                             "       viewer_demo --live EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]\n");
         return 2;
     }
     std::string ffmpeg;
@@ -373,7 +681,7 @@ int main(int argc, char** argv) {
         std::filesystem::remove(*g_demo.record);
     }
     std::filesystem::remove_all(scratch_root());
-    if (!prepare(argv[1], argv[2])) {
+    if (!(g_live_mode ? prepare_live(argv[1], argv[2]) : prepare(argv[1], argv[2]))) {
         return 1;
     }
 
@@ -400,7 +708,8 @@ int main(int argc, char** argv) {
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     fillscope::apply_viewer_look();
-    if (!app->InitCreateWindow(app, "Fillscope demo: a market maker", ImVec2(static_cast<float>(size.width), static_cast<float>(size.height)))) {
+    const char* title = g_live_mode ? "Fillscope demo: live trading" : "Fillscope demo: a market maker";
+    if (!app->InitCreateWindow(app, title, ImVec2(static_cast<float>(size.width), static_cast<float>(size.height)))) {
         std::fprintf(stderr, "viewer_demo: can't create the window\n");
         return 1;
     }
@@ -431,10 +740,10 @@ int main(int argc, char** argv) {
     test_io.ConfigMouseDrawCursor = watch;
 
     ImGuiTestEngine_Start(engine, ImGui::GetCurrentContext());
-    ImGuiTest* test = IM_REGISTER_TEST(engine, "demo", "a_market_maker_provides_liquidity");
+    ImGuiTest* test = IM_REGISTER_TEST(engine, "demo", g_live_mode ? "live_trading" : "a_market_maker_provides_liquidity");
     test->SetVarsDataType<DemoVars>(set_up);
     test->GuiFunc = viewer_frame;
-    test->TestFunc = play_the_lesson;
+    test->TestFunc = g_live_mode ? play_live : play_the_lesson;
     ImGuiTestEngine_QueueTests(engine, ImGuiTestGroup_Tests, "all", ImGuiTestRunFlags_RunFromCommandLine);
 
     while (!ImGuiTestEngine_IsTestQueueEmpty(engine)) {
@@ -458,6 +767,8 @@ int main(int argc, char** argv) {
     ImGuiTestEngine_DestroyContext(engine);
     app->Destroy(app);
 
+    g_live.client.reset();  // killed, before their directory goes
+    g_live.exchange.reset();
     std::error_code ignored;
     std::filesystem::remove_all(scratch_root(), ignored);
     bool passed = summary.CountTested == 1 && summary.CountSuccess == 1;

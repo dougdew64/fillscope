@@ -22,3 +22,12 @@ fillscope_test_program(viewer_demo system
   RUNTIME_DEPS $<TARGET_FILE:fillscope-answer> $<TARGET_FILE:exchange_replay> ${PROJECT_SOURCE_DIR}/course/course.json
     ${PROJECT_SOURCE_DIR}/course/06-market-maker.json)
 set_tests_properties(viewer_demo PROPERTIES RESOURCE_LOCK exchange)
+
+# The live demo (viewer_demo --live): the viewer on the real exchange and a client trading at
+# random, checked against the demo's own books; `--watch` shows it (the "demo: live trading"
+# launch). The system tier, holding the exchange's lock: it runs an exchange. Not a program of its
+# own, but viewer_demo run another way, so viewer_demo is among the files it uses.
+fillscope_test_program(viewer_live_demo system
+  COMMAND $<TARGET_FILE:viewer_demo> --live $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>
+  RUNTIME_DEPS $<TARGET_FILE:viewer_demo> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>)
+set_tests_properties(viewer_live_demo PROPERTIES RESOURCE_LOCK exchange)

@@ -317,7 +317,7 @@ data, what each client was told, and the book). Added by the owner (2026-10-25):
 lessons in `course/`, chosen from a drop-down in the pane, each tested ([ARCHITECTURE.md](ARCHITECTURE.md),
 §10, *The course*). **Done** (2026-10-25): the demo, `viewer_demo`, plays lesson 6 in the viewer with
 real clicks, checked at every frame, headless in the tests and watchable in a window
-([ARCHITECTURE.md](ARCHITECTURE.md), §10, *The demo*).
+([ARCHITECTURE.md](ARCHITECTURE.md), §10, *The demos*).
 
 
 ## Later

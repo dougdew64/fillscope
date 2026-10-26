@@ -30,7 +30,7 @@ CODE_MAP = {"code_map_tests", "code_map_check"}
 ANSWER = {"answer_tests", "answer_system_tests", "course_system_tests"}
 # Answers' demo: the viewer's drawing and loop compiled in, its core linked, and the answer tool
 # run, which runs exchange_replay.
-DEMO = {"viewer_demo"}
+DEMO = {"viewer_demo", "viewer_live_demo"}
 ALL = {"common_tests", "docs_tests",
        "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
        "lowlatency_allocation_tests", "feed_tests",
@@ -76,7 +76,7 @@ CASES = [
     ("tests/backend/replay_lldb_driver.py", DELETE, {"replay_debugger_tests"}),
     # Reaches its programs only as a run-time file: the replay binary they start.
     ("backend/Chapter12/exchange/exchange_replay.cpp", CPP_PROBE,
-     {"feed_system_tests", "replay_debugger_tests", "answer_system_tests", "course_system_tests"} | DEMO),
+     {"feed_system_tests", "replay_debugger_tests", "answer_system_tests", "course_system_tests", "viewer_demo"}),
     ("tools/vscode-debug-state/tsconfig.json", JS_PROBE, EXTENSION),
     ("tools/attribution/attribution.py", TEXT_PROBE, ATTRIBUTION),
     ("tools/code_map/code_map.py", TEXT_PROBE, CODE_MAP),
