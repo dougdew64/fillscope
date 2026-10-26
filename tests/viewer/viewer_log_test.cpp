@@ -125,8 +125,12 @@ TEST(ViewerLog, StopsAtItsLimitSayingSo) {
     ASSERT_TRUE(log);
     // Long lines, so filling 10 MB takes about a hundred writes, not thousands.
     const std::string long_line(100'000, 'x');
+    // At most a few lines past the limit: a log that had none would otherwise be written until the
+    // test was killed, gigabytes in a few seconds, into the temporary directory (memory, on Fedora),
+    // and left there, since a killed test removes nothing.
+    constexpr int kMostLines = static_cast<int>(ViewerLog::kMaxBytes / 100'000) + 5;
     int written = 0;
-    while (log->line(long_line)) {
+    while (written < kMostLines && log->line(long_line)) {
         ++written;
     }
     EXPECT_TRUE(log->full());

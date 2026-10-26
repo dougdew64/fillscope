@@ -68,9 +68,15 @@ function loadExtension(vscode) {
     }
 }
 
+// Every test's folders are made in one directory of this run's own, removed as the process exits: a
+// folder removed when its test ends can be made again by a write the extension finishes after it
+// (its state file), which left one behind in the temporary directory on every run.
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fillscope-extension-'));
+process.on('exit', () => fs.rmSync(root, { recursive: true, force: true }));
+
 /** A workspace folder; a Fillscope folder if `fillscope`, holding the extension's own source. */
 function folder(/** @type {import('node:test').TestContext} */ t, fillscope = true) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fillscope-extension-'));
+    const dir = fs.mkdtempSync(path.join(root, 'folder-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     if (fillscope) {
         fs.mkdirSync(path.join(dir, 'tools', 'vscode-debug-state'), { recursive: true });
