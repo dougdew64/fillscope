@@ -64,8 +64,9 @@ FAST_TIERS = {"unit", "ui", "check"}
 # A file at least this large is fingerprinted by its size and modification time rather than its
 # contents (Node.js's binary is about 100 MB), which costs nothing and still sees it replaced.
 LARGE_FILE = 8 * 1024 * 1024
-# Environment variables that don't change a test's result once the build exists.
-NOT_FINGERPRINTED = ("FILLSCOPE_ITERATE_", "FILLSCOPE_WERROR")
+# Environment variables that don't change a test's result once the build exists: the scripts' own,
+# which say where they keep their state, and whether warnings fail the build.
+NOT_FINGERPRINTED = ("FILLSCOPE_ITERATE_", "FILLSCOPE_MUTANTS_DIR", "FILLSCOPE_WERROR")
 
 USAGE = """usage: iterate.py [--all | --list | -R REGEX]
        iterate.py --snapshot FILE | --record-snapshot FILE CTEST_LOG | --record-all

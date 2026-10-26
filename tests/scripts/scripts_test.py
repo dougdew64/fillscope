@@ -149,7 +149,11 @@ class FingerprintTest(unittest.TestCase):
     def test_werror_and_the_scripts_own_variables_dont_count(self):
         saved = dict(os.environ)
         try:
-            os.environ.update({"FILLSCOPE_WERROR": "ON", "FILLSCOPE_ITERATE_STATE": "/x", "FILLSCOPE_REQUIRE_DEBUGGERS": "1"})
+            # Only the variables set here: any set outside, by a caller, mustn't change the result.
+            for key in [key for key in os.environ if key.startswith("FILLSCOPE_")]:
+                del os.environ[key]
+            os.environ.update({"FILLSCOPE_WERROR": "ON", "FILLSCOPE_ITERATE_STATE": "/x", "FILLSCOPE_MUTANTS_DIR": "/y",
+                               "FILLSCOPE_REQUIRE_DEBUGGERS": "1"})
             self.assertEqual(iterate.environment(), "FILLSCOPE_REQUIRE_DEBUGGERS=1")
         finally:
             os.environ.clear()

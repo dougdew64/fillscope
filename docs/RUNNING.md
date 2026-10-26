@@ -48,9 +48,10 @@ tests/scripts/run-tests.sh                   # before a commit: every test, both
 **What `iterate.py` runs.** CMake writes `build/debug/test-manifest.txt`: each test program, its
 tier, and the files it uses at run time (a program it starts, a script). A program is affected when
 its binary, one of those files (the Node.js the extension's tests run with is one of theirs), a
-shared library it loads, a `FILLSCOPE_` environment variable (other than `FILLSCOPE_WERROR`), or how
-CTest runs its tests (command, environment, timeout) differs from its last passing run; a
-`CMakeLists.txt` edit counts only through those. So the selection follows the build's own
+shared library it loads, a `FILLSCOPE_` environment variable (other than `FILLSCOPE_WERROR` and
+the scripts' own, which say where they keep their state), or how CTest runs its tests (command,
+environment, timeout) differs from its last passing run; a `CMakeLists.txt` edit counts only
+through those. So the selection follows the build's own
 dependencies rather than a hand-kept map. `docs_tests` runs every time, since a link can name any
 file. `--list` shows what's affected without running it; `--all` runs every fast program. These
 forms all build first. Fingerprints are taken before the tests run, so a file edited during a run is
