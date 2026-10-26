@@ -143,11 +143,17 @@ the slower program adds the tier to its name.
   **demo: a market maker**, shows it in a window at a pace to follow, about a minute; **demo:
   record a market maker** records it as a video for sharing, quicker and in a 1280 by 720 window,
   about 80 seconds, to `build/debug/demo-a-market-maker.mp4` (it needs `ffmpeg`).
+- **`viewer_log_tests` (GoogleTest, `unit`):** the viewer's log: its names, its lines, keeping the
+  newest 20 and nothing else in the directory touched, the 10 MB limit; a crash recorded by a
+  process that really dies of it (an abort, an uncaught exception, a segmentation fault, a stack
+  overflow; in the sanitizer build, a segmentation fault reported by AddressSanitizer beside the
+  log); the feed's and answers' events, each said once; the user's actions.
 - **`viewer_program_tests` (Python, `system`):** the viewer program itself, as a user runs it,
   the one test of `src/viewer/main.cpp`: on the real exchange and a client, it takes in their market
   data, paints about 60 times a second, reports once a second, and ends on `--exit-after`, SIGTERM
   and SIGINT with a last context file saying it has stopped; `--screenshot` writes its last frame;
-  a bad command line and a replay it can't read are refused. About 10 seconds. Its window opens on
+  a bad command line and a replay it can't read are refused. And its log says, each way it ends, how it
+  ended; killed outright, it has everything until then; crashed, the crash. About 10 seconds. Its window opens on
   an Xvfb display of the test's own, never on the desktop, where it covered the user's windows. So
   it needs Xvfb (`sudo dnf install xorg-x11-server-Xvfb`); without it the test is skipped, and the
   mutants of `main` go uncaught, except in CI (`FILLSCOPE_REQUIRE_DISPLAY`), which installs Xvfb.
@@ -241,11 +247,11 @@ mutant look caught. How it chooses which mutants to run is in
 The viewer shows the back end's books. In VS Code: Run and Debug, then **viewer + exchange + client**
 (it builds first). It starts the viewer, the exchange (with a snapshot every 5 seconds) and a client
 trading at random, each in a debug session of its own; the client waits for the exchange's order
-port, which takes the exchange about ten seconds. The back end runs in
+port, which takes the exchange about a second. The back end runs in
 `build/debug/backend/Chapter12/`, where it writes its logs. Stopping debugging stops all three.
 
 From a terminal, start the viewer, then the back end as its README says (from
-`build/debug/backend/Chapter12/`: `./exchange_main &`, ten seconds, then `./trading_main 5 RANDOM &`;
+`build/debug/backend/Chapter12/`: `./exchange_main &`, a second or two, then `./trading_main 5 RANDOM &`;
 `--snapshot-interval-seconds S` shortens the exchange's minute between snapshots). The viewer can
 start before the exchange or after: started after, it waits for the next snapshot to rebuild the
 books (it says "recovering" until then). To stop them from a terminal:
@@ -264,6 +270,16 @@ so its last context file says it has stopped. With `--exit-after`, `--screenshot
 window, as it was last drawn, to FILE (a PPM image) as the viewer exits. `--incremental GROUP:PORT` and `--snapshot GROUP:PORT`
 choose the market data streams (by default the exchange's). The viewer prints on stderr when
 publishing the context fails and when it works again, and if it can't join a stream.
+
+**The viewer's log.** Each run writes one, in `.fillscope/logs/` (the `logs` directory beside the
+context file), named for when it started and its process id; the newest 20 are kept. It says how
+the viewer was started, what happened (the feed's events, answers, every click), each second's
+line, and how it ended; after a crash, the crash, with a backtrace. To name the viewer's frames in
+a backtrace, give `addr2line` the binary the log names, while it is unchanged:
+`addr2line -f -C -p -e build/debug/viewer 0x412069 0x40dafa`. In the sanitizer build, a
+segmentation fault is reported by AddressSanitizer instead, in the file beside the log ending in
+`.sanitizer.` and the process id. What it records, and why, is in
+[ARCHITECTURE.md](ARCHITECTURE.md), §4, *The viewer's log*.
 
 ## Answers
 Ask a question about the market in the editor's chat; the assistant answers with a scenario and

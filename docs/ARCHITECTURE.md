@@ -354,6 +354,46 @@ reach the assistant. So nothing on screen claims the assistant has something it 
 and the bar shows it on the next paint, about 16 ms later. Market data arriving reaches the bar
 within 100 ms plus a paint, if the write succeeds.
 
+### The viewer's log
+When the viewer fails, crashes included, the assistant has to find out why afterwards, and the
+viewer's own output went with its terminal. So each run writes a log: a file in the `logs`
+directory beside the context file (`.fillscope/logs/` by default), named for when the run started
+and its process id (`viewer-20261026-154002-2048939.log`). It says how the viewer was started (its
+command line, the build and its sanitizers, the binary and when it was built), what it showed (live
+streams joined, a replay read, answers watched), the feed's events (going live, recovering and
+why, each rebuild from a snapshot, an error receiving), answers shown and refused, every action of
+the user's, the line it prints each second, what it said on stderr, and how it ended: the window
+closed, `--exit-after`, SIGINT or SIGTERM, or an error, with the exit code. A command line it can't
+read is the one thing not logged: where the log goes is part of what couldn't be read.
+
+**Written so a crash loses nothing.** `ViewerLog::line` (`viewer_log.h`) writes each line with one
+`write(2)` to a file opened for appending, with no buffer of its own, so a line is in the kernel's
+hands, and survives the process, as soon as the call returns. A line the viewer also prints (each
+second's report, an error) is logged first, so whoever sees it printed finds it in the log.
+
+**A crash recorded from the crash itself.** A crash ends the process before anything orderly can
+run, so `install_crash_log` (`crash_log.h`) installs handlers that record it as it happens. A fatal
+signal (SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT) writes a line naming it and a backtrace, straight
+to the log's descriptor, using only what a signal handler may call (`write`, and `backtrace`,
+loaded at install so the handler's call doesn't allocate), on a stack of its own, so a stack
+overflow is recorded too; then the signal ends the process as it would have, so the exit status
+and any core dump are unchanged. An uncaught exception reaches `std::terminate`, whose handler
+logs its message and aborts, which the SIGABRT handler records with a backtrace. The backtrace
+gives the viewer's own frames as addresses in its binary, which the log names with when it was
+built: `addr2line -f -C -p -e BINARY ADDRESS...` turns them into functions, files and lines, while
+the binary is unchanged. In the sanitizer build, AddressSanitizer reports SIGSEGV, SIGBUS and
+SIGFPE itself, saying where and why, which a backtrace can't, so those are left to it, and the
+sanitizers' reports go to a file beside the log (its name, then `.sanitizer.` and the process id).
+
+**What it records** of the feed and answers is found by comparing the viewer's state with what the
+log last said of it (`log_events`, in `log_events.h`), so each change is said once; the user's
+actions are each paint's `ViewerActions`, described (`describe`).
+
+**Bounded, and kept.** A starting viewer keeps the newest 20 logs and deletes the rest, with the
+sanitizers' reports beside them, and touches nothing else in the directory; a run's log stops at 10
+MB, with a line saying so (a typical hour is well under 1 MB). Logs are kept when the viewer exits,
+unlike the files it makes for its own use: they are meant to be read afterwards.
+
 ## 5. The debug-state extension (`tools/vscode-debug-state/`)
 VS Code's debugger talks to GDB or LLDB through the Debug Adapter Protocol. The extension listens
 to that conversation for every debug session and, at each stop, asks for the stack and the

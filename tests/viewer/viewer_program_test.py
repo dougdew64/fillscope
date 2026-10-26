@@ -4,6 +4,8 @@
 # trading at random, it must take in their market data, paint about 60 times a second, report once
 # a second, and end on --exit-after, SIGTERM or SIGINT with a last context file saying it has
 # stopped; --screenshot must write the window's last frame; a bad command line must be refused.
+# And its log (src/viewer/viewer_log.h) must say, for each way it ends, how it ended: killed
+# outright, it has everything up to then; crashed, the crash.
 #
 #   python3 -I tests/viewer/viewer_program_test.py VIEWER EXCHANGE_MAIN TRADING_MAIN
 #
@@ -143,6 +145,23 @@ def read_context(path):
         return json.load(file)
 
 
+def the_log(directory):
+    """The one log in `directory`'s logs, its lines without their times, and its path."""
+    logs_dir = os.path.join(directory, "logs")
+    logs = [name for name in os.listdir(logs_dir) if re.fullmatch(r"viewer-\d{8}-\d{6}-\d+\.log", name)]
+    assert len(logs) == 1, logs
+    path = os.path.join(logs_dir, logs[0])
+    with open(path) as file:
+        text = file.read()
+    lines = [re.sub(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z \+\d+\.\d{3}s ", "", line) for line in text.splitlines()]
+    return lines, path
+
+
+def sanitized(lines):
+    """Whether the log says the viewer was built with the sanitizers."""
+    return any(line.startswith("build:") and "AddressSanitizer" in line for line in lines)
+
+
 class ViewerOnTheExchangeTest(unittest.TestCase):
     def test_it_takes_in_the_market_data_paints_reports_and_exits_after_its_time(self):
         needs_display(self)
@@ -203,6 +222,21 @@ class ViewerOnTheExchangeTest(unittest.TestCase):
             self.assertEqual(len(pixels), width * height * 3)
             self.assertGreater(len(set(pixels)), 2, "the screenshot is blank")
 
+            # Its log: how it started, the feed, each second's line, and how it ended.
+            log, _ = the_log(directory)
+            self.assertTrue(log[0].startswith("start: viewer --exit-after 6 "), log[0])
+            self.assertTrue(any(line.startswith("build: GCC ") for line in log), log)
+            self.assertTrue(any(line.startswith("binary: ") for line in log), log)
+            self.assertTrue(any(line.startswith("crash recording: ") for line in log), log)
+            self.assertIn(f"live: joined the incremental updates at {INCREMENTAL} and the snapshots at {SNAPSHOT}", log)
+            self.assertTrue(any(line.startswith("feed: live, the books as of update ") for line in log), log)
+            for t, paints_then, updates_then, last in lines:
+                self.assertIn(f"t={t} paints={paints_then} updates={updates_then} books as of update {last}", log)
+            self.assertIn(f"screenshot: {screenshot}", " ".join(log))
+            self.assertEqual(log[-3:-1], ["stopping: --exit-after 6 s",
+                                         f"the final context is published to {context}, saying this viewer has stopped"])
+            self.assertEqual(log[-1], "end: --exit-after 6 s; exit code 0")
+
 
 class ViewerEndsOnASignalTest(unittest.TestCase):
     def ends_on(self, signum):
@@ -223,6 +257,10 @@ class ViewerEndsOnASignalTest(unittest.TestCase):
             self.assertEqual(viewer.returncode, 0, stderr)
             self.assertIn("viewer: stopping, as a signal asked", stderr)
             self.assertFalse(read_context(context)["writer"]["running"])
+            log, _ = the_log(directory)
+            name = signal.Signals(signum).name
+            self.assertIn(f"stopping: {name}", log)
+            self.assertEqual(log[-1], f"end: {name}; exit code 0")
 
     def test_sigterm_ends_it_as_closing_the_window_would(self):
         self.ends_on(signal.SIGTERM)
@@ -231,20 +269,72 @@ class ViewerEndsOnASignalTest(unittest.TestCase):
         self.ends_on(signal.SIGINT)
 
 
+class ViewerDiesTest(unittest.TestCase):
+    """Ended without warning, the viewer's log still has everything it wrote before."""
+
+    def run_until_reporting(self, directory):
+        viewer = start_viewer([*STREAMS, "--context-file", os.path.join(directory, "context.json")], directory)
+        line = viewer.stdout.readline()
+        if not REPORT.match(line):
+            viewer.kill()
+            self.fail(viewer.communicate()[1])
+        return viewer
+
+    def test_killed_outright_its_log_has_everything_until_then(self):
+        needs_display(self)
+        with tempfile.TemporaryDirectory() as directory:
+            viewer = self.run_until_reporting(directory)
+            viewer.send_signal(signal.SIGKILL)
+            viewer.communicate(timeout=START_LIMIT)
+            self.assertEqual(viewer.returncode, -signal.SIGKILL)
+            log, _ = the_log(directory)
+            self.assertTrue(log[0].startswith("start: viewer "), log)
+            self.assertTrue(any(REPORT.match("viewer: " + line) for line in log), log)  # the first second's line
+            self.assertFalse(any(line.startswith("end:") for line in log), log)
+
+    def test_a_crash_is_recorded(self):
+        needs_display(self)
+        with tempfile.TemporaryDirectory() as directory:
+            viewer = self.run_until_reporting(directory)
+            viewer.send_signal(signal.SIGSEGV)
+            viewer.communicate(timeout=START_LIMIT)
+            log, path = the_log(directory)
+            if sanitized(log):
+                # AddressSanitizer reports a segmentation fault itself, to the file beside the log.
+                self.assertEqual(viewer.returncode, 1)
+                reports = [name for name in os.listdir(os.path.dirname(path))
+                           if name.startswith(os.path.basename(path) + ".sanitizer.")]
+                self.assertEqual(len(reports), 1, os.listdir(os.path.dirname(path)))
+                with open(os.path.join(os.path.dirname(path), reports[0])) as file:
+                    self.assertIn("AddressSanitizer: SEGV", file.read())
+            else:
+                # Recorded with a backtrace, and the signal still ends the process.
+                self.assertEqual(viewer.returncode, -signal.SIGSEGV)
+                self.assertIn("crash: fatal signal 11 (SIGSEGV); the backtrace, innermost first:", log)
+                self.assertEqual(log[-1], "crash: end of the backtrace; the signal now ends the process")
+
+
 class ViewerRefusesTest(unittest.TestCase):
     """Refused before any window opens, so these need no display."""
 
     def test_a_bad_command_line_is_refused_with_its_usage(self):
-        result = subprocess.run([VIEWER, "--bogus"], capture_output=True, text=True, timeout=30)
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([VIEWER, "--bogus"], cwd=directory, capture_output=True, text=True, timeout=30)
+            # Before any log: where it would go is part of what couldn't be read.
+            self.assertFalse(os.path.exists(os.path.join(directory, ".fillscope")))
         self.assertEqual(result.returncode, 2)
         self.assertIn("usage: viewer", result.stderr)
 
     def test_a_replay_it_cant_read_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run([VIEWER, "--replay", os.path.join(directory, "missing.dat")], capture_output=True,
-                                    text=True, timeout=30)
+            result = subprocess.run([VIEWER, "--replay", os.path.join(directory, "missing.dat")], cwd=directory,
+                                    capture_output=True, text=True, timeout=30)
+            # Its log is beside the default context file, .fillscope/context.json.
+            log, _ = the_log(os.path.join(directory, ".fillscope"))
         self.assertEqual(result.returncode, 1)
         self.assertIn("missing.dat", result.stderr)
+        self.assertTrue(any("missing.dat" in line for line in log), log)
+        self.assertEqual(log[-1], "end: the replay can't be read; exit code 1")
 
 
 if __name__ == "__main__":

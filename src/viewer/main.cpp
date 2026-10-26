@@ -13,7 +13,10 @@
 
 #include "feed/feed_socket.h"
 #include "feed/market_data_file.h"
+#include "viewer/crash_log.h"
+#include "viewer/log_events.h"
 #include "viewer/viewer_app.h"
+#include "viewer/viewer_log.h"
 #include "viewer/stop_signals.h"
 #include "viewer/viewer_options.h"
 #include "viewer/window_size.h"
@@ -37,6 +40,9 @@
 #include <thread>
 #include <vector>
 
+#include <csignal>
+#include <unistd.h>
+
 namespace {
 
 // GLFW, initialized for the lifetime of this object and terminated by its destructor, on every path
@@ -56,6 +62,79 @@ public:
 private:
     bool initialized_;
 };
+
+// The run's log (viewer_log.h), if it could be opened: lines for it, and what the viewer says on
+// stderr, which is written there too. Global, for GLFW's error callback, which can't capture.
+std::optional<fillscope::ViewerLog> g_log;
+
+void note(std::string_view line) {
+    if (g_log) {
+        (void)g_log->line(line);
+    }
+}
+
+void say(std::string_view line) {
+    note(line);  // first: whoever sees the message finds it in the log already
+    std::println(stderr, "viewer: {}", line);
+}
+
+// How the run ended, and its exit code, as the log's last line.
+int end_with(int code, std::string_view why) {
+    note(std::format("end: {}; exit code {}", why, code));
+    return code;
+}
+
+// What the build is, for the log's first lines: the compiler, optimized or not, the sanitizers.
+std::string build_description() {
+    std::string build = std::format("GCC {}", __VERSION__);
+#if defined(__OPTIMIZE__)
+    build += ", optimized";
+#else
+    build += ", unoptimized";
+#endif
+#if defined(__SANITIZE_ADDRESS__)
+    build += ", AddressSanitizer and UndefinedBehaviorSanitizer";
+#else
+    build += ", no sanitizers";
+#endif
+    return build;
+}
+
+// The command line, as typed: each argument quoted if it has a space.
+std::string command_line(std::span<const char* const> args) {
+    std::string line = "viewer";
+    for (const char* arg : args) {
+        const std::string_view text{arg};
+        line += text.find(' ') == std::string_view::npos ? std::format(" {}", text) : std::format(" '{}'", text);
+    }
+    return line;
+}
+
+// Opens the run's log in the logs directory beside the context file, and records how the viewer was
+// started and that crashes are recorded. A log that can't be opened is said on stderr, and the
+// viewer runs without one: it is for diagnosis, not needed to view.
+void open_log(const std::filesystem::path& context_file, std::span<const char* const> args) {
+    const std::filesystem::path directory = (context_file.has_parent_path() ? context_file.parent_path() : ".") / "logs";
+    auto opened = fillscope::ViewerLog::open(directory, std::chrono::system_clock::now(), ::getpid());
+    if (!opened) {
+        std::println(stderr, "viewer: running without a log: {}", opened.error());
+        return;
+    }
+    g_log.emplace(std::move(*opened));
+    std::error_code ignored;
+    note(std::format("start: {}", command_line(args)));
+    note(std::format("build: {}", build_description()));
+    note(std::format("process {}, in {}", ::getpid(), std::filesystem::current_path(ignored).string()));
+    // The binary that ran, and when it was built: a crash's backtrace gives the viewer's frames as
+    // addresses in it, which `addr2line -f -C -p -e BINARY ADDRESS...` names, while it is unchanged.
+    const std::filesystem::path binary = std::filesystem::read_symlink("/proc/self/exe", ignored);
+    const auto built = std::filesystem::last_write_time(binary, ignored);
+    note(std::format("binary: {}, built {:%Y-%m-%dT%H:%M:%S}Z", binary.string(),
+                     std::chrono::floor<std::chrono::seconds>(std::chrono::clock_cast<std::chrono::system_clock>(built))));
+    note(std::format("log: {}; the newest {} kept in {}; this one stops at {} bytes", g_log->path().filename().string(),
+                     fillscope::ViewerLog::kKeptRuns, directory.string(), fillscope::ViewerLog::kMaxBytes));
+    note(fillscope::install_crash_log(g_log->fd(), g_log->path().string() + ".sanitizer"));
+}
 
 // A GLFW window, destroyed by glfwDestroyWindow when the unique_ptr goes out of scope. unique_ptr's
 // second parameter is the deleter's type: here a function pointer, called instead of delete.
@@ -122,8 +201,9 @@ int main(int argc, char** argv) {
     if (!options) {
         std::println(stderr, "viewer: {}", options.error());
         std::println(stderr, "{}", fillscope::kViewerUsage);
-        return 2;
+        return 2;  // before the log: where it goes is part of what couldn't be read
     }
+    open_log(options->context_file, args);
 
     // A replay's market data, or the exchange's two live streams. Joining can fail (a port bound by a
     // program that doesn't share it, say); then there is nothing to show, so the viewer says why and
@@ -133,39 +213,41 @@ int main(int argc, char** argv) {
     std::optional<fillscope::FeedSocket> snapshot;
     if (options->answer) {
         // Nothing to join or read yet: the answer file is watched, and read when it appears.
+        note(std::format("answers: watching {}", options->answer->string()));
     } else if (options->replay) {
         auto read = fillscope::read_market_data_file(*options->replay);
         if (!read) {
-            std::println(stderr, "viewer: {}", read.error());
-            return 1;
+            say(read.error());
+            return end_with(1, "the replay can't be read");
         }
+        note(std::format("replay: {}, {} updates, recorded in {}", options->replay->string(), read->updates.size(), read->recording));
         replay = std::move(*read);
     } else {
         for (const auto& [stream, socket] :
              {std::pair{&options->incremental, &incremental}, std::pair{&options->snapshot, &snapshot}}) {
             auto joined = fillscope::FeedSocket::join(*stream);
             if (!joined) {
-                std::println(stderr, "viewer: can't join the market data stream {}:{}: {}", stream->group, stream->port,
-                             joined.error().message());
-                return 1;
+                say(std::format("can't join the market data stream {}:{}: {}", stream->group, stream->port,
+                                joined.error().message()));
+                return end_with(1, "a market data stream can't be joined");
             }
             socket->emplace(std::move(*joined));
         }
+        note(std::format("live: joined the incremental updates at {}:{} and the snapshots at {}:{}", options->incremental.group,
+                         options->incremental.port, options->snapshot.group, options->snapshot.port));
     }
     if (const auto installed = fillscope::install_stop_signals(); !installed) {
-        std::println(stderr, "viewer: can't handle SIGINT and SIGTERM: {}", installed.error().message());
-        return 1;
+        say(std::format("can't handle SIGINT and SIGTERM: {}", installed.error().message()));
+        return end_with(1, "the stop signals can't be handled");
     }
 
     // GLFW reports errors through a callback; a non-capturing lambda converts to the function
     // pointer it takes.
-    glfwSetErrorCallback([](int code, const char* description) {
-        std::println(stderr, "viewer: GLFW error {}: {}", code, description);
-    });
+    glfwSetErrorCallback([](int code, const char* description) { say(std::format("GLFW error {}: {}", code, description)); });
     const GlfwSession glfw;
     if (!glfw.initialized()) {
-        std::println(stderr, "viewer: can't initialize GLFW (is there a display?)");
-        return 1;
+        say("can't initialize GLFW (is there a display?)");
+        return end_with(1, "no display");
     }
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -173,8 +255,8 @@ int main(int argc, char** argv) {
     const auto [window_width, window_height] = fillscope::primary_window_size();
     const WindowPtr window{glfwCreateWindow(window_width, window_height, "Fillscope viewer", nullptr, nullptr), &glfwDestroyWindow};
     if (!window) {
-        std::println(stderr, "viewer: can't create a window with OpenGL 3.3");
-        return 1;
+        say("can't create a window with OpenGL 3.3");
+        return end_with(1, "no window");
     }
     glfwMakeContextCurrent(window.get());
     // No vsync: the loop paces itself (below). With vsync, a swap waits for the compositor, which
@@ -184,8 +266,8 @@ int main(int argc, char** argv) {
     glfwSwapInterval(0);
     const ImGuiSession imgui{window.get()};
     if (!imgui.ready()) {
-        std::println(stderr, "viewer: can't start Dear ImGui's GLFW and OpenGL 3 backends");
-        return 1;
+        say("can't start Dear ImGui's GLFW and OpenGL 3 backends");
+        return end_with(1, "no Dear ImGui backends");
     }
 
     fillscope::ViewerApp app{options->context_file};
@@ -198,15 +280,16 @@ int main(int argc, char** argv) {
     if (options->course) {
         auto course = fillscope::read_course_file(*options->course / "course.json");
         if (!course) {
-            std::println(stderr, "viewer: {} (the course is built by: cmake --build build/debug --target course)",
-                         course.error());
-            return 1;
+            say(std::format("{} (the course is built by: cmake --build build/debug --target course)", course.error()));
+            return end_with(1, "the course can't be read");
         }
         app.open_course(std::move(*course), *options->course);
     }
     std::optional<std::size_t> answer_frame = options->answer_frame;
     const auto start = std::chrono::steady_clock::now();
     int last_report_second = 0;
+    fillscope::LogWatch log_watch;
+    std::string ended_because = "the window was closed";  // unless the loop ends another way
 
     // About 60 paints a second, whatever the display does.
     constexpr auto kPaintInterval = std::chrono::microseconds{1'000'000 / 60};
@@ -224,14 +307,19 @@ int main(int argc, char** argv) {
             app.answer_to(*answer_frame);  // once, as soon as the answer has been read
             answer_frame.reset();
         }
+        for (const std::string& event : fillscope::log_events(app.state(), log_watch)) {
+            note(event);
+        }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        (void)app.paint(now);
+        if (const auto did = fillscope::describe(app.paint(now))) {
+            note(*did);
+        }
         ImGui::Render();
         if (const auto report = app.publish_report()) {
-            std::println(stderr, "viewer: {}", *report);
+            say(*report);
         }
 
         int width = 0;
@@ -246,33 +334,39 @@ int main(int argc, char** argv) {
         if (last_paint && options->screenshot) {
             // Read before the swap: the frame just drawn is in the back buffer.
             if (const auto written = write_screenshot(*options->screenshot, width, height); !written) {
-                std::println(stderr, "viewer: {}", written.error());
-                return 1;
+                say(written.error());
+                return end_with(1, "the screenshot can't be written");
             }
+            note(std::format("screenshot: {}, {} by {}", options->screenshot->string(), width, height));
         }
         glfwSwapBuffers(window.get());
 
         if (static_cast<int>(t) > last_report_second) {
             last_report_second = static_cast<int>(t);
-            std::println("viewer: t={} paints={} updates={} books as of update {}", last_report_second, app.paints(),
-                         app.state().books.updates_received(), app.state().books.last_seq());
+            const std::string report = std::format("t={} paints={} updates={} books as of update {}", last_report_second,
+                                                   app.paints(), app.state().books.updates_received(), app.state().books.last_seq());
+            note(report);  // first: whoever sees the line on stdout finds it in the log already
+            std::println("viewer: {}", report);
             std::fflush(stdout);
         }
         if (last_paint) {
+            ended_because = std::format("--exit-after {} s", options->exit_after_seconds);
             break;
         }
     }
     if (fillscope::stop_requested()) {
         std::println(stderr, "viewer: stopping, as a signal asked");
+        ended_because = fillscope::stop_signal() == SIGINT ? "SIGINT" : "SIGTERM";
     }
+    note(std::format("stopping: {}", ended_because));
     // Takes in whatever arrived since the last paint, so the last file counts every update received.
     if (incremental) {
         app.receive(*incremental, *snapshot, std::chrono::steady_clock::now());
     }
     if (!app.finish()) {  // the last file says this viewer is no longer running
-        std::println(stderr, "viewer: can't publish the final context to {}: {}", app.publisher().file().string(),
-                     *app.publisher().error());
-        return 1;
+        say(std::format("can't publish the final context to {}: {}", app.publisher().file().string(), *app.publisher().error()));
+        return end_with(1, std::format("{}; the final context can't be published", ended_because));
     }
-    return 0;
+    note(std::format("the final context is published to {}, saying this viewer has stopped", app.publisher().file().string()));
+    return end_with(0, ended_because);
 }

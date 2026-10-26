@@ -338,6 +338,13 @@ the directory touched), the 10 MB stop, and that a crash (a fatal signal, an unc
 abort) is recorded, in a process that dies of it; the viewer program's test finds, for each way it
 ends, the log saying so, and for a viewer killed outright, everything up to then; where the logs
 are and how to read them is in [RUNNING.md](RUNNING.md).
+**Status:** done (2026-10-26). `ViewerLog` (`src/viewer/viewer_log.h`), `install_crash_log`
+(`crash_log.h`) and `log_events` (`log_events.h`), used by the viewer's `main`
+([ARCHITECTURE.md](ARCHITECTURE.md), §4, *The viewer's log*). Checked by `viewer_log_tests` (15 in
+the normal build, 14 in the sanitizer build, where a segmentation fault is AddressSanitizer's to
+report), `viewer_program_tests` (the log, each way the real viewer ends, a crash and a kill
+included), and 13 mutants. Found on the way: the viewer printed each second's line before logging
+it, so a viewer killed in between lost it from the log; it now logs first.
 
 ### 16 to 19. Time-shifting the live market data
 Decided by the owner on 2026-10-26: what it is, and why, is in [FEATURES.md](FEATURES.md), item 16.

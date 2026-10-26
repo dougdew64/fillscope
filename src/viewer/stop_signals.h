@@ -14,5 +14,7 @@ namespace fillscope {
 
 // Whether SIGINT or SIGTERM has arrived since install_stop_signals().
 [[nodiscard]] bool stop_requested() noexcept;
+// The first of them to arrive (SIGINT or SIGTERM), or 0 if neither has.
+[[nodiscard]] int stop_signal() noexcept;
 
 }  // namespace fillscope

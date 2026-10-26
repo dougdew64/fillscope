@@ -44,6 +44,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 # one, re-runs only that mutant. Nothing else may use a name defined here (names_used_elsewhere).
 VIEW = "src/viewer/viewer_view.cpp"
 VIEWER_MAIN = "src/viewer/main.cpp"
+VIEWER_LOG = "src/viewer/viewer_log.cpp"
+CRASH_LOG = "src/viewer/crash_log.cpp"
+LOG_EVENTS = "src/viewer/log_events.cpp"
 PARSE = "src/common/parse.h"
 FD = "src/common/fd.h"
 REPLAY_DRIVER = "tests/backend/replay_lldb_driver.py"
@@ -329,6 +332,47 @@ MUTANTS = [
      [("    const auto latest = recoveries.last(std::min(recoveries.size(), kMaxListedRecoveries));",
        "    const auto latest = recoveries.first(std::min(recoveries.size(), kMaxListedRecoveries));")],
      "MakeContext.OnlyTheLatestRecoveries"),
+    # The viewer's log (viewer_log.cpp), its crash recording (crash_log.cpp), and what it records
+    # (log_events.cpp).
+    ("a starting viewer keeps one log too many", VIEWER_LOG,
+     [("logs.size() - (kKeptRuns - 1)", "logs.size() - kKeptRuns")],
+     "ViewerLog.AStartingViewerKeepsTheNewestTwentyAndTouchesNothingElse"),
+    ("a deleted log's sanitizer reports are kept", VIEWER_LOG,
+     [("            if (other.starts_with(logs[i])) {", "            if (false) {")],
+     "ViewerLog.AStartingViewerKeepsTheNewestTwentyAndTouchesNothingElse"),
+    ("a run's log may be another's", VIEWER_LOG,
+     [("O_WRONLY | O_CREAT | O_EXCL | O_APPEND", "O_WRONLY | O_CREAT | O_APPEND")],
+     "ViewerLog.ARunsLogIsNeverAnothersNorAppendedTo"),
+    ("a line's own line breaks are kept", VIEWER_LOG,
+     [("            out += \" / \";\n", "            out += \"\\n\";\n")],
+     "ViewerLog.WritesEachLineAtOnceWithItsTimes"),
+    ("the log has no limit", VIEWER_LOG,
+     [("    if (bytes_ + out.size() > kMaxBytes) {", "    if (false) {")],
+     "ViewerLog.StopsAtItsLimitSayingSo"),
+    ("a signal sent to the viewer is recorded and then ignored", CRASH_LOG,
+     [("    ::raise(signal);\n", "")],
+     "CrashLog.AnAbortIsRecordedWithABacktrace|CrashLog.ASegmentationFaultIsRecordedAndStillEndsTheProcess"),
+    ("a crash is recorded without its backtrace", CRASH_LOG,
+     [("    ::backtrace_symbols_fd(frames.data(), count, g_log_fd);\n", "")],
+     "CrashLog.AnAbortIsRecordedWithABacktrace"),
+    ("a stack overflow's handler has no stack to run on", CRASH_LOG,
+     [("action.sa_flags = SA_RESETHAND | SA_ONSTACK;", "action.sa_flags = SA_RESETHAND;")],
+     "CrashLog.AStackOverflowIsRecorded"),
+    ("an uncaught exception isn't recorded", CRASH_LOG,
+     [("    std::set_terminate(record_terminate);\n", "")],
+     "CrashLog.AnUncaughtExceptionIsRecordedWithItsMessage"),
+    ("the feed's status is said again every paint", LOG_EVENTS,
+     [("        watch.status = books.status();\n", "")],
+     "LogEvents.TheFeedGoingLiveRecoveringAndRebuiltAreEachSaidOnce"),
+    ("every recovery is said again every paint", LOG_EVENTS,
+     [("    watch.recoveries = recoveries.size();\n", "")],
+     "LogEvents.TheFeedGoingLiveRecoveringAndRebuiltAreEachSaidOnce"),
+    ("the viewer keeps no log", VIEWER_MAIN,
+     [("    open_log(options->context_file, args);\n", "")],
+     "viewer_program_tests"),
+    ("the viewer's log misses each second's line", VIEWER_MAIN,
+     [("            note(report);  // first", "            // first")],
+     "viewer_program_tests"),
     # The viewer program itself (main.cpp), run by viewer_program_tests.
     ("the viewer paints as fast as it can", VIEWER_MAIN,
      [("        std::this_thread::sleep_until(next_paint);\n", "")],

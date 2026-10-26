@@ -10,7 +10,12 @@ namespace {
 // run between any two instructions of the loop that reads the flag.
 volatile std::sig_atomic_t g_stop_requested = 0;
 
-extern "C" void request_stop(int /*signal*/) { g_stop_requested = 1; }
+// The signal's number: SIGINT and SIGTERM are both nonzero.
+extern "C" void request_stop(int signal) {
+    if (g_stop_requested == 0) {
+        g_stop_requested = signal;
+    }
+}
 
 }  // namespace
 
@@ -28,5 +33,7 @@ std::expected<void, std::error_code> install_stop_signals() {
 }
 
 bool stop_requested() noexcept { return g_stop_requested != 0; }
+
+int stop_signal() noexcept { return g_stop_requested; }
 
 }  // namespace fillscope

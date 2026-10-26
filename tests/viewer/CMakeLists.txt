@@ -1,6 +1,9 @@
 # The viewer's core (selection, context, publishing, options), unit-tested without Dear ImGui.
 fillscope_gtest(viewer_tests unit SOURCES viewer_test.cpp LIBS fillscope_viewer_core)
 
+# The viewer's log and its crash recording, each crash in a process of its own (death tests).
+fillscope_gtest(viewer_log_tests unit SOURCES viewer_log_test.cpp LIBS fillscope_viewer_core)
+
 # The viewer's UI, under the Dear ImGui Test Engine (tests/CMakeLists.txt builds imgui_te). Not a
 # GoogleTest program: it runs the Test Engine's own tests and exits nonzero if any fails.
 add_executable(viewer_ui_tests viewer_ui_test.cpp ${VIEWER_UI_SOURCES})
