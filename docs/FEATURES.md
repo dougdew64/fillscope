@@ -4,13 +4,14 @@
 it rests on. **Status:** live plan; an item is removed when it is built (git keeps it), and the file
 is deleted when empty. **Read when:** choosing what to build next, or asking what Fillscope will do.
 
-Answers (15) are being built now, as [PLAN.md](PLAN.md)'s steps 11 to 14; the other items aren't
-in order yet. The [charter](CHARTER.md)'s
+Time-shifting live market data (16) is next, as [PLAN.md](PLAN.md)'s steps 15 on; answers (15)
+are built, and its later parts remain here. The other items aren't in order yet. The [charter](CHARTER.md)'s
 rules bind every one of them. Known defects and test gaps are in [TECH-DEBT.md](TECH-DEBT.md).
 
 Built so far: the back end, built and tested by Fillscope at a pinned commit; the live view of the
-exchange's books; deterministic replay; and the matching engine stepped in a debugger while the
-book view follows ([ARCHITECTURE.md](ARCHITECTURE.md)).
+exchange's books; deterministic replay; the matching engine stepped in a debugger while the book
+view follows; and answers, scenarios the real matcher plays, explained step by step
+([ARCHITECTURE.md](ARCHITECTURE.md)).
 
 ## What Fillscope shows
 The features that distinguish it.
@@ -122,7 +123,8 @@ The stages of the roadmap, each a change to the fork.
     book. At any step the owner can point at an order and ask more; the context file already says
     which order, and as of which update, and will say which step of which answer too. Modelled on HRW's Answers (the assistant writes a file the app
     picks up and shows), and on HRW's lesson that explanation nothing checks rots.
-    **In progress:** [PLAN.md](PLAN.md), steps 11 to 14 (the owner, 2026-10-25).
+    **Built:** [PLAN.md](PLAN.md), steps 11 to 14 (2026-10-25); what remains is its next parts,
+    below: who made money, and strategies in the loop.
     - **No AI in the app** (charter §3, decision 2). The context file goes from the viewer to the
       assistant; an answer goes the other way, as a file the assistant writes,
       `.fillscope/answer.json` (ignored by git, replaced for each question), which the viewer picks
@@ -180,3 +182,35 @@ The stages of the roadmap, each a change to the fork.
       reads the time only to notice a quiet market. Rests on the book's market-making and
       liquidity-taking clients run and tested, and on running its trading engine without its
       threads and sockets, which is most of what backtesting on simulated time (6) needs too.
+
+## Watching live
+16. **Time-shifting the live market data, as a television recorder does** (the owner, 2026-10-26).
+    Pointing at an order in a live book is hard: the rows move while the mouse is on its way, the
+    order may be cancelled or filled a moment later, and a question asked afterwards is about a
+    book that has moved on. A television recorder solved the same problem for a broadcast: pause,
+    and it records what arrives meanwhile; resume, and it plays from the recording, behind live;
+    rewind within what it has. So here.
+    - **The viewer keeps what it receives.** Every update it applies, with when it arrived, in a
+      buffer: live is then the buffer's newest update, and the screen can show the books as of any
+      update in it. Pause holds the screen at one update while the updates keep coming in; resume
+      plays from the buffer, behind live; step and rewind move within it; live returns to the
+      newest. A viewer's replay does most of this already, for a recording that doesn't grow.
+    - **Pointing at a still book.** Paused, what is pointed at stays put, and the context file says
+      as of which update.
+    - **A live moment gets an address.** Written to a file as it arrives, the buffer gives every
+      live moment what a replay's has: a file and an update number, from which the assistant
+      rebuilds exactly the books the user was looking at when they pointed, however much later the
+      question comes. Live now publishes that it has no such address.
+    - **Behind live is never mistaken for live.** While the screen isn't at the newest update, it
+      says so, and how far behind (in updates, and in time); the feed's health (received, recovering,
+      seconds since the last update) is the live feed's, apart from the moment shown.
+    - **The data has no time.** An update carries a sequence number, not a timestamp; playing back
+      at the pace it arrived uses the viewer's own arrival times, which are the viewer's, not the
+      exchange's, and are shown as such.
+    - **Gaps.** A viewer that joins late, or misses updates, rebuilds from a snapshot: its buffer
+      begins there, or has a hole at the gap, and the books before a hole can't be rebuilt from
+      after it. What can be shown, and what can't, is said.
+    - **Small:** an update is 42 bytes, and the book's random client causes about 50 a second
+      (1,100 in the live demo's first 21 seconds of trading), about 8 MB an hour.
+    - **Rests on** replay (built); it gives the animated replay (4) live data as a source, and the
+      live moments that fill explanations (1) and counterfactuals (2) need.
