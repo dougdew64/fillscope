@@ -908,6 +908,25 @@ book doesn't change under the mouse on its way to the row; what arrives meanwhil
 sockets, as it does when a paint has taken its most, and is taken in a moment later. In the
 tests it waits for the orders each step needs rather than for the set times.
 
+**How a demo is built.** `viewer_demo` is a program of its own, built from the demo's file and
+the viewer's own drawing code (`viewer_view.cpp`, `viewer_app.cpp`: the same sources the viewer
+compiles). It doesn't start the viewer program and drive it from outside. It holds a `ViewerApp`
+itself, in a window the Test Engine opens, and each frame does what the viewer's loop in
+`src/viewer/main.cpp` does: take in market data, look for an answer, paint. So what a demo shows is
+drawn by the viewer's own code, but the window, the loop, and its pacing are the demo's. The
+viewer's `main` (its GLFW setup, its 60 paints a second, its signals, `--exit-after`) runs in no
+test; only its command line is tested (`parse_viewer_args`, in `viewer_tests`).
+
+A demo is a Test Engine test with two halves. The *GUI function* is one frame of the viewer,
+called every frame. The *test function* is the script: it runs as a coroutine beside the frames,
+and acts as a person would, through the Test Engine's own mouse: it moves it to an item, found by
+its Dear ImGui identifier (`**/3##ticker`, ticker 3's button), clicks, scrolls with the wheel, and
+waits. Its checks read what the viewer did, never a picture of it: the viewer's state (its books,
+what is pointed at), where the Test Engine saw each item drawn, and the frame's rendered text,
+which Dear ImGui's logging (`LogToBuffer`) captures as text while the frame is drawn. Recording is
+a flag, `--record FILE.mp4`: the same run, with the Test Engine's capture tool reading each frame
+back from the window's OpenGL framebuffer and piping it to `ffmpeg` (below).
+
 Both are one script run three ways, through the Dear ImGui Test Engine, which drives the UI tests too.
 The waits are the Test Engine's own (`Sleep`), skipped at full speed, so the checks are the same
 every way, and a demo that shows something false fails like any test.
