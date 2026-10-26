@@ -695,6 +695,26 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(read_context(vars)["background"]["answer"]["lesson"].is_null());
     });
 
+    // A line longer than the window wraps rather than widening it: a wider window scrolls sideways,
+    // and a click can then leave the book out of reach. A replay's file is named by its absolute
+    // path, as long as the directory it is in, and is named twice: in the bar and above the replay's
+    // controls.
+    viewer_test(engine, "a_long_file_name_wraps_rather_than_widening_the_window", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const std::string deep = std::string(300, 'd') + "/a.dat";
+        vars.app->open_replay(deep, fillscope::MarketDataFile{.recording = std::string(300, 'r'), .updates = {add(1, 10, Side::sell, 102, 3, 1)}});
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        ctx->ItemClick(std::format("**/{}", fillscope::kReplayEnd).c_str());
+        ctx->Yield(2);
+        const ImGuiWindow* window = ctx->GetWindowByRef(std::format("//{}", fillscope::kViewerWindow).c_str());
+        IM_CHECK(window != nullptr);
+        IM_CHECK_EQ(window->ScrollMax.x, 0.0f);
+        ctx->ItemClick("**/sell##order10");
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "Pointing at order 10 of ticker 0"));
+    });
+
     viewer_test(engine, "a_replay_goes_to_any_update", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         // add_book's six updates, then order 11 partly filled and order 12 cancelled.

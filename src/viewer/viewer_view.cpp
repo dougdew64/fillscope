@@ -183,7 +183,7 @@ void draw_replay(const ViewerView& view, ViewerActions& actions) {
     const Replay& replay = *view.state.replay;
     const std::uint64_t at = view.state.books.last_seq();
     const std::uint64_t last = replay.updates.size();
-    text(std::format("replay of {} (recorded in {}): after update {} of {}", replay.file.string(), replay.recording, at, last));
+    wrapped(std::format("replay of {} (recorded in {}): after update {} of {}", replay.file.string(), replay.recording, at, last));
     if (ImGui::SmallButton(kReplayStart)) {
         actions.replay_to = 0;
     }
@@ -559,7 +559,7 @@ void draw_book(const ViewerView& view, ViewerActions& actions) {
 
 // The followed order's history, as published.
 void draw_history(const Context::Follow& follow) {
-    text(std::format("order {} of ticker {}: {} event{}", follow.order.ref.order_id, follow.order.ref.ticker,
+    wrapped(std::format("order {} of ticker {}: {} event{}", follow.order.ref.order_id, follow.order.ref.ticker,
                      follow.event_count, follow.event_count == 1 ? "" : "s"));
     constexpr ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV |
                                       ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit;
