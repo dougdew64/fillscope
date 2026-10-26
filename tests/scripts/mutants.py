@@ -13,7 +13,8 @@
 #
 # A mutant is skipped when nothing its result depends on has changed since it was last caught:
 # its own definition, the file it mutates, the test programs it runs (their fingerprints, as
-# iterate.py takes them, from the copy's build) and this check's own code. Each caught mutant's key,
+# iterate.py takes them, from the copy's build) and this check's own code, which is all of this file
+# but the mutants and the names of the files they mutate. Each caught mutant's key,
 # a hash of those, is recorded in build/mutants/last-caught.json; a mutant not caught loses its
 # record. CI keeps no record, so it runs every mutant. FILLSCOPE_MUTANTS_DIR puts the copy and the
 # record elsewhere (selection_check.py does, to check the skipping without touching either).
@@ -37,6 +38,10 @@ sys.dont_write_bytecode = True
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
+# The mutants: the files they mutate, then the list itself. Together they are left out of the
+# check's own code (without_mutants), since each mutant's key already holds what it uses of them,
+# its file's name included, through its definition (mutant_key). So adding a mutant, or a file for
+# one, re-runs only that mutant. Nothing else may use a name defined here (names_used_elsewhere).
 VIEW = "src/viewer/viewer_view.cpp"
 PARSE = "src/common/parse.h"
 FD = "src/common/fd.h"
@@ -525,13 +530,16 @@ MUTANTS = [
      "scripts_tests"),
     ("the check's own code counts its mutants", MUTANTS_SCRIPT,
      # Split in two, here and below, so that the text occurs once in this file: in the code.
-     [("    return source[:start] "  "+ source[end + 3:]", "    return source")],
+     [("    return source[:start] "  "+ source[end:]", "    return source")],
      "scripts_tests"),
     ("a mutant not caught keeps its record", MUTANTS_SCRIPT,
      [("    if caught:\n        result[name] = key", "    if True:\n        result[name] = key")],
      "scripts_tests"),
     ("mutants may share a name", MUTANTS_SCRIPT,
      [("        (repeated if name in seen "  "else seen).add(name)", "        seen.add(name)")],
+     "scripts_tests"),
+    ("the check's own code may use a name defined among the mutants", MUTANTS_SCRIPT,
+     [("    used = sorted(name for name in defined if name != " '"MUTANTS"' " and re.search(", "    used = [] and sorted((")],
      "scripts_tests"),
     ("a UI test's mutant names no program", MUTANTS_SCRIPT,
      [('            found.add("viewer_'  'ui_tests")', "            pass")],
@@ -951,17 +959,38 @@ def duplicate_names(mutants):
     return f"mutants share a name: {', '.join(sorted(repeated))}" if repeated else None
 
 
+MUTANTS_START = "\n# The mutants: "
+
+
+def mutants_span(source):
+    """Where the mutants are in mutants.py's source: from the comment that opens them to the end
+    of their list."""
+    start = source.index(MUTANTS_START)
+    return start, source.index("\n]\n", source.index("\nMUTANTS = [\n", start)) + 3
+
+
 def without_mutants(source):
-    """mutants.py's source with its list of mutants left out: the check's own code, which every
-    mutant's result depends on, apart from the mutants, each of which counts only for itself."""
-    start = source.index("\nMUTANTS = [\n")
-    end = source.index("\n]\n", start)
-    return source[:start] + source[end + 3:]
+    """mutants.py's source with its mutants left out, the files they mutate and the list itself: the
+    check's own code, which every mutant's result depends on, apart from the mutants, each of which
+    counts only for itself."""
+    start, end = mutants_span(source)
+    return source[:start] + source[end:]
+
+
+def names_used_elsewhere(source):
+    """What is wrong with where the mutants' names are used, or None: a name defined among the
+    mutants (a file's, or MUTANTS) that the check's own code uses would change what the check does
+    without changing its key, so every mutant would keep a record made by other code."""
+    start, end = mutants_span(source)
+    defined = re.findall(r"^([A-Za-z_]\w*) = ", source[start:end], re.MULTILINE)
+    rest = without_mutants(source)
+    used = sorted(name for name in defined if name != "MUTANTS" and re.search(rf"\b{name}\b", rest))
+    return f"the check's own code uses names defined among the mutants: {', '.join(used)}" if used else None
 
 
 def machinery_digest(texts):
     """A hash of the check's own code: `texts` are its scripts' sources, mutants.py's without its
-    list of mutants."""
+    mutants (without_mutants)."""
     digest = hashlib.sha256()
     for text in texts:
         digest.update(hashlib.sha256(text.encode()).digest())
@@ -1085,9 +1114,10 @@ def main(args):
     if len(args) > 1 or (args and args[0].startswith("-") and args[0] not in ("--all", "--list", "--record-all")):
         print(USAGE, file=sys.stderr)
         return 2
-    if problem := duplicate_names(MUTANTS):
-        print(f"PROBLEM: {problem}")
-        return 1
+    for problem in (duplicate_names(MUTANTS), names_used_elsewhere(pathlib.Path(__file__).read_text())):
+        if problem:
+            print(f"PROBLEM: {problem}")
+            return 1
     option = args[0] if args and args[0].startswith("--") else None
     only = args[0] if args and option is None else None
     mutants = [m for m in MUTANTS if only is None or only in m[0]]

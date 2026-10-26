@@ -272,11 +272,22 @@ class MutantRecordTest(unittest.TestCase):
         for what, key in changes.items():
             self.assertNotEqual(key, self.key(), what)
 
-    def test_the_check_s_code_leaves_out_the_mutants_but_nothing_else(self):
-        source = "a = 1\nMUTANTS = [\n    (\"one\", ...),\n]\n\nb = 2\n"
+    # A file's name, a mutant and the list's end, as mutants.py lays them out.
+    SOURCE = "a = 1\n\n# The mutants: and their files.\nF = \"src/f.cpp\"\nMUTANTS = [\n    (\"one\", F),\n]\n\nb = 2\n"
+
+    def test_the_check_s_code_leaves_out_the_mutants_and_their_files_but_nothing_else(self):
+        source = self.SOURCE
         self.assertEqual(mutants.without_mutants(source), mutants.without_mutants(source.replace("one", "two")))
+        self.assertEqual(mutants.without_mutants(source),
+                         mutants.without_mutants(source.replace("F = ", "G = \"src/g.cpp\"\nF = ")))
         self.assertNotEqual(mutants.without_mutants(source), mutants.without_mutants(source.replace("b = 2", "b = 3")))
-        self.assertIn("b = 2", mutants.without_mutants(source))
+        self.assertNotEqual(mutants.without_mutants(source), mutants.without_mutants(source.replace("a = 1", "a = 3")))
+        self.assertEqual(mutants.without_mutants(source), "a = 1\n\nb = 2\n")
+
+    def test_the_check_s_own_code_uses_no_name_defined_among_the_mutants(self):
+        self.assertIsNone(mutants.names_used_elsewhere(self.SOURCE))
+        self.assertIsNone(mutants.names_used_elsewhere(pathlib.Path(mutants.__file__).read_text()))
+        self.assertIn(": F", mutants.names_used_elsewhere(self.SOURCE.replace("b = 2", "b = F")))
 
     def test_the_tests_named_are_mapped_to_the_programs_that_run_them(self):
         asked = []

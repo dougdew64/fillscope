@@ -590,7 +590,11 @@ the back end's one-test program (`lowlatency:LFQueue.WritingToAFullQueueStopsThe
   fingerprints as `iterate.py` takes them, in the copy's build. Their hash is the mutant's *key*;
   when a mutant is caught its key is recorded, in `build/mutants/last-caught.json`, and next time a
   mutant whose key is unchanged is skipped, as already known. A mutant not caught loses its record,
-  so it runs again. The comparison is of what the build produced, not of where the change was: a
+  so it runs again. The check's own code is `mutants.py` and the scripts it loads, less the
+  mutants themselves and the names of the files they mutate: a mutant's definition holds what it
+  uses of those. So adding a mutant, or a file for one, runs only that mutant, where a change to the
+  check's code runs them all; the check refuses to run if its code uses a name defined among the
+  mutants, which would make that untrue. The comparison is of what the build produced, not of where the change was: a
   change to `common/macros.h` changes no mutant's file, but every back-end program's binary, so
   every back-end mutant runs, as it must, since the queue's full check is an `ASSERT`. A change to
   the viewer's drawing code changes only `viewer_ui_tests`, and runs only the 18 of 192
