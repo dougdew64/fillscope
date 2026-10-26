@@ -914,8 +914,8 @@ compiles). It doesn't start the viewer program and drive it from outside. It hol
 itself, in a window the Test Engine opens, and each frame does what the viewer's loop in
 `src/viewer/main.cpp` does: take in market data, look for an answer, paint. So what a demo shows is
 drawn by the viewer's own code, but the window, the loop, and its pacing are the demo's. The
-viewer's `main` (its GLFW setup, its 60 paints a second, its signals, `--exit-after`) runs in no
-test; only its command line is tested (`parse_viewer_args`, in `viewer_tests`).
+viewer's `main` (its GLFW setup, its 60 paints a second, its signals, `--exit-after`) is tested
+apart, as a user runs it, by `viewer_program_tests`.
 
 A demo is a Test Engine test with two halves. The *GUI function* is one frame of the viewer,
 called every frame. The *test function* is the script: it runs as a coroutine beside the frames,

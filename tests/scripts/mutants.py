@@ -43,6 +43,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 # its file's name included, through its definition (mutant_key). So adding a mutant, or a file for
 # one, re-runs only that mutant. Nothing else may use a name defined here (names_used_elsewhere).
 VIEW = "src/viewer/viewer_view.cpp"
+VIEWER_MAIN = "src/viewer/main.cpp"
 PARSE = "src/common/parse.h"
 FD = "src/common/fd.h"
 REPLAY_DRIVER = "tests/backend/replay_lldb_driver.py"
@@ -328,6 +329,22 @@ MUTANTS = [
      [("    const auto latest = recoveries.last(std::min(recoveries.size(), kMaxListedRecoveries));",
        "    const auto latest = recoveries.first(std::min(recoveries.size(), kMaxListedRecoveries));")],
      "MakeContext.OnlyTheLatestRecoveries"),
+    # The viewer program itself (main.cpp), run by viewer_program_tests.
+    ("the viewer paints as fast as it can", VIEWER_MAIN,
+     [("        std::this_thread::sleep_until(next_paint);\n", "")],
+     "viewer_program_tests"),
+    ("the viewer takes in no market data", VIEWER_MAIN,
+     [("            app.receive(*incremental, *snapshot, now);\n", "")],
+     "viewer_program_tests"),
+    ("the viewer ignores SIGTERM and SIGINT", VIEWER_MAIN,
+     [(" && !fillscope::stop_requested()) {", ") {")],
+     "viewer_program_tests"),
+    ("the viewer's last context says it is still running", VIEWER_MAIN,
+     [("    if (!app.finish()) {", "    if (false) {")],
+     "viewer_program_tests"),
+    ("the viewer writes no screenshot", VIEWER_MAIN,
+     [("if (last_paint && options->screenshot) {", "if (false && options->screenshot) {")],
+     "viewer_program_tests"),
     # The bar's lines wrap short of their x (viewer_view.cpp, wrapped_before).
     ("the pointing line wraps at the edge, its x past it", VIEW,
      [("wrapped_before(*bar.point, kClearPointButton);", "wrapped(*bar.point);")],

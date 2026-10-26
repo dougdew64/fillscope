@@ -34,6 +34,8 @@ jobs:
     env:
       # A missing debugger fails its tests here instead of skipping them.
       FILLSCOPE_REQUIRE_DEBUGGERS: "1"
+      # And a missing display fails the viewer program's tests (they open its window under Xvfb).
+      FILLSCOPE_REQUIRE_DISPLAY: "1"
       # A warning in our own code fails the build.
       FILLSCOPE_WERROR: "ON"
       # Compiles go through ccache, whose store is kept between runs (below).
@@ -45,6 +47,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False
           gcc-c++ libasan libubsan cmake ninja-build git python3 ccache
           glfw-devel mesa-libGL-devel gdb lldb python3-lldb nodejs npm util-linux-core
+          xorg-x11-server-Xvfb mesa-dri-drivers
       # Actions are pinned to the commit of a release (named in the comment), not a movable tag.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:

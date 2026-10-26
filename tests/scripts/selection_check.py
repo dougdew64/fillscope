@@ -31,10 +31,12 @@ ANSWER = {"answer_tests", "answer_system_tests", "course_system_tests"}
 # Answers' demo: the viewer's drawing and loop compiled in, its core linked, and the answer tool
 # run, which runs exchange_replay.
 DEMO = {"viewer_demo", "viewer_live_demo"}
+# The viewer program itself, run by its own test: its window and loop, its core, and the exchange.
+VIEWER_PROGRAM = {"viewer_program_tests"}
 ALL = {"common_tests", "docs_tests",
        "viewer_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
        "lowlatency_allocation_tests", "feed_tests",
-       "feed_system_tests", "replay_debugger_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP | ANSWER | DEMO
+       "feed_system_tests", "replay_debugger_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP | ANSWER | DEMO | VIEWER_PROGRAM
 # The programs iterate.py runs every time, affected or not.
 ALWAYS = {"docs_tests", "attribution_report_check", "code_map_check"}
 
@@ -52,19 +54,20 @@ def ui_timeout_changed(text):
 
 # (file changed, probe, the programs that must be reported affected, and no others)
 CASES = [
-    ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO),
-    # The loop main.cpp runs is in ViewerApp, which the UI tests and the demo run too.
-    ("src/viewer/viewer_app.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO),
+    ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    # The loop main.cpp runs is in ViewerApp, which the UI tests and the demos run too.
+    ("src/viewer/viewer_app.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
     # The feed's socket, the atomic write and the answer tool's replay own their descriptors with
     # Fd, so everything that links them is affected, and the helpers' own tests.
     ("src/common/fd.h", CPP_PROBE,
-     {"common_tests", "viewer_tests", "viewer_ui_tests", "feed_tests", "feed_system_tests"} | ANSWER | DEMO),
-    # The viewer's core is linked by the viewer's test programs and its demo, and by nothing else.
-    ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"} | DEMO),
+     {"common_tests", "viewer_tests", "viewer_ui_tests", "feed_tests", "feed_system_tests"} | ANSWER | DEMO
+     | VIEWER_PROGRAM),
+    # The viewer's core is linked by the viewer, its test programs and its demos, and by nothing else.
+    ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
     # The books: Fillscope's reading of the market data, which the viewer, the answer tool and the
     # system test link.
     ("src/feed/book_builder.cpp", CPP_PROBE,
-     {"feed_tests", "feed_system_tests", "viewer_tests", "viewer_ui_tests"} | ANSWER | DEMO),
+     {"feed_tests", "feed_system_tests", "viewer_tests", "viewer_ui_tests"} | ANSWER | DEMO | VIEWER_PROGRAM),
     ("tests/support/test_support.h", CPP_PROBE,
      {"feed_tests", "feed_system_tests", "viewer_ui_tests", "replay_debugger_tests", "answer_system_tests",
       "course_system_tests"} | DEMO),
@@ -84,7 +87,7 @@ CASES = [
     # makes a matching engine), and the system test starts its programs.
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",
-      "replay_debugger_tests", "answer_system_tests", "course_system_tests"} | DEMO),
+      "replay_debugger_tests", "answer_system_tests", "course_system_tests"} | DEMO | VIEWER_PROGRAM),
     # The allocation tests are a program of their own, so a change to them affects only it.
     ("backend/Chapter12/tests/allocation_test.cpp", CPP_PROBE, {"lowlatency_allocation_tests"}),
     # A build file counts only through what it decides: what is built, and how CTest runs each
@@ -93,8 +96,8 @@ CASES = [
     ("CMakeLists.txt", TEXT_PROBE, set()),
     ("tests/viewer/CMakeLists.txt", TEXT_PROBE, set()),
     ("tests/CMakeLists.txt", ui_timeout_changed, {"viewer_ui_tests"}),
-    # Nothing tests the viewer's window yet, so changing it affects no test program.
-    ("src/viewer/main.cpp", CPP_PROBE, set()),
+    # The viewer's window and loop: the viewer program's own test, and nothing else.
+    ("src/viewer/main.cpp", CPP_PROBE, VIEWER_PROGRAM),
     # A file no program lists. docs_tests may still link to it, which is why it always runs (below);
     # the attribution check always runs because the history its report describes is no file, and
     # the code map's because which files the repository has is no file either.
@@ -123,10 +126,10 @@ MUTANT_CASES = [
     ("LICENSE", TEXT_PROBE, set()),
     # A build file's comment changes nothing a mutant's result depends on.
     ("CMakeLists.txt", TEXT_PROBE, set()),
-    ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO),
+    ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",
-      "replay_debugger_tests", "answer_system_tests", "course_system_tests"} | DEMO),
+      "replay_debugger_tests", "answer_system_tests", "course_system_tests"} | DEMO | VIEWER_PROGRAM),
     # A test changed: every mutant its program's tests may catch runs again.
     ("backend/Chapter12/tests/lf_queue_test.cpp", CPP_PROBE, {"lowlatency_tests"}),
     # The check's own code: every mutant. (scripts_tests, whose run-time files it is, changes too.)
