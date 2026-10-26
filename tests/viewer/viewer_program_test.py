@@ -7,10 +7,10 @@
 #
 #   python3 -I tests/viewer/viewer_program_test.py VIEWER EXCHANGE_MAIN TRADING_MAIN
 #
-# It needs a display for the viewer's window: Xvfb's, started here, when Xvfb is installed (so no
-# window appears on the screen), otherwise the session's own. With neither, the tests that open a
-# window are skipped (and fail, if FILLSCOPE_REQUIRE_DISPLAY is set, as in CI), and the program
-# exits 77, which CTest reports as skipped.
+# It needs a display for the viewer's window: an Xvfb of its own, started here, so no window ever
+# appears on the screen. Never the desktop's: its windows covered the user's. Without Xvfb, the
+# tests that open a window are skipped (and fail, if FILLSCOPE_REQUIRE_DISPLAY is set, as in CI), and
+# the program exits 77, which CTest reports as skipped.
 import fcntl
 import json
 import os
@@ -55,8 +55,8 @@ START_LIMIT = 30.0
 
 
 class Display:
-    """The display the viewer's window opens on: an Xvfb of this test's own if Xvfb is installed,
-    otherwise the session's. `env` is the viewer's environment, or None if there is no display."""
+    """The display the viewer's window opens on: an Xvfb of this test's own, if Xvfb is installed.
+    `env` is the viewer's environment, or None if there is no display."""
 
     def __init__(self):
         self.xvfb = None
@@ -73,13 +73,6 @@ class Display:
                 env = {k: v for k, v in os.environ.items() if k != "WAYLAND_DISPLAY"}  # GLFW would prefer Wayland
                 env["DISPLAY"] = f":{number}"
                 self.env = env
-        elif os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
-            # In the sanitizer build, LeakSanitizer reports what the desktop's own libraries leak
-            # (session_display.supp says what); under Xvfb, nothing leaks.
-            env = dict(os.environ)
-            suppressions = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session_display.supp")
-            env["LSAN_OPTIONS"] = ":".join(filter(None, [env.get("LSAN_OPTIONS"), f"suppressions={suppressions}"]))
-            self.env = env
 
     def close(self):
         if self.xvfb is not None:
@@ -93,8 +86,8 @@ DISPLAY = None  # made in main, before the tests run
 def needs_display(test):
     if DISPLAY.env is None:
         if os.environ.get("FILLSCOPE_REQUIRE_DISPLAY"):
-            test.fail("no display for the viewer's window (neither Xvfb nor a session's), and this run requires one")
-        test.skipTest("no display for the viewer's window: neither Xvfb nor a session's")
+            test.fail("no display for the viewer's window (Xvfb isn't installed), and this run requires one")
+        test.skipTest("no display for the viewer's window: Xvfb isn't installed (sudo dnf install xorg-x11-server-Xvfb)")
 
 
 def order_port_open():

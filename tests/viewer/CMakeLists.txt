@@ -34,13 +34,13 @@ set_tests_properties(viewer_live_demo PROPERTIES RESOURCE_LOCK exchange)
 
 # The viewer program itself (viewer_program_test.py): its window, paint loop, report lines, and every
 # way it ends, on the real exchange and a client. The one test of src/viewer/main.cpp, which the UI
-# tests and the demos don't run. The system tier, holding the exchange's lock. It needs a display:
-# Xvfb's if installed, otherwise the session's; with neither it exits 77, reported as skipped.
+# tests and the demos don't run. The system tier, holding the exchange's lock. It opens the window on
+# an Xvfb of its own, never the desktop's; without Xvfb it exits 77, reported as skipped.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 fillscope_test_program(viewer_program_tests system
   COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/viewer_program_test.py
           $<TARGET_FILE:viewer> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>
-  RUNTIME_DEPS ${CMAKE_CURRENT_SOURCE_DIR}/viewer_program_test.py ${CMAKE_CURRENT_SOURCE_DIR}/session_display.supp
+  RUNTIME_DEPS ${CMAKE_CURRENT_SOURCE_DIR}/viewer_program_test.py
                $<TARGET_FILE:viewer> $<TARGET_FILE:exchange_main>
                $<TARGET_FILE:trading_main> ${Python3_EXECUTABLE})
 set_tests_properties(viewer_program_tests PROPERTIES RESOURCE_LOCK exchange SKIP_RETURN_CODE 77)

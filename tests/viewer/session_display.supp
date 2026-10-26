@@ -1,6 +1,0 @@
-# LeakSanitizer's suppressions for the viewer on a desktop session's display (viewer_program_test.py
-# passes them only then; under Xvfb nothing leaks). On Wayland, GLFW allocates some of the window's
-# Wayland objects without freeing them, and the window's title bar, drawn through libdecor's GTK
-# plugin, leaves fontconfig's patterns behind: system libraries' memory, none of it Fillscope's.
-leak:_glfwCreateWindowWayland
-leak:libfontconfig.so

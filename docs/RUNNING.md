@@ -148,10 +148,9 @@ the slower program adds the tier to its name.
   data, paints about 60 times a second, reports once a second, and ends on `--exit-after`, SIGTERM
   and SIGINT with a last context file saying it has stopped; `--screenshot` writes its last frame;
   a bad command line and a replay it can't read are refused. About 10 seconds. Its window opens on
-  an Xvfb display of the test's own when Xvfb is installed (`sudo dnf install
-  xorg-x11-server-Xvfb`; nothing appears on the screen), otherwise on the desktop's, for a few
-  seconds; with neither, the test is skipped, except in CI (`FILLSCOPE_REQUIRE_DISPLAY`), which
-  runs it under Xvfb.
+  an Xvfb display of the test's own, never on the desktop, where it covered the user's windows. So
+  it needs Xvfb (`sudo dnf install xorg-x11-server-Xvfb`); without it the test is skipped, and the
+  mutants of `main` go uncaught, except in CI (`FILLSCOPE_REQUIRE_DISPLAY`), which installs Xvfb.
 - **`viewer_live_demo` (the Test Engine's own, `system`):** the live demo, headless: the viewer
   on the real exchange and a client trading at random, showing other tickers' books and pointing
   at orders, its books checked against the demo's own. About 10 seconds. **demo: live trading**
