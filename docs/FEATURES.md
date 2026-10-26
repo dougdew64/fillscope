@@ -28,7 +28,7 @@ The features that distinguish it.
 ## What the back end gains
 The stages of the roadmap, each a change to the fork.
 
-5. **Replay of Nasdaq TotalView-ITCH 5.0 data into the exchange.** Its parser is to be the first
+5. **Replay of Nasdaq TotalView-ITCH 5.0 data on the exchange's market data feed.** Its parser is to be the first
    worked example of checking AI output (charter §3, decision 6). Proposed, not yet decided:
    hand-written decoders for the messages the book needs, and the rest generated. AI builds a
    model of the specification, checked mechanically and against an independent model; a
