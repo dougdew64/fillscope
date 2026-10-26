@@ -320,6 +320,58 @@ real clicks, checked at every frame, headless in the tests and watchable in a wi
 ([ARCHITECTURE.md](ARCHITECTURE.md), §10, *The demos*).
 
 
+### 15 to 18. Time-shifting the live market data
+Decided by the owner on 2026-10-26: what it is, and why, is in [FEATURES.md](FEATURES.md), item 16.
+**Who writes what** (the owner, 2026-10-26): Claude writes all four steps; the owner's hand-written
+code comes later. **Resuming** plays from the buffer at the pace the updates arrived, behind live,
+with a separate way back to live. **The viewer keeps the whole session,** written to a file as it
+arrives.
+
+### 15. The viewer keeps what it receives
+The viewer's core keeps every incremental update it applies, with the time it arrived, and can
+give the books exactly as they were after any update it kept. The updates come in runs: a run
+starts at update 1, or at a recovery, with the books as the snapshot gave them, and ends at a gap.
+The books after an update in a run are rebuilt from the run's start; an update in a gap is refused,
+saying why. Live is the newest update kept. A replay becomes the same thing read from a file that
+doesn't grow, so live and replay share one way of showing a moment. No change on screen yet.
+**Done when:** for feeds with gaps and recoveries, the books rebuilt as of every update kept equal
+those the live books had after it; an update in a gap, before the first or after the last is
+refused; going to any update of an hour's session takes less than a frame (measured, with
+checkpoints if rebuilding from a run's start is too slow); replay still passes all its tests.
+**Open:** whether a run keeps checkpoints of the books, decided by the measurement.
+
+### 16. Pause, resume, step and live, in the viewer
+Live, the viewer gains a recorder's controls: pause, which holds the screen at one update while
+updates keep arriving; play, which plays from the buffer at the pace the updates arrived, behind
+live; step back and forward; a slider over what is kept; and live, which returns to the newest.
+What is pointed at and followed is as of the update shown. While not at the newest, the bar and the
+context file say so, and how far behind (in updates, and in seconds of arrival time); the feed's
+health lines are the live feed's, apart from the moment shown.
+**Done when:** UI tests (on a clock the tests control) show that a pause holds the books while
+updates arrive, play follows the arrival pace and stays behind live, live returns to the newest,
+pointing while paused stays on the order pointed at, and behind live is shown and published
+whenever the screen isn't at the newest; the viewer program's test pauses and resumes the real
+viewer.
+
+### 17. A live moment's address
+The viewer writes what it keeps to a file as it arrives, readable while it grows and after the
+viewer has stopped, even mid-write: the updates, their arrival times and the runs. The context
+file gives a live moment's address, that file and an update number, as a replay's does now; a
+command-line tool prints the books as of any update in such a file, so the assistant can rebuild
+exactly what the user was looking at, however much later the question comes. The viewer can open
+the file as a replay.
+**Done when:** on the real exchange, the books the tool rebuilds at the update a user pointed at
+equal the viewer's at that moment; a file cut short is read to its last whole update; the format is
+in [ARCHITECTURE.md](ARCHITECTURE.md).
+**Open:** the file's format (an extension of the market data file's, or one of its own).
+
+### 18. The demo
+A demo, part of the tests like the others, recorded for sharing: the live viewer paused, an order
+pointed at in a still book, a step back to see it arrive, play resumed behind live, and back to
+live.
+**Done when:** it runs in the tests, checked against books of its own as the live demo is, and
+records itself.
+
 ## Later
 The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are
-ordered and broken into steps here when steps 11 to 14 have landed.
+ordered and broken into steps here when steps 15 to 18 have landed.
