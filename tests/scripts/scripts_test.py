@@ -153,7 +153,7 @@ class FingerprintTest(unittest.TestCase):
             for key in [key for key in os.environ if key.startswith("FILLSCOPE_")]:
                 del os.environ[key]
             os.environ.update({"FILLSCOPE_WERROR": "ON", "FILLSCOPE_ITERATE_STATE": "/x", "FILLSCOPE_MUTANTS_DIR": "/y",
-                               "FILLSCOPE_REQUIRE_DEBUGGERS": "1"})
+                               "FILLSCOPE_JOBS": "4", "FILLSCOPE_REQUIRE_DEBUGGERS": "1"})
             self.assertEqual(iterate.environment(), "FILLSCOPE_REQUIRE_DEBUGGERS=1")
         finally:
             os.environ.clear()

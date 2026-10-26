@@ -44,12 +44,13 @@ a commit, run everything.
 python3 -I tests/scripts/iterate.py          # between edits: affected fast tests, debug build
 python3 -I tests/scripts/iterate.py -R Name  # between edits: fast tests matching a name
 tests/scripts/run-tests.sh                   # before a commit: every test, both builds
+FILLSCOPE_JOBS=4 tests/scripts/run-tests.sh  # the same, 4 compiles and tests at a time: cooler
 ```
 **What `iterate.py` runs.** CMake writes `build/debug/test-manifest.txt`: each test program, its
 tier, and the files it uses at run time (a program it starts, a script). A program is affected when
 its binary, one of those files (the Node.js the extension's tests run with is one of theirs), a
-shared library it loads, a `FILLSCOPE_` environment variable (other than `FILLSCOPE_WERROR` and
-the scripts' own, which say where they keep their state), or how CTest runs its tests (command,
+shared library it loads, a `FILLSCOPE_` environment variable (other than `FILLSCOPE_WERROR`, `FILLSCOPE_JOBS`,
+and the scripts' own, which say where they keep their state), or how CTest runs its tests (command,
 environment, timeout) differs from its last passing run; a `CMakeLists.txt` edit counts only
 through those. So the selection follows the build's own
 dependencies rather than a hand-kept map. `docs_tests` runs every time, since a link can name any

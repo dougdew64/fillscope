@@ -66,7 +66,7 @@ FAST_TIERS = {"unit", "ui", "check"}
 LARGE_FILE = 8 * 1024 * 1024
 # Environment variables that don't change a test's result once the build exists: the scripts' own,
 # which say where they keep their state, and whether warnings fail the build.
-NOT_FINGERPRINTED = ("FILLSCOPE_ITERATE_", "FILLSCOPE_MUTANTS_DIR", "FILLSCOPE_WERROR")
+NOT_FINGERPRINTED = ("FILLSCOPE_ITERATE_", "FILLSCOPE_MUTANTS_DIR", "FILLSCOPE_WERROR", "FILLSCOPE_JOBS")
 
 USAGE = """usage: iterate.py [--all | --list | -R REGEX]
        iterate.py --snapshot FILE | --record-snapshot FILE CTEST_LOG | --record-all

@@ -6,9 +6,12 @@
 #   tests/scripts/run-tests.sh            from anywhere in the repository
 #
 # A warning in our own code fails both builds, as in CI (FILLSCOPE_WERROR=OFF turns that off).
+# FILLSCOPE_JOBS sets how many compiles and tests run at once (every core, by default): fewer keeps a
+# laptop cooler, at the cost of time.
 set -euo pipefail
 
 root=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+jobs=${FILLSCOPE_JOBS:-$(nproc)}
 iterate=(python3 -I "$root/tests/scripts/iterate.py")
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
@@ -33,12 +36,12 @@ build() {  # build BUILD_DIR [CMAKE OPTIONS...]
     echo "== $build_dir"
     cmake -S "$root" -B "$build_dir" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
           -DFILLSCOPE_WERROR="${FILLSCOPE_WERROR:-ON}" "$@" > /dev/null
-    cmake --build "$build_dir"
+    cmake --build "$build_dir" --parallel "$jobs"
 }
 
 run_tests() {  # run_tests BUILD_DIR LOG: runs every test, keeping CTest's output in LOG
     local build_dir=$1 log=$2
-    if ! ctest --test-dir "$build_dir" -j "$(nproc)" --no-tests=error --output-on-failure > "$log" 2>&1; then
+    if ! ctest --test-dir "$build_dir" -j "$jobs" --no-tests=error --output-on-failure > "$log" 2>&1; then
         cat "$log"
         return 1
     fi
