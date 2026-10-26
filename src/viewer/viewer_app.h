@@ -42,6 +42,18 @@ public:
     void apply_incremental(const MarketUpdate& update, Clock::time_point now);
     void apply_snapshot(const MarketUpdate& update);
 
+    // Time-shifting, live (feed/time_shift.h). Pause holds the books shown at the newest update while
+    // updates keep arriving (or, playing, at the update shown); play goes on from the update shown at the pace the updates arrived, behind
+    // live; go_to shows the books as of any update kept, paused (the nearest that can be shown, past a
+    // gap); go_live follows the newest again. Each does nothing where it can't: pause while the feed
+    // has kept nothing, play or go_to with nothing kept.
+    void pause();
+    void play(Clock::time_point now);
+    void go_to(std::uint64_t seq);
+    void go_live();
+    // Moves a playing time shift on to `now`, and brings how far behind up to date; once a paint.
+    void advance(Clock::time_point now);
+
     // Shows a replay instead of the live exchange: the books start empty, before its first update.
     // `file` is where it was read from.
     void open_replay(const std::filesystem::path& file, MarketDataFile market_data);
@@ -94,6 +106,13 @@ public:
     void set_publisher(std::filesystem::path context_file) { publisher_ = ContextPublisher{std::move(context_file)}; }
 
 private:
+    // The books shown become those as of kept update `seq`: by applying the kept updates after the
+    // shown ones, when they follow on in one run, otherwise rebuilt (BookBuilder::as_of).
+    void show(std::uint64_t seq);
+    // When update `seq` arrived, for playing: a run's start, rebuilt from a snapshot, has no time of
+    // its own, so it takes the next update's.
+    [[nodiscard]] std::optional<Clock::time_point> arrival_for_play(std::uint64_t seq) const;
+
     ViewerState state_;
     TimeShiftBuffer kept_;
     Selection selection_;

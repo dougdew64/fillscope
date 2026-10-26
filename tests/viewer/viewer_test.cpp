@@ -44,6 +44,16 @@ MarketUpdate cancel(std::uint64_t seq, std::uint64_t id, Side side, std::int64_t
     return {.seq = seq, .type = UpdateType::cancel, .order_id = id, .ticker = 0, .side = side, .price = price, .qty = 0, .priority = 0};
 }
 
+// The context of a viewer as the app keeps it: live and following it, the feed's books are the books
+// shown (ViewerApp gives both every update), so the tests build the books shown and the feed's are
+// the same.
+Context context_of(ViewerState state, const Selection& selection) {
+    if (!state.replay && !state.answer && !state.time_shift) {
+        state.live = state.books;
+    }
+    return make_context(state, selection);
+}
+
 // Ticker 0's book: orders 1 and 2 bid 100 (1 first), order 3 bids 99.
 ViewerState three_bids() {
     ViewerState state;
@@ -140,7 +150,7 @@ TEST(MakeContext, ARestingOrderPointedAtKnowsWhatIsAheadOfItInItsQueue) {
     const ViewerState state = three_bids();
     Selection selection;
     selection.point_at(OrderRef{0, 2});
-    const Context context = make_context(state, selection);
+    const Context context = context_of(state, selection);
     const OrderState& order = pointed_order(context);
     ASSERT_TRUE(order.resting);
     EXPECT_EQ(order.resting->price, 100);
@@ -151,7 +161,7 @@ TEST(MakeContext, ARestingOrderPointedAtKnowsWhatIsAheadOfItInItsQueue) {
     EXPECT_EQ(context.point->seq, 1u);
 
     selection.point_at(OrderRef{0, 1});
-    EXPECT_EQ(pointed_order(make_context(state, selection)).orders_ahead, 0u) << "first in its queue";
+    EXPECT_EQ(pointed_order(context_of(state, selection)).orders_ahead, 0u) << "first in its queue";
 }
 
 TEST(MakeContext, AnOrderNoLongerRestingSaysHowItLeft) {
@@ -159,7 +169,7 @@ TEST(MakeContext, AnOrderNoLongerRestingSaysHowItLeft) {
     state.books.on_incremental(cancel(4, 1, Side::buy, 100));
     Selection selection;
     selection.point_at(OrderRef{0, 1});
-    const Context context = make_context(state, selection);  // kept: order refers into it
+    const Context context = context_of(state, selection);  // kept: order refers into it
     const OrderState& order = pointed_order(context);
     EXPECT_FALSE(order.resting);
     ASSERT_TRUE(order.last_event);
@@ -178,7 +188,7 @@ TEST(MakeContext, AnOrderThatLeftDuringARecoverySaysSo) {
     ASSERT_EQ(state.books.status(), BookBuilder::Status::live);
     Selection selection;
     selection.point_at(OrderRef{0, 1});
-    const Context context = make_context(state, selection);  // kept: order refers into it
+    const Context context = context_of(state, selection);  // kept: order refers into it
     const OrderState& order = pointed_order(context);
     EXPECT_FALSE(order.resting);
     ASSERT_TRUE(order.last_event);
@@ -193,7 +203,7 @@ TEST(MakeContext, AnOrderThatLeftDuringARecoverySaysSo) {
     EXPECT_EQ(json["point"]["order"]["leftDuringRecovery"]["snapshotSeq"], 6);
 
     selection.point_at(OrderRef{0, 3});
-    const Context cancelled = make_context(state, selection);
+    const Context cancelled = context_of(state, selection);
     EXPECT_FALSE(pointed_order(cancelled).left_during);
     EXPECT_EQ(bar_text(cancelled).point, "Pointing at order 3 of ticker 0: not in the book (its last update: cancel at update 4)");
 }
@@ -201,7 +211,7 @@ TEST(MakeContext, AnOrderThatLeftDuringARecoverySaysSo) {
 TEST(MakeContext, AnOrderNeverSeenHasNeitherAPlaceNorAHistory) {
     Selection selection;
     selection.point_at(OrderRef{0, 99});
-    const Context context = make_context(three_bids(), selection);  // kept: order refers into it
+    const Context context = context_of(three_bids(), selection);  // kept: order refers into it
     const OrderState& order = pointed_order(context);
     EXPECT_FALSE(order.resting);
     EXPECT_FALSE(order.last_event);
@@ -210,7 +220,7 @@ TEST(MakeContext, AnOrderNeverSeenHasNeitherAPlaceNorAHistory) {
 TEST(MakeContext, ALevelPointedAtListsItsOrdersInTheOrderTheyWillFill) {
     Selection selection;
     selection.point_at(LevelRef{0, Side::buy, 100});
-    const Context context = make_context(three_bids(), selection);  // kept: level refers into it
+    const Context context = context_of(three_bids(), selection);  // kept: level refers into it
     const LevelState& level = pointed_level(context);
     EXPECT_TRUE(level.present);
     EXPECT_EQ(level.qty, 12u);
@@ -219,7 +229,7 @@ TEST(MakeContext, ALevelPointedAtListsItsOrdersInTheOrderTheyWillFill) {
     EXPECT_EQ(level.orders[0].order_id, 1u);
 
     selection.point_at(LevelRef{0, Side::sell, 100});
-    EXPECT_FALSE(pointed_level(make_context(three_bids(), selection)).present) << "no asks at 100";
+    EXPECT_FALSE(pointed_level(context_of(three_bids(), selection)).present) << "no asks at 100";
 }
 
 TEST(MakeContext, ALevelsListIsCappedButItsCountIsExact) {
@@ -229,7 +239,7 @@ TEST(MakeContext, ALevelsListIsCappedButItsCountIsExact) {
     }
     Selection selection;
     selection.point_at(LevelRef{0, Side::sell, 105});
-    const Context context = make_context(state, selection);  // kept: level refers into it
+    const Context context = context_of(state, selection);  // kept: level refers into it
     const LevelState& level = pointed_level(context);
     EXPECT_EQ(level.orders.size(), kMaxLevelOrders);
     EXPECT_EQ(level.order_count, kMaxLevelOrders + 5);
@@ -242,7 +252,7 @@ TEST(MakeContext, AFollowedOrderHasEveryEventInOrder) {
     state.books.on_incremental(cancel(5, 1, Side::buy, 100));
     Selection selection;
     selection.follow(OrderRef{0, 1});
-    const Context context = make_context(state, selection);
+    const Context context = context_of(state, selection);
     ASSERT_TRUE(context.follow);
     EXPECT_EQ(context.follow->event_count, 3u);
     ASSERT_EQ(context.follow->events.size(), 3u);
@@ -260,7 +270,7 @@ TEST(MakeContext, AFollowListIsCappedButItsCountIsExact) {
     }
     Selection selection;
     selection.follow(OrderRef{0, 1});
-    const Context context = make_context(state, selection);
+    const Context context = context_of(state, selection);
     EXPECT_EQ(context.follow->events.size(), kMaxFollowedEvents);
     EXPECT_EQ(context.follow->event_count, kMaxFollowedEvents + 10);
     EXPECT_TRUE(context.follow->truncated());
@@ -273,14 +283,14 @@ TEST(MakeContext, AFollowedOrdersGapsAreTheRecoveriesSinceItWasFirstSeen) {
     ASSERT_EQ(state.books.status(), BookBuilder::Status::live);
     Selection selection;
     selection.follow(OrderRef{0, 1});
-    Context context = make_context(state, selection);
+    Context context = context_of(state, selection);
     ASSERT_EQ(context.follow->gaps.size(), 1u);
     EXPECT_EQ(context.follow->gaps[0].after_seq, 3u);
     EXPECT_EQ(context.follow->gaps[0].snapshot_seq, 5u);
     EXPECT_TRUE(context.follow->events.back().from_snapshot) << "its quantity changed while unseen";
 
     selection.follow(OrderRef{0, 6});
-    context = make_context(state, selection);
+    context = context_of(state, selection);
     EXPECT_TRUE(context.follow->gaps.empty()) << "first seen after the recovery";
 }
 
@@ -288,7 +298,7 @@ TEST(MakeContext, TheFeedSaysWhereTheBooksAreAndWhichTickerIsShown) {
     ViewerState state = three_bids();
     state.shown_ticker = 5;
     state.feed_error = "a datagram of 10 bytes isn't a whole number of 42-byte updates";
-    const Context::Feed feed = make_context(state, Selection{}).feed;
+    const Context::Feed feed = context_of(state, Selection{}).feed;
     EXPECT_EQ(feed.status, BookBuilder::Status::live);
     EXPECT_EQ(feed.last_seq, 3u);
     EXPECT_EQ(feed.updates_received, 3u);
@@ -305,7 +315,7 @@ TEST(MakeContext, OnlyTheLatestRecoveriesAreListedButAllAreCounted) {
         recover_from_snapshot(state.books, seq - 1, {});
         ASSERT_EQ(state.books.status(), BookBuilder::Status::live);
     }
-    const Context::Feed feed = make_context(state, Selection{}).feed;
+    const Context::Feed feed = context_of(state, Selection{}).feed;
     EXPECT_EQ(feed.recovery_count, kMaxListedRecoveries + 3);
     ASSERT_EQ(feed.latest_recoveries.size(), kMaxListedRecoveries);
     EXPECT_EQ(feed.latest_recoveries.back().snapshot_seq, seq - 1) << "the latest, last";
@@ -329,20 +339,20 @@ TEST(MakeContext, InAReplayPointAndFollowHaveTheAddressOfTheStateTheyDescribe) {
     Selection selection;
     selection.point_at(OrderRef{0, 1});
     selection.follow(OrderRef{0, 2});
-    const Context context = make_context(replay_at(3), selection);
+    const Context context = context_of(replay_at(3), selection);
     const ReplayAddress expected{.market_data_file = "/runs/a.dat", .recording = "a.rec", .seq = 3};
     EXPECT_EQ(context.point->replay, expected);
     EXPECT_EQ(context.follow->replay, expected);
     EXPECT_EQ(context.feed.replay, (ReplayAddress{.market_data_file = "/runs/a.dat", .recording = "a.rec", .seq = 4}))
         << "the background's seq is the replay's length";
     EXPECT_TRUE(std::get<OrderState>(context.point->target).resting) << "order 1 rests after update 3";
-    EXPECT_FALSE(std::get<OrderState>(make_context(replay_at(4), selection).point->target).resting) << "and not after 4";
+    EXPECT_FALSE(std::get<OrderState>(context_of(replay_at(4), selection).point->target).resting) << "and not after 4";
 }
 
 TEST(MakeContext, LiveThereIsNoReplayAddress) {
     Selection selection;
     selection.point_at(OrderRef{0, 1});
-    const Context context = make_context(three_bids(), selection);
+    const Context context = context_of(three_bids(), selection);
     EXPECT_FALSE(context.point->replay);
     EXPECT_FALSE(context.feed.replay);
 }
@@ -351,7 +361,7 @@ TEST(ContextJson, AReplaySaysWhichAndEveryAddressRebuildsItsState) {
     Selection selection;
     selection.point_at(OrderRef{0, 2});
     selection.follow(OrderRef{0, 2});
-    const auto json = nlohmann::json::parse(to_json(make_context(replay_at(2), selection), Writer{}, 1, 0).dump());
+    const auto json = nlohmann::json::parse(to_json(context_of(replay_at(2), selection), Writer{}, 1, 0).dump());
     EXPECT_EQ(json["background"]["replay"]["marketDataFile"], "/runs/a.dat");
     EXPECT_EQ(json["background"]["replay"]["recording"], "a.rec");
     EXPECT_EQ(json["background"]["replay"]["updates"], 4);
@@ -362,7 +372,7 @@ TEST(ContextJson, AReplaySaysWhichAndEveryAddressRebuildsItsState) {
         EXPECT_EQ(json[section]["replayAddress"]["seq"], 2) << section;
     }
 
-    const auto live = nlohmann::json::parse(to_json(make_context(three_bids(), selection), Writer{}, 1, 0).dump());
+    const auto live = nlohmann::json::parse(to_json(context_of(three_bids(), selection), Writer{}, 1, 0).dump());
     EXPECT_TRUE(live["background"]["replay"].is_null());
     EXPECT_EQ(live["background"]["noReplayAddress"], kNoReplayAddress);
     EXPECT_TRUE(live["point"]["replayAddress"].is_null());
@@ -370,14 +380,14 @@ TEST(ContextJson, AReplaySaysWhichAndEveryAddressRebuildsItsState) {
 }
 
 TEST(ContextBar, SaysWhereInTheReplayTheBooksAre) {
-    EXPECT_EQ(bar_text(make_context(replay_at(3), Selection{})).background,
+    EXPECT_EQ(bar_text(context_of(replay_at(3), Selection{})).background,
               "Replay of /runs/a.dat at update 3 of 4 · showing ticker 0");
 }
 
 // ---- to_json ----
 
 TEST(ContextJson, EmptySectionsAreNullAndEveryFieldIsThere) {
-    const auto json = nlohmann::json::parse(to_json(make_context(ViewerState{}, Selection{}), Writer{}, 1, 0).dump());
+    const auto json = nlohmann::json::parse(to_json(context_of(ViewerState{}, Selection{}), Writer{}, 1, 0).dump());
     EXPECT_EQ(json["version"], 2);
     EXPECT_TRUE(json["point"].is_null());
     EXPECT_TRUE(json["follow"].is_null());
@@ -406,7 +416,7 @@ TEST(ContextJson, SaysWhoWroteItAndWhetherItIsStillRunning) {
 TEST(ContextJson, APointedOrderCarriesItsPlaceAndItsLastEvent) {
     Selection selection;
     selection.point_at(OrderRef{0, 2});
-    const auto json = nlohmann::json::parse(to_json(make_context(three_bids(), selection), Writer{}, 1, 0).dump());
+    const auto json = nlohmann::json::parse(to_json(context_of(three_bids(), selection), Writer{}, 1, 0).dump());
     const auto& point = json["point"];
     EXPECT_EQ(point["seq"], 1);
     EXPECT_EQ(point["asOfSeq"], 3);
@@ -428,7 +438,7 @@ TEST(ContextJson, APointedOrderCarriesItsPlaceAndItsLastEvent) {
 TEST(ContextJson, APointedLevelCarriesItsOrders) {
     Selection selection;
     selection.point_at(LevelRef{0, Side::buy, 100});
-    const auto json = nlohmann::json::parse(to_json(make_context(three_bids(), selection), Writer{}, 1, 0).dump());
+    const auto json = nlohmann::json::parse(to_json(context_of(three_bids(), selection), Writer{}, 1, 0).dump());
     const auto& level = json["point"]["level"];
     EXPECT_EQ(level["side"], "buy");
     EXPECT_EQ(level["price"], 100);
@@ -445,7 +455,7 @@ TEST(ContextJson, AFollowedOrderCarriesItsEventsAndGaps) {
     state.books.on_incremental(cancel(4, 1, Side::buy, 100));
     Selection selection;
     selection.follow(OrderRef{0, 1});
-    const auto json = nlohmann::json::parse(to_json(make_context(state, selection), Writer{}, 1, 0).dump());
+    const auto json = nlohmann::json::parse(to_json(context_of(state, selection), Writer{}, 1, 0).dump());
     const auto& follow = json["follow"];
     EXPECT_EQ(follow["asOfSeq"], 4);
     EXPECT_EQ(follow["order"]["orderId"], 1);
@@ -460,11 +470,11 @@ TEST(ContextJson, AFollowedOrderCarriesItsEventsAndGaps) {
 TEST(ContextJson, ARecoveringFeedSaysWhyAndListsItsRecoveries) {
     ViewerState state = three_bids();
     state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));  // 4 missed
-    auto json = nlohmann::json::parse(to_json(make_context(state, Selection{}), Writer{}, 1, 0).dump());
+    auto json = nlohmann::json::parse(to_json(context_of(state, Selection{}), Writer{}, 1, 0).dump());
     EXPECT_EQ(json["background"]["feed"]["status"], "recovering");
     EXPECT_EQ(json["background"]["feed"]["recoveringBecause"], "update 5 arrived when 4 was next");
     recover_from_snapshot(state.books, 4, {});
-    json = nlohmann::json::parse(to_json(make_context(state, Selection{}), Writer{}, 1, 0).dump());
+    json = nlohmann::json::parse(to_json(context_of(state, Selection{}), Writer{}, 1, 0).dump());
     EXPECT_EQ(json["background"]["feed"]["status"], "live");
     EXPECT_EQ(json["background"]["feed"]["recoveryCount"], 1);
     EXPECT_EQ(json["background"]["feed"]["latestRecoveries"][0]["afterSeq"], 3);
@@ -475,12 +485,12 @@ TEST(ContextJson, ARecoveringFeedSaysWhyAndListsItsRecoveries) {
 // ---- bar_text ----
 
 TEST(ContextBar, SaysWhereTheFeedIsAndWhichTickerIsShown) {
-    EXPECT_EQ(bar_text(make_context(ViewerState{}, Selection{})).background, "Waiting for the exchange's market data · showing ticker 0");
+    EXPECT_EQ(bar_text(context_of(ViewerState{}, Selection{})).background, "Waiting for the exchange's market data · showing ticker 0");
     ViewerState state = three_bids();
     state.shown_ticker = 2;
-    EXPECT_EQ(bar_text(make_context(state, Selection{})).background, "Exchange live at update 3 · showing ticker 2");
+    EXPECT_EQ(bar_text(context_of(state, Selection{})).background, "Exchange live at update 3 · showing ticker 2");
     state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
-    EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
+    EXPECT_EQ(bar_text(context_of(state, Selection{})).background,
               "Exchange: recovering, the books are as of update 3 (update 5 arrived when 4 was next) · showing ticker 2");
 }
 
@@ -489,7 +499,7 @@ TEST(ContextBar, CountsRecoveriesAndShowsTheLastError) {
     state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
     recover_from_snapshot(state.books, 4, {});
     state.feed_error = "bad datagram";
-    EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
+    EXPECT_EQ(bar_text(context_of(state, Selection{})).background,
               "Exchange live at update 5 · showing ticker 0 · 1 recovery · last error: bad datagram");
 }
 
@@ -497,21 +507,21 @@ TEST(ContextBar, SaysWhereAPointedOrderIsOrHowItLeft) {
     ViewerState state = three_bids();
     Selection selection;
     selection.point_at(OrderRef{0, 2});
-    EXPECT_EQ(bar_text(make_context(state, selection)).point,
+    EXPECT_EQ(bar_text(context_of(state, selection)).point,
               "Pointing at order 2 of ticker 0: buy 7 @ 100, 1 order (5) ahead of it in its queue");
     state.books.on_incremental(cancel(4, 2, Side::buy, 100));
-    EXPECT_EQ(bar_text(make_context(state, selection)).point,
+    EXPECT_EQ(bar_text(context_of(state, selection)).point,
               "Pointing at order 2 of ticker 0: not in the book (its last update: cancel at update 4)");
     selection.point_at(OrderRef{0, 99});
-    EXPECT_EQ(bar_text(make_context(state, selection)).point, "Pointing at order 99 of ticker 0: never seen");
+    EXPECT_EQ(bar_text(context_of(state, selection)).point, "Pointing at order 99 of ticker 0: never seen");
 }
 
 TEST(ContextBar, SaysWhatAPointedLevelHolds) {
     Selection selection;
     selection.point_at(LevelRef{0, Side::buy, 100});
-    EXPECT_EQ(bar_text(make_context(three_bids(), selection)).point, "Pointing at buy 100 of ticker 0: 12 in 2 orders");
+    EXPECT_EQ(bar_text(context_of(three_bids(), selection)).point, "Pointing at buy 100 of ticker 0: 12 in 2 orders");
     selection.point_at(LevelRef{0, Side::sell, 101});
-    EXPECT_EQ(bar_text(make_context(three_bids(), selection)).point,
+    EXPECT_EQ(bar_text(context_of(three_bids(), selection)).point,
               "Pointing at sell 101 of ticker 0: no orders at that price now");
 }
 
@@ -519,17 +529,17 @@ TEST(ContextBar, SaysWhatAFollowedOrderHasDoneAndAnyGaps) {
     ViewerState state = three_bids();
     Selection selection;
     selection.follow(OrderRef{0, 3});
-    EXPECT_EQ(bar_text(make_context(state, selection)).follow,
+    EXPECT_EQ(bar_text(context_of(state, selection)).follow,
               "Following order 3 of ticker 0: 1 event, buy 4 @ 99, 0 orders (0) ahead of it in its queue");
     state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
     recover_from_snapshot(state.books, 4, {add(0, 3, Side::buy, 99, 4, 1)});
-    EXPECT_EQ(bar_text(make_context(state, selection)).follow,
+    EXPECT_EQ(bar_text(context_of(state, selection)).follow,
               "Following order 3 of ticker 0: 2 events, buy 4 @ 99, 0 orders (0) ahead of it in its queue · "
               "1 recovery may hide some of its events");
 }
 
 TEST(ContextBar, ShowsNoPointOrFollowLineWhenThereIsNone) {
-    const ContextBarText text = bar_text(make_context(three_bids(), Selection{}));
+    const ContextBarText text = bar_text(context_of(three_bids(), Selection{}));
     EXPECT_FALSE(text.point);
     EXPECT_FALSE(text.follow);
 }
@@ -573,7 +583,7 @@ protected:
 Context pointing_at(std::uint64_t order_id) {
     Selection selection;
     selection.point_at(OrderRef{0, order_id});
-    return make_context(three_bids(), selection);
+    return context_of(three_bids(), selection);
 }
 
 TEST_F(Publisher, AUserActionIsWrittenAtOnce) {
@@ -589,7 +599,7 @@ TEST_F(Publisher, ABackgroundChangeWaitsForTheInterval) {
     publisher.update(pointing_at(1), PublishTrigger::user_action, t0_);
     ViewerState more = three_bids();
     more.books.on_incremental(add(4, 4, Side::buy, 97, 1, 1));
-    const Context later = make_context(more, Selection{});
+    const Context later = context_of(more, Selection{});
 
     publisher.update(later, PublishTrigger::background, t0_ + 50ms);
     EXPECT_EQ(publisher.seq(), 1u) << "held back: too soon";
@@ -943,7 +953,7 @@ TEST_F(Answers, TheContextSaysWhereInTheAnswerTheUserIs) {
     ASSERT_TRUE(loaded) << loaded.error();
     ViewerState state;
     state.answer = AnswerShown{.file = file(), .stamp = std::nullopt, .answer = std::move(*loaded), .problem = std::nullopt, .frame = 3};
-    const Context asking = make_context(state, Selection{});
+    const Context asking = context_of(state, Selection{});
     ASSERT_TRUE(asking.feed.answer);
     EXPECT_EQ(*asking.feed.answer, (AnswerPlace{.file = file().string(), .question = "What happens?", .step = 3, .steps = 3, .asking = true, .lesson = {}}));
     const auto json = to_json(asking, Writer{}, 1, 0);
@@ -953,17 +963,17 @@ TEST_F(Answers, TheContextSaysWhereInTheAnswerTheUserIs) {
     EXPECT_EQ(bar_text(asking).background,
               "Answer to \"What happens?\": step 3 of 3, its question (not yet played) · showing ticker 0");
     state.answer->frame = 0;
-    EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
+    EXPECT_EQ(bar_text(context_of(state, Selection{})).background,
               "Answer to \"What happens?\": its introduction · showing ticker 0");
-    EXPECT_TRUE(to_json(make_context(state, Selection{}), Writer{}, 1, 0)["background"]["noAnswer"].is_null());
+    EXPECT_TRUE(to_json(context_of(state, Selection{}), Writer{}, 1, 0)["background"]["noAnswer"].is_null());
     state.answer->answer.reset();
-    EXPECT_FALSE(make_context(state, Selection{}).feed.answer) << "no answer shown, none named";
-    EXPECT_TRUE(to_json(make_context(state, Selection{}), Writer{}, 1, 0)["background"]["answer"].is_null());
+    EXPECT_FALSE(context_of(state, Selection{}).feed.answer) << "no answer shown, none named";
+    EXPECT_TRUE(to_json(context_of(state, Selection{}), Writer{}, 1, 0)["background"]["answer"].is_null());
     // Showing answers, with none to show, says why: not "waiting for the exchange".
-    EXPECT_EQ(bar_text(make_context(state, Selection{})).background,
+    EXPECT_EQ(bar_text(context_of(state, Selection{})).background,
               std::format("No answer shown: waiting for an answer at {} · showing ticker 0", file().string()));
     state.answer->problem = "the answer is stale";
-    EXPECT_EQ(to_json(make_context(state, Selection{}), Writer{}, 1, 0)["background"]["noAnswer"],
+    EXPECT_EQ(to_json(context_of(state, Selection{}), Writer{}, 1, 0)["background"]["noAnswer"],
               std::format("the answer at {} can't be shown: the answer is stale", file().string()));
 }
 

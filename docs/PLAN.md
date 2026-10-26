@@ -388,8 +388,19 @@ health lines are the live feed's, apart from the moment shown.
 **Done when:** UI tests (on a clock the tests control) show that a pause holds the books while
 updates arrive, play follows the arrival pace and stays behind live, live returns to the newest,
 pointing while paused stays on the order pointed at, and behind live is shown and published
-whenever the screen isn't at the newest; the viewer program's test pauses and resumes the real
-viewer.
+whenever the screen isn't at the newest; the live demo pauses, steps and plays on the real exchange.
+**Status:** done (2026-10-26). `ViewerApp::pause`, `play`, `go_to`, `go_live` and `advance`; the books
+shown apart from the feed's (`ViewerState::live`), rebuilt for a past moment by
+`BookBuilder::as_of`; the controls under the feed's lines; `background.timeShift` in the context
+file, and a point's and a follow's `asOfSeq` the update shown ([ARCHITECTURE.md](ARCHITECTURE.md),
+§4, *Time-shifting*). Checked by seven UI tests (pausing while updates arrive, stepping and going live,
+back across a gap, playing on a clock the test controls and staying behind live, pointing while
+paused, pausing while the feed recovers, pause waiting for market data), unit tests of `as_of` (every order's history included) and of
+stepping across gaps, and 11 mutants. Changed from the plan (the owner, 2026-10-26): the viewer
+program's test can't click, so the real viewer's pause and play are shown by the live demo, on the
+real exchange (step 19); and the replay's move to what is kept became step 20. Found on the way: a
+point's `asOfSeq` was the feed's update, wrong while paused; and the log read the books shown, so it
+would have gone quiet while paused. The owner's changes after seeing it: space above the controls.
 
 ### 18. A live moment's address
 The viewer writes what it keeps to a file as it arrives, readable while it grows, even mid-write:
@@ -413,6 +424,13 @@ live.
 **Done when:** it runs in the tests, checked against books of its own as the live demo is, and
 records itself.
 
+### 20. A replay shown from what is kept
+The viewer's replay is held as what is kept (`TimeShiftBuffer::from_replay`, built in step 16), and
+shown the way a time-shifted moment is, so live and replay share one way of showing a moment: going
+back rebuilds from the nearest checkpoint, not from the first update.
+**Done when:** every replay test passes unchanged, and going to any update of a long replay takes
+less than a frame.
+
 ## Later
 The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are
-ordered and broken into steps here when steps 15 to 19 have landed.
+ordered and broken into steps here when steps 15 to 20 have landed.

@@ -22,16 +22,130 @@ void ViewerApp::receive(FeedSocket& incremental, FeedSocket& snapshot, Clock::ti
     }
 }
 
+// The feed's books take every update; the books shown take it too while they follow live, so the
+// two stay the same, and stop while time-shifted.
 void ViewerApp::apply_incremental(const MarketUpdate& update, Clock::time_point now) {
     kept_.received(update, now);
-    state_.books.on_incremental(update);
-    kept_.observe(state_.books);
+    state_.live.on_incremental(update);
+    kept_.observe(state_.live);
+    if (!state_.time_shift) {
+        state_.books.on_incremental(update);
+    }
     last_update_at_ = now;
 }
 
 void ViewerApp::apply_snapshot(const MarketUpdate& update) {
-    state_.books.on_snapshot(update);
-    kept_.observe(state_.books);
+    state_.live.on_snapshot(update);
+    kept_.observe(state_.live);
+    if (!state_.time_shift) {
+        state_.books.on_snapshot(update);
+    }
+}
+
+void ViewerApp::pause() {
+    if (state_.time_shift) {
+        state_.time_shift->playing = false;  // playing: stay at the update shown
+        return;
+    }
+    // Only where the books shown are a moment kept: the newest. While the feed recovers they still
+    // are (the last before the gap), so pause holds them there too.
+    if (state_.replay || state_.answer || !kept_.newest() || kept_.newest() != state_.live.last_seq()) {
+        return;
+    }
+    state_.time_shift = TimeShift{.shown = state_.live.last_seq(), .playing = false, .play_from = {}, .play_since = {},
+                                  .newest = state_.live.last_seq(), .behind_seconds = 0.0};
+}
+
+void ViewerApp::play(Clock::time_point now) {
+    if (!state_.time_shift || state_.time_shift->playing) {
+        return;
+    }
+    TimeShift& shift = *state_.time_shift;
+    shift.playing = true;
+    shift.play_since = now;
+    shift.play_from = arrival_for_play(shift.shown).value_or(now);
+}
+
+void ViewerApp::go_to(std::uint64_t seq) {
+    if (!state_.time_shift) {
+        pause();
+    }
+    if (!state_.time_shift) {
+        return;
+    }
+    state_.time_shift->playing = false;
+    if (const auto shown = kept_.nearest_shown(seq)) {
+        show(*shown);
+    }
+}
+
+void ViewerApp::go_live() {
+    if (!state_.time_shift) {
+        return;
+    }
+    state_.time_shift.reset();
+    state_.books = state_.live;
+}
+
+std::optional<ViewerApp::Clock::time_point> ViewerApp::arrival_for_play(std::uint64_t seq) const {
+    if (const auto arrived = kept_.arrived(seq)) {
+        return arrived;
+    }
+    if (const auto next = kept_.next(seq)) {
+        return kept_.arrived(*next);
+    }
+    return std::nullopt;
+}
+
+void ViewerApp::show(std::uint64_t seq) {
+    TimeShift& shift = *state_.time_shift;
+    BookBuilder& books = state_.books;
+    // Forward within a run, a few updates: applied to the books shown, as the live books applied them.
+    bool stepped = books.status() == BookBuilder::Status::live && books.last_seq() <= seq &&
+                   seq - books.last_seq() < TimeShiftBuffer::kCheckpointEvery;
+    for (std::uint64_t next = books.last_seq() + 1; stepped && next <= seq; ++next) {
+        const MarketUpdate* update = kept_.update(next);
+        if (update == nullptr) {
+            stepped = false;  // a gap, or a run's start: rebuilt below
+            break;
+        }
+        books.on_incremental(*update);
+    }
+    if (!stepped || books.last_seq() != seq) {
+        if (const auto moment = kept_.moment(seq)) {
+            books = BookBuilder::as_of(seq, moment->books, moment->last_trades, state_.live);
+        } else {
+            return;  // can't happen: seq is one that can be shown
+        }
+    }
+    shift.shown = seq;
+}
+
+void ViewerApp::advance(Clock::time_point now) {
+    if (!state_.time_shift) {
+        return;
+    }
+    TimeShift& shift = *state_.time_shift;
+    if (shift.playing) {
+        const Clock::time_point clock = shift.play_from + (now - shift.play_since);
+        std::uint64_t target = shift.shown;
+        for (auto next = kept_.next(target); next; next = kept_.next(*next)) {
+            const auto arrived = arrival_for_play(*next);
+            if (!arrived || *arrived > clock) {
+                break;
+            }
+            target = *next;
+        }
+        if (target != shift.shown) {
+            show(target);
+        }
+    }
+    shift.newest = kept_.newest().value_or(shift.shown);
+    const auto newest_arrived = arrival_for_play(shift.newest);
+    const auto shown_arrived = arrival_for_play(shift.shown);
+    shift.behind_seconds = newest_arrived && shown_arrived
+                               ? std::optional{std::chrono::duration<double>(*newest_arrived - *shown_arrived).count()}
+                               : std::nullopt;
 }
 
 void ViewerApp::open_replay(const std::filesystem::path& file, MarketDataFile market_data) {
@@ -119,6 +233,7 @@ void ViewerApp::choose(std::size_t choice) {
 }
 
 ViewerActions ViewerApp::paint(Clock::time_point now) {
+    advance(now);
     ViewerTiming timing{.seconds_since_update = std::nullopt, .paints = paints_};
     if (last_update_at_) {
         timing.seconds_since_update = std::chrono::duration<double>(now - *last_update_at_).count();
@@ -127,7 +242,23 @@ ViewerActions ViewerApp::paint(Clock::time_point now) {
                                                          .timing = timing,
                                                          .published = publisher_.published(),
                                                          .published_bar = publisher_.published_bar(),
-                                                         .publish_error = publisher_.error()});
+                                                         .publish_error = publisher_.error(),
+                                                         .kept = state_.replay || state_.answer ? nullptr : &kept_});
+    if (actions.pause) {
+        pause();
+    }
+    if (actions.go_to) {
+        go_to(*actions.go_to);
+    }
+    if (actions.play) {
+        play(now);
+    }
+    if (actions.go_live) {
+        go_live();
+    }
+    if (actions.pause || actions.go_to || actions.play || actions.go_live) {
+        advance(now);  // how far behind, as of now, in this paint's context
+    }
     if (actions.replay_to) {
         replay_to(*actions.replay_to);
     }

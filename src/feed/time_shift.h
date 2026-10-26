@@ -74,6 +74,17 @@ public:
     // How many updates moment(seq) applies to a checkpoint's copy, if `seq` can be shown: at most
     // kCheckpointEvery - 1.
     [[nodiscard]] std::optional<std::size_t> updates_to_apply(std::uint64_t seq) const;
+    // Kept update `seq`, if it was kept as an update (a run's start was rebuilt from a snapshot).
+    [[nodiscard]] const MarketUpdate* update(std::uint64_t seq) const;
+    // The next update that can be shown after `seq`: the next in its run, or, at a run's end, the
+    // start of the next run, across the gap; nothing at the newest.
+    [[nodiscard]] std::optional<std::uint64_t> next(std::uint64_t seq) const;
+    // The update before `seq` that can be shown: the one before in its run, or, at a run's start, the
+    // last of the run before, across the gap; nothing at the first.
+    [[nodiscard]] std::optional<std::uint64_t> previous(std::uint64_t seq) const;
+    // The nearest update at or after `seq` that can be shown, or the newest if there is none after.
+    [[nodiscard]] std::optional<std::uint64_t> nearest_shown(std::uint64_t seq) const;
+
     // The updates kept, over all runs.
     [[nodiscard]] std::size_t kept() const noexcept { return kept_; }
 

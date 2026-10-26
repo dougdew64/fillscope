@@ -7,7 +7,8 @@ namespace fillscope {
 
 std::vector<std::string> log_events(const ViewerState& state, LogWatch& watch) {
     std::vector<std::string> lines;
-    const BookBuilder& books = state.books;
+    // Live, the feed's books, whatever the screen shows; in a replay or an answer, the books shown.
+    const BookBuilder& books = state.replay || state.answer ? state.books : state.live;
 
     // Each rebuild from a snapshot, before the status it ends in, so the lines read in order.
     const auto recoveries = books.recoveries();
@@ -92,6 +93,18 @@ std::optional<std::string> describe(const ViewerActions& actions) {
     }
     if (actions.clear_follow) {
         what.push_back("stops following");
+    }
+    if (actions.pause) {
+        what.push_back("pauses");
+    }
+    if (actions.go_to) {
+        what.push_back(std::format("goes to update {}", *actions.go_to));
+    }
+    if (actions.play) {
+        what.push_back("plays");
+    }
+    if (actions.go_live) {
+        what.push_back("goes back to live");
     }
     if (what.empty()) {
         return std::nullopt;

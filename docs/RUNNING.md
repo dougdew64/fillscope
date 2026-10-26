@@ -276,6 +276,13 @@ window, as it was last drawn, to FILE (a PPM image) as the viewer exits. `--incr
 choose the market data streams (by default the exchange's). The viewer prints on stderr when
 publishing the context fails and when it works again, and if it can't join a stream.
 
+**Pause, play, step and live.** Live, under the feed's lines, `pause` holds the books shown where
+they are while the updates arriving are kept; then `|<`, `<` and `>` and the slider move over what
+is kept (the whole session), `play` plays on from the update shown at the pace the updates arrived,
+behind live, and `live` returns to the newest. While behind live, the status line, the context bar
+and the context file say which update is shown and how far behind, and what you point at is as of
+that update ([ARCHITECTURE.md](ARCHITECTURE.md), §4, *Time-shifting*).
+
 **The viewer's log.** Each run writes one, in `.fillscope/logs/` (the `logs` directory beside the
 context file), named for when it started and its process id; the newest 20 are kept. It says how
 the viewer was started, what happened (the feed's events, answers, every click), each second's

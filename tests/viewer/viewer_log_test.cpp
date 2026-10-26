@@ -261,16 +261,16 @@ TEST(LogEvents, TheFeedGoingLiveRecoveringAndRebuiltAreEachSaidOnce) {
     ViewerState state;
     LogWatch watch;
     EXPECT_TRUE(log_events(state, watch).empty());  // waiting, as the watch began
-    state.books.on_incremental(add(1, 10, 100));
+    state.live.on_incremental(add(1, 10, 100));
     EXPECT_EQ(log_events(state, watch), (std::vector<std::string>{"feed: live, the books as of update 1"}));
-    state.books.on_incremental(add(2, 11, 99));
+    state.live.on_incremental(add(2, 11, 99));
     EXPECT_TRUE(log_events(state, watch).empty());  // still live: nothing new to say
-    state.books.on_incremental(add(4, 13, 98));     // update 3 never came
+    state.live.on_incremental(add(4, 13, 98));     // update 3 never came
     const std::vector<std::string> recovering = log_events(state, watch);
     ASSERT_EQ(recovering.size(), 1u);
     EXPECT_TRUE(recovering[0].starts_with("feed: recovering, after update 2: ")) << recovering[0];
-    ASSERT_TRUE(state.books.recovering_because());
-    EXPECT_TRUE(recovering[0].ends_with(*state.books.recovering_because())) << recovering[0];
+    ASSERT_TRUE(state.live.recovering_because());
+    EXPECT_TRUE(recovering[0].ends_with(*state.live.recovering_because())) << recovering[0];
     // A snapshot as of update 4: the books rebuilt, then live.
     std::vector<MarketUpdate> snapshot{{.seq = 0, .type = UpdateType::snapshot_start, .order_id = 4}};
     for (std::uint32_t ticker = 0; ticker < BookBuilder::kTickers; ++ticker) {
@@ -279,7 +279,7 @@ TEST(LogEvents, TheFeedGoingLiveRecoveringAndRebuiltAreEachSaidOnce) {
     snapshot.push_back({.type = UpdateType::snapshot_end, .order_id = 4});
     for (std::uint64_t i = 0; i < snapshot.size(); ++i) {
         snapshot[i].seq = i;
-        state.books.on_snapshot(snapshot[i]);
+        state.live.on_snapshot(snapshot[i]);
     }
     const std::vector<std::string> rebuilt = log_events(state, watch);
     ASSERT_EQ(rebuilt.size(), 2u);
@@ -288,6 +288,14 @@ TEST(LogEvents, TheFeedGoingLiveRecoveringAndRebuiltAreEachSaidOnce) {
         << rebuilt[0];
     EXPECT_EQ(rebuilt[1], "feed: live, the books as of update 4");
     EXPECT_TRUE(log_events(state, watch).empty());
+}
+
+TEST(LogEvents, TheFeedIsTheLiveOneWhileTheScreenIsTimeShifted) {
+    ViewerState state;
+    LogWatch watch;
+    state.time_shift = TimeShift{};  // the screen holds the books shown where they are
+    state.live.on_incremental(add(1, 10, 100));
+    EXPECT_EQ(log_events(state, watch), (std::vector<std::string>{"feed: live, the books as of update 1"}));
 }
 
 TEST(LogEvents, AnErrorReceivingIsSaidWhenItIsNew) {
@@ -342,6 +350,10 @@ TEST(LogEvents, TheUsersActionsAreSaidInOneLine) {
     EXPECT_EQ(said([](A a) { a.choose = 6; }), "user: chooses lesson 6");
     EXPECT_EQ(said([](A a) { a.clear_point = true; }), "user: stops pointing");
     EXPECT_EQ(said([](A a) { a.clear_follow = true; }), "user: stops following");
+    EXPECT_EQ(said([](A a) { a.pause = true; }), "user: pauses");
+    EXPECT_EQ(said([](A a) { a.go_to = 120; }), "user: goes to update 120");
+    EXPECT_EQ(said([](A a) { a.play = true; }), "user: plays");
+    EXPECT_EQ(said([](A a) { a.go_live = true; }), "user: goes back to live");
     EXPECT_EQ(said([](A a) {
                   a.point_at = OrderRef{.ticker = 0, .order_id = 1};
                   a.follow = OrderRef{.ticker = 0, .order_id = 1};

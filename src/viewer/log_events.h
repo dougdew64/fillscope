@@ -24,8 +24,9 @@ struct LogWatch {
 };
 
 // The lines for what changed since `watch` was last brought up to date, which this does: the feed
-// going live, starting to recover (and why), each rebuild from a snapshot, a new error receiving;
-// an answer read and shown, or refused (and why). Nothing for a state that hasn't changed.
+// (live, the feed's books, whatever the screen shows) going live, starting to recover (and why),
+// each rebuild from a snapshot, a new error receiving; an answer read and shown, or refused (and
+// why). Nothing for a state that hasn't changed.
 [[nodiscard]] std::vector<std::string> log_events(const ViewerState& state, LogWatch& watch);
 
 // A line for what the user did in one paint ("user: points at order 7 of ticker 0"), several

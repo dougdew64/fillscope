@@ -177,6 +177,18 @@ modify at another price, means updates were missed, so it refuses the update, st
 says why. A modify changes only the quantity: the exchange keeps an order's place when it is partly
 filled. A trade changes nothing (the modify or cancel beside it does).
 
+**What the viewer's table is called.** One ticker's book is its **order book**: every order resting
+at the exchange for that ticker, waiting to trade, bids on one side and asks on the other, each
+price's orders queued in the order they will fill; traders say "the book", and "depth of book" for
+the levels beyond the best. Of the three common views of a book, the viewer's is the most detailed:
+level 1 is the top of the book, the best bid and ask (the two rows nearest the middle); level 2,
+*market by price*, each price's total (the "level qty" column); level 3, *market by order*, every
+resting order (each row). It is the book as rebuilt from the market data, not the exchange's own
+copy; since this exchange publishes every add, modify and cancel, the two hold the same orders, as
+`feed_system_tests` checks against the exchange's snapshots. Time-shifted, it is the book as of the
+update shown (§4, *Time-shifting*). "Book" has a second meaning in trading, a trader's positions
+("running a book"); here it is always the order book.
+
 **Keeping the books in step** (`book_builder.h`, the protocol the book's own trading client
 follows):
 - **Live:** an incremental update is applied when it is the next one expected.
@@ -306,6 +318,16 @@ follows it. A followed order's history is drawn below.
 The screen shows one ticker's book at a time; the ticker buttons, 0 to 7, choose which, and hovering
 over one shows how many orders its book holds.
 
+**The health lines say which side has stopped.** Under the market data's state, live, come the
+updates received and recoveries, the seconds since the last update, and the viewer's own paint
+count ("viewer paints: 1087 (keeps rising while the exchange is stopped)"). When the books stop
+changing, three things look the same on screen: the exchange is quiet or stopped (frozen at a
+breakpoint, in lockstep debugging, which is why the viewer is a process of its own); the viewer's
+loop has stalled (it once did, when vsync held a hidden window's swaps, and market data was lost);
+or the viewer has hung. A rising paint count says the viewer is painting, so the stop is the market
+data's; with the seconds since the last update, it says which side stopped. The count is also in
+the line printed each second and in the log.
+
 **The context bar shows the context's three parts**, one line each, indented under the heading
 "Context, as published for the assistant:" so they read as its contents. The first, always there, is
 the **background**: where the books come from and how current they are ("exchange live at update
@@ -380,6 +402,38 @@ reach the assistant. So nothing on screen claims the assistant has something it 
 **One consequence you can see:** a click is published in the same paint, at the end of the loop,
 and the bar shows it on the next paint, about 16 ms later. Market data arriving reaches the bar
 within 100 ms plus a paint, if the write succeeds.
+
+### Time-shifting: pause, play, step and live
+Live, the viewer can show a moment behind the newest update, as a television recorder plays back
+what it recorded ([FEATURES.md](FEATURES.md), item 16), from what it keeps (§3, *Keeping what
+arrives*). It holds two `BookBuilder`s (`ViewerState`): `live`, the feed's, which takes every update
+and from which the feed's health is shown and published; and `books`, the books shown, which
+everything drawn and published about an order or a level is about. Following live, `ViewerApp`
+gives both every update, so they are the same; time-shifted (`ViewerState::time_shift`), only
+`live` takes them, and `books` are the books as of the update shown.
+
+- **Pause** holds the books shown at the newest update; the updates arriving meanwhile are kept.
+  Paused, the controls step back and forward over what is kept (across a gap, to the update on its
+  other side), go to the oldest, or anywhere with the slider.
+- **Play** goes on from the update shown at the pace the updates arrived: the update shown is the
+  last whose arrival time is no later than that of the update play began at, plus the time since. So
+  it stays as far behind live as it was when it began (the market data carries no times; these are
+  the viewer's own arrival times, and the screen says so). A run's start, rebuilt from a snapshot,
+  has no arrival time of its own and takes the next update's.
+- **Live** follows the newest update again: the books shown become the live books.
+
+Moving the books shown forward, a few updates within a run, applies the kept updates to them, as the
+live books applied them; anything else rebuilds them (`BookBuilder::as_of`): the kept books as of
+the update, with the live books' histories and recoveries up to it, which are what the books had
+then, since they apply updates in order. A point or a follow is about the books shown, so paused,
+the order pointed at stays as the screen shows it however the live books have moved on.
+
+While the screen isn't at the newest update, it says so, and how far behind: in the status
+("showing: update 561, paused, 115 updates behind live (1.8 s, as the updates arrived here)"), in
+the bar ("paused at update 561, 103 updates behind (1.7 s)"), and in the context file
+(`background.timeShift`: the update shown, the newest, how far behind, playing or not), where a point
+or a follow says it is as of the update shown (`asOfSeq`). The feed's own lines (live, as of update
+N, received, recoveries) stay the live feed's.
 
 ### The viewer's log
 When the viewer fails, crashes included, the assistant has to find out why afterwards, and the

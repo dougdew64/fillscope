@@ -140,7 +140,9 @@ void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
 // The market data's state and the viewer's own liveness.
 void draw_status(const ViewerView& view) {
     const ViewerState& state = view.state;
-    const BookBuilder& books = state.books;
+    // Live, the feed's books, whatever the screen shows (a time-shifted moment is said below them);
+    // in a replay or an answer, the books shown.
+    const BookBuilder& books = state.replay || state.answer ? state.books : state.live;
     const bool answering = state.answer.has_value();
     if (state.answer && !state.replay) {
         wrapped("market data: none until an answer is shown");
@@ -187,6 +189,89 @@ void draw_status(const ViewerView& view) {
     wrapped(std::format("viewer paints: {} (keeps rising while the exchange is stopped)", view.timing.paints));
 }
 
+// The space between paragraphs of an answer: half a line, so it grows with the text.
+void paragraph_break() {
+    ImGui::Dummy(ImVec2{0.0f, ImGui::GetTextLineHeight() * 0.5f});
+}
+
+// A divider between the parts of a pane, with a paragraph's space on either side.
+void divider() {
+    paragraph_break();
+    ImGui::Separator();
+    paragraph_break();
+}
+
+// Live, the time-shifting controls (feed/time_shift.h), and what the screen shows: the newest
+// update, or one behind it, paused or playing. Each control asks; the loop moves the books shown
+// (ViewerApp::go_to and the rest).
+void draw_time_shift(const ViewerView& view, ViewerActions& actions) {
+    const TimeShiftBuffer& kept = *view.kept;
+    const std::optional<TimeShift>& shift = view.state.time_shift;
+    if (!shift) {
+        const bool can_pause = kept.newest() && kept.newest() == view.state.live.last_seq();
+        wrapped(kept.newest() ? std::format("showing: live, the newest update; {} kept", kept.kept() == 1 ? std::string{"1 update"}
+                                                                                                         : std::format("{} updates", kept.kept()))
+                              : std::string{"showing: live; nothing kept yet"});
+        paragraph_break();  // the controls apart from the lines above them
+        if (ImGui::SmallButton(kShiftPause) && can_pause) {
+            actions.pause = true;
+        }
+        tooltip([can_pause] {
+            return can_pause ? std::string{"Pause: hold the books as they are now, while the updates arriving are kept"}
+                             : std::string{"Pause, once market data has arrived"};
+        });
+        return;
+    }
+    const std::uint64_t behind = shift->newest - shift->shown;
+    std::string where = std::format("showing: update {}, {}, {} behind live", shift->shown, shift->playing ? "playing" : "paused",
+                                    behind == 1 ? std::string{"1 update"} : std::format("{} updates", behind));
+    if (shift->behind_seconds) {
+        where += std::format(" ({:.1f} s, as the updates arrived here)", *shift->behind_seconds);
+    }
+    wrapped(where);
+    paragraph_break();  // the controls apart from the lines above them
+    const std::uint64_t oldest = kept.runs().front().first;
+    if (ImGui::SmallButton(kShiftOldest)) {
+        actions.go_to = oldest;
+    }
+    tooltip([] { return std::string{"To the oldest update kept"}; });
+    ImGui::SameLine();
+    const auto previous = kept.previous(shift->shown);
+    if (ImGui::SmallButton(kShiftBack) && previous) {
+        actions.go_to = *previous;
+    }
+    tooltip([] { return std::string{"Back one update (across a gap, to the last before it)"}; });
+    ImGui::SameLine();
+    const auto next = kept.next(shift->shown);
+    if (ImGui::SmallButton(kShiftForward) && next) {
+        actions.go_to = *next;
+    }
+    tooltip([] { return std::string{"Forward one update (across a gap, to the first after it)"}; });
+    ImGui::SameLine();
+    if (shift->playing) {
+        if (ImGui::SmallButton(kShiftPause)) {
+            actions.pause = true;
+        }
+        tooltip([] { return std::string{"Pause: stay at this update"}; });
+    } else {
+        if (ImGui::SmallButton(kShiftPlay)) {
+            actions.play = true;
+        }
+        tooltip([] { return std::string{"Play from this update, at the pace the updates arrived, behind live"}; });
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton(kShiftLive)) {
+        actions.go_live = true;
+    }
+    tooltip([] { return std::string{"Back to live: the newest update, and every one after"}; });
+    ImGui::SameLine();
+    std::uint64_t position = shift->shown;
+    const std::uint64_t newest = shift->newest;
+    if (ImGui::SliderScalar(kShiftSlider, ImGuiDataType_U64, &position, &oldest, &newest) && position != shift->shown) {
+        actions.go_to = position;
+    }
+}
+
 // A replay's position and controls. Each control asks for the books after one update; the loop
 // rebuilds them (ViewerApp::replay_to).
 void draw_replay(const ViewerView& view, ViewerActions& actions) {
@@ -219,18 +304,6 @@ void draw_replay(const ViewerView& view, ViewerActions& actions) {
     if (ImGui::SliderScalar(kReplaySlider, ImGuiDataType_U64, &position, &first, &last) && position != at) {
         actions.replay_to = position;
     }
-}
-
-// The space between paragraphs of an answer: half a line, so it grows with the text.
-void paragraph_break() {
-    ImGui::Dummy(ImVec2{0.0f, ImGui::GetTextLineHeight() * 0.5f});
-}
-
-// A divider between the parts of a pane, with a paragraph's space on either side.
-void divider() {
-    paragraph_break();
-    ImGui::Separator();
-    paragraph_break();
 }
 
 // An answer's controls and where the user is in it. Each control asks for a frame; the loop shows it
@@ -685,6 +758,9 @@ ViewerActions draw_viewer(const ViewerView& view) {
     draw_status(view);
     if (view.state.replay && !answering) {
         draw_replay(view, actions);
+    }
+    if (view.kept) {
+        draw_time_shift(view, actions);
     }
     divider();
     draw_tickers(view, actions);

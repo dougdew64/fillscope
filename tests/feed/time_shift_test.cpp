@@ -157,7 +157,11 @@ struct Viewer {
         }
         was_live = live;
     }
+    std::function<void(const BookBuilder&)> also;  // given the live books, at each compare
     void compare(const Moment& live) {
+        if (also) {
+            also(books);
+        }
         const auto moment = kept.moment(live.seq);
         ASSERT_TRUE(moment) << "update " << live.seq << ": " << moment.error();
         expect_same(*moment, live);
@@ -165,13 +169,10 @@ struct Viewer {
     }
 };
 
-TEST(TimeShiftBuffer, KeepsTheBooksAfterEveryUpdateThroughGapsAndRecoveries) {
+// A feed as a viewer gets it from an exchange it joins late, losing and swapping updates now and
+// then, with a snapshot every 250 updates: the same every time.
+void feed_with_faults(Viewer& viewer) {
     Exchange exchange{20261026};
-    Viewer viewer;
-    // Every moment the live books were in is kept (below); each is compared there and then if it is
-    // near a run's edges or a checkpoint, where a mistake would be, and one in 23 elsewhere (all of
-    // them would rebuild thousands of moments, each from its checkpoint).
-    viewer.check = [](std::uint64_t seq) { return seq % 23 == 0; };
     std::vector<MarketUpdate> held;  // updates the feed delivers late
     for (int i = 1; i <= 4000; ++i) {
         const MarketUpdate update = exchange.next();
@@ -191,6 +192,15 @@ TEST(TimeShiftBuffer, KeepsTheBooksAfterEveryUpdateThroughGapsAndRecoveries) {
             viewer.snapshot(exchange.snapshot());
         }
     }
+}
+
+TEST(TimeShiftBuffer, KeepsTheBooksAfterEveryUpdateThroughGapsAndRecoveries) {
+    Viewer viewer;
+    // Every moment the live books were in is kept (below); each is compared there and then if it is
+    // near a run's edges or a checkpoint, where a mistake would be, and one in 23 elsewhere (all of
+    // them would rebuild thousands of moments, each from its checkpoint).
+    viewer.check = [](std::uint64_t seq) { return seq % 23 == 0; };
+    feed_with_faults(viewer);
     ASSERT_GE(viewer.books.recoveries().size(), 4u);  // the late join, the losses, the swaps
     viewer.compare(copy_of(viewer.books));             // the newest
     const auto& runs = viewer.kept.runs();
@@ -309,6 +319,87 @@ TEST(TimeShiftBuffer, AReplayIsHeldTheSameWayWithNoTimes) {
     broken.push_back({.seq = 11, .type = Type::cancel, .order_id = 999'999, .ticker = 0});  // no such order
     broken.push_back(updates[11]);
     EXPECT_EQ(TimeShiftBuffer::from_replay(broken).newest(), 10u);
+}
+
+// The books as of a past update, rebuilt from what was kept and the books at a later one, are the
+// live books as they were then: their books, last trades, every order's history, the recoveries.
+// The feed is played twice: the first time to the end, for what was kept and the later books; the
+// second, comparing at the updates the first rebuilds.
+TEST(BookBuilderAsOf, IsTheLiveBooksAsTheyWereThen) {
+    Viewer first;
+    first.check = [](std::uint64_t) { return false; };  // compared in the test above; here, played for what it keeps
+    feed_with_faults(first);
+    // Every order the feed made, with its ticker (each id is one ticker's), found once: its ids run to
+    // about 1,100, and none beyond kIds has a history.
+    constexpr std::uint64_t kIds = 1300;
+    std::vector<std::pair<std::uint32_t, std::uint64_t>> orders;
+    for (std::uint32_t ticker = 0; ticker < BookBuilder::kTickers; ++ticker) {
+        for (std::uint64_t order_id = 1; order_id <= kIds + 200; ++order_id) {
+            if (!first.books.history(ticker, order_id).empty()) {
+                ASSERT_LE(order_id, kIds) << "the feed's orders go beyond those compared";
+                orders.emplace_back(ticker, order_id);
+            }
+        }
+    }
+    ASSERT_GT(orders.size(), 1000u);
+    Viewer again;
+    again.check = [](std::uint64_t seq) { return seq % 251 == 0; };
+    std::size_t rebuilt = 0;
+    again.also = [&](const BookBuilder& then) {
+        // At each run's start, where the books were rebuilt from a snapshot, and one update in 251:
+        // each rebuild copies every order's history, and each comparison looks up thousands.
+        const bool run_start = std::ranges::any_of(first.kept.runs(), [&](const auto& run) { return run.first == then.last_seq(); });
+        if (!run_start && then.last_seq() % 251 != 0) {
+            return;
+        }
+        const Moment moment = first.kept.moment(then.last_seq()).value();
+        const BookBuilder as_of = BookBuilder::as_of(moment.seq, moment.books, moment.last_trades, first.books);
+        ASSERT_EQ(as_of.status(), BookBuilder::Status::live);
+        ASSERT_EQ(as_of.last_seq(), then.last_seq());
+        EXPECT_TRUE(std::ranges::equal(as_of.recoveries(), then.recoveries())) << "update " << then.last_seq();
+        for (std::uint32_t ticker = 0; ticker < BookBuilder::kTickers; ++ticker) {
+            EXPECT_EQ(as_of.book(ticker).orders(), then.book(ticker).orders());
+            EXPECT_EQ(as_of.last_trade(ticker), then.last_trade(ticker));
+        }
+        for (const auto& [ticker, order_id] : orders) {
+            EXPECT_TRUE(std::ranges::equal(as_of.history(ticker, order_id), then.history(ticker, order_id)))
+                << "update " << then.last_seq() << ", ticker " << ticker << ", order " << order_id;
+        }
+        ++rebuilt;
+    };
+    feed_with_faults(again);
+    EXPECT_GT(rebuilt, 15u);
+    // And given the next update, it goes on as the live books did: from the middle of the first run.
+    const TimeShiftBuffer::Run& run = first.kept.runs().front();
+    ASSERT_GT(run.last, run.first + 2);
+    const std::uint64_t seq = (run.first + run.last) / 2;
+    const Moment moment = first.kept.moment(seq).value();
+    BookBuilder as_of = BookBuilder::as_of(seq, moment.books, moment.last_trades, first.books);
+    as_of.on_incremental(*first.kept.update(seq + 1));
+    EXPECT_EQ(as_of.last_seq(), seq + 1);
+    const Moment next = first.kept.moment(seq + 1).value();
+    for (std::uint32_t ticker = 0; ticker < BookBuilder::kTickers; ++ticker) {
+        EXPECT_EQ(as_of.book(ticker).orders(), next.books[ticker].orders());
+    }
+}
+
+TEST(TimeShiftBuffer, StepsFromUpdateToUpdateAcrossGaps) {
+    Viewer viewer;
+    viewer.check = [](std::uint64_t) { return false; };  // compared elsewhere; here, only the steps
+    feed_with_faults(viewer);
+    const auto& runs = viewer.kept.runs();
+    ASSERT_GE(runs.size(), 2u);
+    EXPECT_EQ(viewer.kept.next(runs[0].first), runs[0].first + 1);
+    EXPECT_EQ(viewer.kept.next(runs[0].last), runs[1].first);  // across the gap
+    EXPECT_FALSE(viewer.kept.next(runs.back().last));          // the newest
+    EXPECT_FALSE(viewer.kept.next(runs[0].last + 1));          // in the gap
+    EXPECT_EQ(viewer.kept.nearest_shown(runs[0].last + 1), runs[1].first);
+    EXPECT_EQ(viewer.kept.nearest_shown(runs[0].first + 1), runs[0].first + 1);
+    EXPECT_EQ(viewer.kept.nearest_shown(0), runs[0].first);
+    EXPECT_EQ(viewer.kept.nearest_shown(runs.back().last + 100), runs.back().last);
+    EXPECT_EQ(viewer.kept.update(runs[0].first), nullptr);  // rebuilt from a snapshot
+    ASSERT_NE(viewer.kept.update(runs[0].first + 1), nullptr);
+    EXPECT_EQ(viewer.kept.update(runs[0].first + 1)->seq, runs[0].first + 1);
 }
 
 }  // namespace

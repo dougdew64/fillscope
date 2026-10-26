@@ -8,6 +8,7 @@
 // state, which is what lets tests draw it with anything they like and check the result.
 #pragma once
 
+#include "feed/time_shift.h"
 #include "viewer/context.h"
 #include "viewer/viewer_state.h"
 
@@ -30,9 +31,16 @@ struct ViewerActions {
     std::optional<std::size_t> choose;        // with a course: show this (0: your questions; a lesson, from 1)
     bool clear_point = false;
     bool clear_follow = false;
+    // Live, time-shifting (feed/time_shift.h): pause, play from the update shown, show the books as
+    // of an update kept (paused), follow live again.
+    bool pause = false;
+    bool play = false;
+    std::optional<std::uint64_t> go_to;
+    bool go_live = false;
 
     [[nodiscard]] bool any() const noexcept {
-        return point_at || follow || show_ticker || replay_to || answer_to || choose || clear_point || clear_follow;
+        return point_at || follow || show_ticker || replay_to || answer_to || choose || clear_point || clear_follow || pause ||
+               play || go_to || go_live;
     }
 };
 
@@ -56,6 +64,8 @@ struct ViewerView {
     const std::optional<Context>& published;
     const std::optional<ContextBarText>& published_bar;
     const std::optional<std::string>& publish_error;
+    // Live, what the viewer keeps of the market data, for the time-shifting controls; null otherwise.
+    const TimeShiftBuffer* kept = nullptr;
 };
 
 // The names of the viewer's window and of items inside it, which the UI tests use to find them.
@@ -71,6 +81,15 @@ inline constexpr const char* kReplayBack = "<##replay_back";
 inline constexpr const char* kReplayForward = ">##replay_forward";
 inline constexpr const char* kReplayEnd = ">|##replay_end";
 inline constexpr const char* kReplaySlider = "##replay_position";
+// Live, the time-shifting controls: pause, play, to the oldest kept, back one, forward one, a slider
+// over what is kept, and back to live.
+inline constexpr const char* kShiftPause = "pause##shift_pause";
+inline constexpr const char* kShiftPlay = "play##shift_play";
+inline constexpr const char* kShiftOldest = "|<##shift_oldest";
+inline constexpr const char* kShiftBack = "<##shift_back";
+inline constexpr const char* kShiftForward = ">##shift_forward";
+inline constexpr const char* kShiftSlider = "##shift_position";
+inline constexpr const char* kShiftLive = "live##shift_live";
 // An answer's pane, the market beside it, and the answer's controls: to its start, back a frame,
 // forward a frame, to its end.
 inline constexpr const char* kAnswerPane = "answer";

@@ -59,6 +59,14 @@ public:
         recovering,  // updates were missed; waiting for a snapshot to rebuild from
     };
 
+    // The books as they were after update `seq`, live: given those books and last trades (each
+    // ticker's), and `later`, the same feed's books at a later update, whose histories and recoveries
+    // up to `seq` are what these had then, since the books apply updates in order. For showing a
+    // past moment (feed/time_shift.h); given more incremental updates, it goes on from `seq`.
+    [[nodiscard]] static BookBuilder as_of(std::uint64_t seq, const std::array<Book, kTickers>& books,
+                                           const std::array<std::optional<MarketUpdate>, kTickers>& last_trades,
+                                           const BookBuilder& later);
+
     void on_incremental(const MarketUpdate& update);
     // Snapshot updates are used only while recovering, as the trading client uses them.
     void on_snapshot(const MarketUpdate& update);

@@ -62,6 +62,8 @@ struct UiVars {
     std::optional<fillscope::FeedSocket> incremental;
     std::optional<fillscope::FeedSocket> snapshot;
     std::string text;  // the text the viewer rendered last frame
+    // A clock the test controls, for what depends on time (playing a time shift); real time if unset.
+    std::optional<std::chrono::steady_clock::time_point> now;
 };
 
 // Runs before the test's first frame: a viewer publishing to this test's own scratch file.
@@ -121,7 +123,7 @@ void add_book(UiVars& vars) {
 // One frame of the viewer's loop, as in src/viewer/main.cpp, with the rendered text captured.
 void viewer_frame(ImGuiTestContext* ctx) {
     UiVars& vars = ctx->GetVars<UiVars>();
-    const auto now = std::chrono::steady_clock::now();
+    const auto now = vars.now.value_or(std::chrono::steady_clock::now());
     if (vars.incremental && vars.snapshot) {
         vars.app->receive(*vars.incremental, *vars.snapshot, now);
     }
@@ -296,6 +298,215 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK_EQ(kept.moment(4).value().books[0].order_count(), 1u);
         IM_CHECK_EQ(kept.moment(5).value().books[0].order_count(), 2u);
         IM_CHECK(!kept.moment(3).has_value());
+    });
+
+    // ---- time-shifting, live (feed/time_shift.h) ----
+
+    // Pause holds the books shown at the newest update while updates keep arriving and are kept; the
+    // screen, the bar and the context say which update is shown and how far behind live it is.
+    viewer_test(engine, "pause_holds_the_books_while_updates_arrive", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const auto t0 = std::chrono::steady_clock::now();
+        vars.now = t0;
+        add_book(vars);  // updates 1 to 6
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "showing: live, the newest update; 6 updates kept"));
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());
+        ctx->Yield(2);
+        // Four more arrive, 100 ms apart: kept, and live, but not shown.
+        for (std::uint64_t seq = 7; seq <= 10; ++seq) {
+            vars.now = t0 + std::chrono::milliseconds{100 * (seq - 6)};
+            vars.app->apply_incremental(add(seq, seq + 10, Side::buy, 90, 1, seq), *vars.now);
+        }
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 6u);
+        IM_CHECK_EQ(vars.app->state().books.book(0).order_count(), 6u);
+        IM_CHECK_EQ(vars.app->state().live.last_seq(), 10u);
+        IM_CHECK(!ctx->ItemExists("**/buy##order17"));
+        IM_CHECK(contains(vars.text, "showing: update 6, paused, 4 updates behind live (0.4 s, as the updates arrived here)"));
+        IM_CHECK(contains(vars.text, "market data: live, the books are as of update 10"));  // the feed's
+        IM_CHECK(bar_starts(vars.text, "Exchange live at update 10 · paused at update 6, 4 updates behind (0.4 s) · showing ticker 0"));
+        yield_until(ctx, [&] { return read_context(vars)["background"]["timeShift"].is_object(); });
+        const nlohmann::json shift = read_context(vars)["background"]["timeShift"];
+        IM_CHECK_EQ(shift["shownSeq"].get<int>(), 6);
+        IM_CHECK_EQ(shift["newestSeq"].get<int>(), 10);
+        IM_CHECK_EQ(shift["behindUpdates"].get<int>(), 4);
+        IM_CHECK(!shift["playing"].get<bool>());
+        IM_CHECK_EQ(read_context(vars)["background"]["feed"]["lastSeq"].get<int>(), 10);
+    });
+
+    // Paused, the controls step back and forward over what is kept, and to the oldest; live returns
+    // to the newest, and follows it again.
+    viewer_test(engine, "paused_it_steps_over_what_is_kept_and_live_returns", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        add_book(vars);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftBack).c_str());
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 5u);
+        IM_CHECK(!ctx->ItemExists("**/buy##order3"));  // update 6 added it
+        IM_CHECK(ctx->ItemExists("**/buy##order2"));
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftOldest).c_str());
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 0u);
+        IM_CHECK(contains(vars.text, "ticker 0: no orders"));
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftForward).c_str());
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 1u);
+        IM_CHECK(ctx->ItemExists("**/sell##order10"));
+        vars.app->apply_incremental(add(7, 20, Side::buy, 95, 1, 1), std::chrono::steady_clock::now());
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftLive).c_str());
+        ctx->Yield(2);
+        IM_CHECK(!vars.app->state().time_shift);
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 7u);
+        IM_CHECK(ctx->ItemExists("**/buy##order20"));
+        IM_CHECK(contains(vars.text, "showing: live, the newest update"));
+        IM_CHECK(!contains(vars.text, "paused at update"));
+        // Following live again: the next update is shown as it arrives.
+        vars.app->apply_incremental(add(8, 21, Side::buy, 94, 1, 1), std::chrono::steady_clock::now());
+        ctx->Yield(2);
+        IM_CHECK(ctx->ItemExists("**/buy##order21"));
+    });
+
+    // Play goes on from the update shown at the pace the updates arrived, so it stays as far behind
+    // live as it was when it began (on a clock the test controls).
+    viewer_test(engine, "play_follows_the_arrival_pace_and_stays_behind_live", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const auto t0 = std::chrono::steady_clock::now();
+        const auto at = [&](int ms) { return t0 + std::chrono::milliseconds{ms}; };
+        // Updates 1 to 5 arrive at 100 ms to 500 ms.
+        for (std::uint64_t seq = 1; seq <= 5; ++seq) {
+            vars.app->apply_incremental(add(seq, seq, Side::buy, 100 - static_cast<std::int64_t>(seq), 1, 1), at(100 * static_cast<int>(seq)));
+        }
+        vars.now = at(500);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());  // at update 5
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftOldest).c_str());  // to update 0
+        ctx->Yield(2);
+        // 6 to 10 arrive meanwhile, at 600 ms to 1 s.
+        for (std::uint64_t seq = 6; seq <= 10; ++seq) {
+            vars.app->apply_incremental(add(seq, seq, Side::buy, 100 - static_cast<std::int64_t>(seq), 1, 1), at(100 * static_cast<int>(seq)));
+        }
+        // Play from update 0 at 2 s. Update 0 has no arrival time: playing takes update 1's, 100 ms;
+        // so at 2.25 s the clock is at 350 ms: updates 1 to 3 have arrived.
+        vars.now = at(2000);
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPlay).c_str());
+        vars.now = at(2250);
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().time_shift->shown, 3u);
+        IM_CHECK(vars.app->state().time_shift->playing);
+        IM_CHECK(contains(vars.text, "showing: update 3, playing, 7 updates behind live (0.7 s, as the updates arrived here)"));
+        // At 2.95 s, 1,050 ms: all ten; it plays no further than the newest.
+        vars.now = at(2950);
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().time_shift->shown, 10u);
+        // Update 11 arrives at 3 s; the play clock is at 1.1 s, so it waits: behind live by the time it
+        // began behind.
+        vars.app->apply_incremental(add(11, 11, Side::buy, 80, 1, 1), at(3000));
+        vars.now = at(3000);
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().time_shift->shown, 10u);
+        IM_CHECK(contains(vars.text, "showing: update 10, playing, 1 update behind live"));
+        // Pause stops it where it is.
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());
+        vars.now = at(9000);
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().time_shift->shown, 10u);
+        IM_CHECK(!vars.app->state().time_shift->playing);
+    });
+
+    // Paused, what is pointed at is the order as of the update shown, wherever the live books have
+    // gone: the order cancelled since is still resting where the screen shows it.
+    viewer_test(engine, "pointing_while_paused_stays_on_the_order_as_shown", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        add_book(vars);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());
+        ctx->Yield(2);
+        vars.app->apply_incremental({.seq = 7, .type = UpdateType::cancel, .order_id = 2, .ticker = 0, .side = Side::buy, .price = 100,
+                                     .qty = 0, .priority = 0},
+                                    std::chrono::steady_clock::now());
+        ctx->ItemClick("**/buy##order2");
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "Pointing at order 2 of ticker 0: buy 7 @ 100, 1 order (5) ahead of it in its queue"));
+        const nlohmann::json context = read_context(vars);
+        IM_CHECK_EQ(context["point"]["asOfSeq"].get<int>(), 6);
+        IM_CHECK_EQ(context["point"]["order"]["resting"]["ordersAhead"].get<int>(), 1);
+        // Back to live, it has gone: cancelled at update 7.
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftLive).c_str());
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "Pointing at order 2 of ticker 0: not in the book (its last update: cancel at update 7)"));
+    });
+
+    // Before the market data is live there is nothing to hold: pause does nothing.
+    viewer_test(engine, "pause_waits_for_the_market_data_to_be_live", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "showing: live; nothing kept yet"));
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());
+        ctx->Yield(2);
+        IM_CHECK(!vars.app->state().time_shift);
+        vars.app->pause();  // asked directly, not through the button, which won't ask: still nothing
+        IM_CHECK(!vars.app->state().time_shift);
+    });
+
+    // While the feed recovers, the books shown are still the last update kept before the gap: pause
+    // holds them there, and the moment can be stepped from like any other.
+    viewer_test(engine, "pause_while_recovering_holds_the_last_update_before_the_gap", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const auto now = std::chrono::steady_clock::now();
+        for (std::uint64_t seq = 1; seq <= 3; ++seq) {
+            vars.app->apply_incremental(add(seq, seq, Side::buy, 100, 1, seq), now);
+        }
+        vars.app->apply_incremental(add(5, 5, Side::buy, 100, 1, 5), now);  // update 4 lost: recovering
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        IM_CHECK(vars.app->state().live.status() == fillscope::BookBuilder::Status::recovering);
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());
+        ctx->Yield(2);
+        IM_CHECK(vars.app->state().time_shift.has_value());
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 3u);
+        IM_CHECK(contains(vars.text, "showing: update 3, paused, 0 updates behind live"));
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftBack).c_str());
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 2u);
+        IM_CHECK(!ctx->ItemExists("**/buy##order3"));
+    });
+
+    // Back from the start of a run goes across the gap before it, to the last update kept before it.
+    viewer_test(engine, "back_across_a_gap_goes_to_the_last_update_before_it", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const auto now = std::chrono::steady_clock::now();
+        for (std::uint64_t seq = 1; seq <= 3; ++seq) {
+            vars.app->apply_incremental(add(seq, seq, Side::buy, 100, 1, seq), now);
+        }
+        vars.app->apply_incremental(add(5, 5, Side::buy, 100, 1, 5), now);  // update 4 lost
+        std::vector<MarketUpdate> snapshot{{.seq = 0, .type = UpdateType::snapshot_start, .order_id = 5}};
+        for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
+            snapshot.push_back({.type = UpdateType::clear, .ticker = ticker});
+        }
+        snapshot.push_back(add(0, 5, Side::buy, 100, 1, 5));
+        snapshot.push_back({.type = UpdateType::snapshot_end, .order_id = 5});
+        for (std::uint64_t i = 0; i < snapshot.size(); ++i) {
+            snapshot[i].seq = i;
+            vars.app->apply_snapshot(snapshot[i]);
+        }
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());  // at update 5, a run's start
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftBack).c_str());
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 3u);
+        IM_CHECK(ctx->ItemExists("**/buy##order3"));
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftForward).c_str());
+        ctx->Yield(2);
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 5u);
     });
 
     viewer_test(engine, "clicking_an_order_points_at_it", [](ImGuiTestContext* ctx) {

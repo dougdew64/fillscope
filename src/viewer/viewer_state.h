@@ -6,6 +6,7 @@
 #include "viewer/answer_state.h"
 #include "feed/market_update.h"
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -22,8 +23,33 @@ struct Replay {
     std::vector<MarketUpdate> updates;
 };
 
+// Live, the moment the screen shows when it isn't following the newest update (feed/time_shift.h),
+// as a television recorder shows a moment of what it recorded: paused there, or playing on from it at
+// the pace the updates arrived, behind live.
+struct TimeShift {
+    std::uint64_t shown = 0;  // the books shown are as of this update
+    bool playing = false;
+    // Playing: the arrival time of the update shown when play began, and when it began. The update
+    // shown is then the last whose arrival is no later than play_from plus the time since play_since,
+    // so it stays as far behind live as it was.
+    std::chrono::steady_clock::time_point play_from{};
+    std::chrono::steady_clock::time_point play_since{};
+    // How far behind: the newest update kept, and the seconds between its arrival and the shown
+    // update's (the viewer's arrival times, not the exchange's: the market data carries none).
+    std::uint64_t newest = 0;
+    std::optional<double> behind_seconds;
+
+    friend bool operator==(const TimeShift&, const TimeShift&) = default;
+};
+
 struct ViewerState {
+    // The books shown. Live, they follow `live` update by update, unless time-shifted, when they are
+    // the books as of the update shown.
     BookBuilder books;
+    // Live: the feed's books, always current, from which its health is shown and published.
+    BookBuilder live;
+    // Live: set while the screen shows a moment that isn't the newest.
+    std::optional<TimeShift> time_shift;
     // The ticker whose book is shown: the user's choice of view, which the context publishes as
     // background (the assistant should know what the user is looking at).
     std::uint32_t shown_ticker = 0;

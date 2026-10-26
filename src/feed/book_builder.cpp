@@ -1,9 +1,35 @@
 #include "feed/book_builder.h"
 
+#include <algorithm>
 #include <format>
 #include <utility>
 
 namespace fillscope {
+
+BookBuilder BookBuilder::as_of(std::uint64_t seq, const std::array<Book, kTickers>& books,
+                               const std::array<std::optional<MarketUpdate>, kTickers>& last_trades, const BookBuilder& later) {
+    BookBuilder then;
+    then.status_ = Status::live;
+    then.next_seq_ = seq + 1;
+    then.books_ = books;
+    then.last_trades_ = last_trades;
+    for (std::size_t ticker = 0; ticker < kTickers; ++ticker) {
+        for (const auto& [order_id, events] : later.histories_[ticker]) {
+            // Events in the order applied, so in update order: those up to seq are a prefix.
+            const auto end = std::ranges::find_if(events, [&](const OrderEvent& event) { return event.seq > seq; });
+            if (end != events.begin()) {
+                then.histories_[ticker].emplace(order_id, std::vector<OrderEvent>(events.begin(), end));
+            }
+        }
+    }
+    for (const Recovery& recovery : later.recoveries_) {
+        if (recovery.snapshot_seq <= seq) {
+            then.recoveries_.push_back(recovery);
+        }
+    }
+    then.updates_received_ = seq;  // not known for a past moment; the feed's own count is the live books'
+    return then;
+}
 
 void BookBuilder::on_incremental(const MarketUpdate& update) {
     ++updates_received_;

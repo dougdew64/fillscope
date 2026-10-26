@@ -136,7 +136,10 @@ struct LevelState {
 struct Context {
     struct Feed {
         BookBuilder::Status status = BookBuilder::Status::waiting;
-        std::uint64_t last_seq = 0;  // the books are as of this incremental update
+        std::uint64_t last_seq = 0;  // the feed's books are as of this incremental update
+        // The books shown, and what is pointed at and followed in them, are as of this one: last_seq,
+        // unless time-shifted.
+        std::uint64_t books_seq = 0;
         std::uint64_t updates_received = 0;
         std::optional<std::string> recovering_because;
         std::size_t recovery_count = 0;
@@ -150,6 +153,16 @@ struct Context {
         // A viewer showing answers, with none to show: why (none written yet, or why the last can't be
         // shown). Empty otherwise.
         std::optional<std::string> no_answer;
+        // Live, while the screen shows a moment behind the newest (time-shifted): which, and how far
+        // behind; empty while it follows live. The status and last_seq above are the feed's, live.
+        struct TimeShifted {
+            std::uint64_t shown_seq = 0;
+            std::uint64_t newest_seq = 0;
+            std::optional<double> behind_seconds;  // between the two updates' arrivals at the viewer
+            bool playing = false;
+            friend bool operator==(const TimeShifted&, const TimeShifted&) = default;
+        };
+        std::optional<TimeShifted> time_shift;
 
         friend bool operator==(const Feed&, const Feed&) = default;
     };

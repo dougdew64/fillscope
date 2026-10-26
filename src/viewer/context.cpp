@@ -85,15 +85,25 @@ LevelState level_state(const BookBuilder& books, const LevelRef& ref) {
 }  // namespace
 
 Context make_context(const ViewerState& state, const Selection& selection) {
+    // The books shown, which what is pointed at and followed are in; and the feed's, live, whose
+    // health is the background's (in a replay or an answer, the books shown).
     const BookBuilder& books = state.books;
+    const BookBuilder& feed_books = state.replay || state.answer ? state.books : state.live;
     Context context;
     Context::Feed& feed = context.feed;
-    feed.status = books.status();
-    feed.last_seq = books.last_seq();
-    feed.updates_received = books.updates_received();
-    feed.recovering_because = books.recovering_because();
-    feed.recovery_count = books.recoveries().size();
-    const auto recoveries = books.recoveries();
+    feed.status = feed_books.status();
+    feed.last_seq = feed_books.last_seq();
+    feed.books_seq = books.last_seq();
+    feed.updates_received = feed_books.updates_received();
+    feed.recovering_because = feed_books.recovering_because();
+    feed.recovery_count = feed_books.recoveries().size();
+    if (state.time_shift) {
+        feed.time_shift = Context::Feed::TimeShifted{.shown_seq = state.time_shift->shown,
+                                                     .newest_seq = state.time_shift->newest,
+                                                     .behind_seconds = state.time_shift->behind_seconds,
+                                                     .playing = state.time_shift->playing};
+    }
+    const auto recoveries = feed_books.recoveries();
     const auto latest = recoveries.last(std::min(recoveries.size(), kMaxListedRecoveries));
     feed.latest_recoveries.assign(latest.begin(), latest.end());
     feed.error = state.feed_error;
@@ -240,7 +250,7 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
         "What the Fillscope viewer's user has pointed at and followed in the exchange's order books, which the "
         "viewer rebuilds from the exchange's market data. 'point' is an order or a price level, the subject; "
         "'follow' is an order through every update the books applied to it. Both are as of the incremental "
-        "update background.feed.lastSeq. A resting order's ordersAhead and qtyAhead are what fills before it at "
+        "update their asOfSeq names: background.feed.lastSeq, unless time-shifted (background.timeShift.shownSeq). A resting order's ordersAhead and qtyAhead are what fills before it at "
         "its price. Each section's seq is taken when the user changes that section, so the higher one is what "
         "the user did last. While background.feed.status is 'recovering', updates were missed and the books are "
         "as of lastSeq, older than the exchange; follow.gaps lists the recoveries whose updates an order's "
@@ -250,6 +260,10 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
         "intro; while 'asking', its question is shown and the step not yet played, so the books are as before it. "
         "A viewer showing answers with none to show says why in background.noAnswer. An answer that is a lesson of "
         "the course names it in background.answer.lesson. "
+        "Live, while the viewer shows a moment behind the newest update (paused, or playing behind live, as a "
+        "television recorder does), background.timeShift says which update is shown (shownSeq), the newest "
+        "(newestSeq) and how far behind in seconds of the viewer's own arrival times (behindSeconds); then point and "
+        "follow are as of shownSeq, and background.feed is the live feed's. "
         "'writer' says which viewer wrote this file and whether it is still running.";
 
     const Context::Feed& feed = context.feed;
@@ -281,11 +295,17 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
                                                                                                 : nlohmann::ordered_json(feed.answer->lesson)}}
                                : nlohmann::ordered_json(nullptr)},
         {"noAnswer", or_null(feed.no_answer)},
+        {"timeShift", feed.time_shift ? nlohmann::ordered_json{{"shownSeq", feed.time_shift->shown_seq},
+                                                               {"newestSeq", feed.time_shift->newest_seq},
+                                                               {"behindUpdates", feed.time_shift->newest_seq - feed.time_shift->shown_seq},
+                                                               {"behindSeconds", or_null(feed.time_shift->behind_seconds)},
+                                                               {"playing", feed.time_shift->playing}}
+                                      : nlohmann::ordered_json(nullptr)},
     };
 
     if (context.point) {
         const Context::Point& point = *context.point;
-        json["point"] = {{"seq", point.seq}, {"asOfSeq", feed.last_seq}, {"replayAddress", replay_json(point.replay)}};
+        json["point"] = {{"seq", point.seq}, {"asOfSeq", feed.books_seq}, {"replayAddress", replay_json(point.replay)}};
         if (const auto* order = std::get_if<OrderState>(&point.target)) {
             json["point"]["order"] = order_json(*order);
         } else {
@@ -306,7 +326,7 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
             gaps.push_back(recovery_json(gap));
         }
         json["follow"] = {{"seq", follow.seq},
-                          {"asOfSeq", feed.last_seq},
+                          {"asOfSeq", feed.books_seq},
                           {"order", order_json(follow.order)},
                           {"eventCount", follow.event_count},
                           {"events", events},
@@ -379,6 +399,13 @@ ContextBarText bar_text(const Context& context) {
     }
     // Each line begins with a capital, as the pointing and following lines do; a lesson's title has one.
     text.background[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text.background[0])));
+    if (feed.time_shift) {
+        const auto& shift = *feed.time_shift;
+        const std::uint64_t behind = shift.newest_seq - shift.shown_seq;
+        text.background += std::format(" · {} at update {}, {} behind{}", shift.playing ? "playing" : "paused", shift.shown_seq,
+                                       plural(behind, "update", "updates"),
+                                       shift.behind_seconds ? std::format(" ({:.1f} s)", *shift.behind_seconds) : std::string{});
+    }
     text.background += std::format(" · showing ticker {}", feed.shown_ticker);
     if (feed.recovery_count > 0) {
         text.background += std::format(" · {}", plural(feed.recovery_count, "recovery", "recoveries"));
