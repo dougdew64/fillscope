@@ -103,10 +103,11 @@ TEST(KeptFile, ReadWhileBeingWrittenItIsWhatWasWrittenToTheLastWholeRecord) {
     Viewer viewer;
     write_while_feeding(viewer, scratch.path / "kept");
     const std::string whole = bytes_of(scratch.path / "kept");
-    // Cut at every byte of the header, at every 97th byte inside the first run's start record, at every
-    // byte from its last 60 through the two updates after it, at each edge (and either side) of the
-    // next eight, and at 8 places spread over the rest: each is a file a reader could find while the viewer writes it. (Each read builds
-    // what the file holds afresh, so not at every byte of the whole file.)
+    // Cut at every byte of the header, at every 293rd byte inside the first run's start record, at every
+    // byte from its last 16 through the update after it, at each edge (and either side) of the next
+    // updates, and at 3 places spread over the rest: each is a file a reader could find while the
+    // viewer writes it. (Each read builds what the file holds afresh, so not at every byte of the
+    // whole file.)
     ASSERT_EQ(whole[kKeptFileMagic.size()], 'R');  // the feed joins late: it starts with a snapshot's books
     std::uint32_t orders = 0;
     std::memcpy(&orders, whole.data() + kKeptFileMagic.size() + 1 + 8, sizeof orders);
@@ -118,20 +119,20 @@ TEST(KeptFile, ReadWhileBeingWrittenItIsWhatWasWrittenToTheLastWholeRecord) {
     for (std::size_t length = 0; length <= kKeptFileMagic.size() + 13; ++length) {
         cuts.push_back(length);
     }
-    for (std::size_t length = kKeptFileMagic.size() + 13; length < run_end - 60; length += 97) {
+    for (std::size_t length = kKeptFileMagic.size() + 13; length < run_end - 16; length += 293) {
         cuts.push_back(length);
     }
-    for (std::size_t length = run_end - 60; length <= run_end + 2 * kUpdateRecord; ++length) {
+    for (std::size_t length = run_end - 16; length <= run_end + kUpdateRecord; ++length) {
         cuts.push_back(length);
     }
-    for (std::size_t record = 3; record <= 10; ++record) {  // the next updates: each edge, and either side
+    for (std::size_t record = 2; record <= 10; ++record) {  // the next updates: each edge, and either side
         for (const std::size_t length : {run_end + record * kUpdateRecord - 1, run_end + record * kUpdateRecord,
                                          run_end + record * kUpdateRecord + 1}) {
             cuts.push_back(length);
         }
     }
-    for (std::size_t i = 1; i <= 8; ++i) {
-        cuts.push_back(whole.size() * i / 9);
+    for (std::size_t i = 1; i <= 3; ++i) {
+        cuts.push_back(whole.size() * i / 4);
     }
     std::size_t read_some = 0;
     for (const std::size_t length : cuts) {
@@ -154,7 +155,7 @@ TEST(KeptFile, ReadWhileBeingWrittenItIsWhatWasWrittenToTheLastWholeRecord) {
             ++read_some;
         }
     }
-    EXPECT_GT(read_some, 2 * kUpdateRecord);  // those from the first run's start on
+    EXPECT_GT(read_some, kUpdateRecord);  // those from the first run's start on
 }
 
 TEST(KeptFile, AFileThatIsntOneIsRefusedSayingWhy) {

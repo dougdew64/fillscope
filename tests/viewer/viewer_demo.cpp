@@ -16,8 +16,15 @@
 // against its own, built from the same market data joined on its own: equal, as of the viewer's
 // last update, and every order shown with its row; and where the viewer says the user points.
 //
+// The third, --time-shift: the same viewer on the real exchange, time-shifted (feed/time_shift.h).
+// It pauses, and the books stand still while the updates keep arriving and are kept; points at the
+// order that arrived last of those drawn, in the still book; steps back, an update at a time, until
+// that order hadn't arrived (the bar: never seen), and forward one to see it arrive; plays on from
+// there, behind live; and returns to live. Checked as the live demo is, at the update shown.
+//
 //   viewer_demo FILLSCOPE_ANSWER COURSE_DIR [--watch | --record FILE.mp4]
 //   viewer_demo --live EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]
+//   viewer_demo --time-shift EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]
 //
 // In the tests, headless (the Test Engine's null backend) and at full speed. With --watch, in a
 // window, at a pace a person can follow: the mouse moves to each control before it clicks, and each
@@ -98,7 +105,8 @@ struct Live {
     bool held = false;  // the viewer takes in nothing meanwhile: what is checked or clicked stays put
     std::chrono::steady_clock::time_point start;        // when the 30 seconds began
 };
-bool g_live_mode = false;
+bool g_live_mode = false;        // --live or --time-shift: on the real exchange
+bool g_time_shift_mode = false;  // --time-shift
 Live g_live;
 // Ports of the demo's own (test_port), so nothing else on the machine using the exchange's usual
 // ones (a lockstep session in VS Code, another run of the tests) reaches it.
@@ -106,6 +114,7 @@ const std::uint16_t kOrderPort = fillscope::test::test_port(0);
 const fillscope::Stream kIncremental{fillscope::kExchangeIncremental.group, fillscope::test::test_port(1)};
 const fillscope::Stream kSnapshot{fillscope::kExchangeSnapshot.group, fillscope::test::test_port(2)};
 constexpr auto kLiveLength = std::chrono::seconds{30};
+constexpr auto kTimeShiftLength = std::chrono::seconds{32};
 
 std::vector<std::string> with_endpoints(std::vector<std::string> args) {
     for (std::string arg : {std::string{"--order-port"}, std::to_string(kOrderPort), std::string{"--incremental"},
@@ -468,8 +477,14 @@ void check_live(ImGuiTestContext* ctx) {
     for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
         IM_CHECK(books.book(ticker).orders() == own.book(ticker).orders());
     }
-    // And what the viewer keeps of it (feed/time_shift.h) gives the same books, as of the same update.
-    IM_CHECK(vars.app->kept().newest() == books.last_seq());
+    // And what the viewer keeps of it (feed/time_shift.h) gives the same books, as of the same update:
+    // the newest, following live; time-shifted, one behind it.
+    if (vars.app->state().time_shift) {
+        IM_CHECK(vars.app->kept().newest() >= books.last_seq());
+        IM_CHECK(vars.app->state().time_shift->shown == books.last_seq());
+    } else {
+        IM_CHECK(vars.app->kept().newest() == books.last_seq());
+    }
     if (const auto moment = vars.app->kept().moment(books.last_seq())) {
         for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
             IM_CHECK(moment->books[ticker].orders() == own.book(ticker).orders());
@@ -581,8 +596,9 @@ void point_live(ImGuiTestContext* ctx, float seconds, float fraction, float unti
     IM_CHECK(!contains(vars.text, "Pointing at"));
 }
 
-// The live demo, recorded from just before the client starts to 30 seconds later.
-void play_live(ImGuiTestContext* ctx) {
+// Live: the mouse aside and, when a video is wanted, its recording begun; then the client started,
+// told to warm up for a second, so trading begins about two seconds in. The demo's time starts here.
+void begin_live(ImGuiTestContext* ctx) {
     ctx->SetRef(fillscope::kViewerWindow);
     ctx->Yield(2);
     mouse_aside_live(ctx);
@@ -599,6 +615,20 @@ void play_live(ImGuiTestContext* ctx) {
     g_live.client.emplace(with_endpoints({g_live.trading_main, "5", "RANDOM", "--warm-up-seconds", "1"}),
                           scratch_root());
     IM_CHECK(g_live.client->started());
+}
+
+// Live: at `length`, the last check, and the recording's end.
+void end_live(ImGuiTestContext* ctx, std::chrono::seconds length) {
+    wait_live(ctx, std::chrono::duration<float>(length).count(), [] { return true; });
+    check_live(ctx);
+    if (g_demo.record) {
+        IM_CHECK(ctx->CaptureEndVideo());
+    }
+}
+
+// The live demo, recorded from just before the client starts to 30 seconds later.
+void play_live(ImGuiTestContext* ctx) {
+    begin_live(ctx);
     DemoVars& vars = ctx->GetVars<DemoVars>();
     // Ticker 0's book fills; then another ticker's, an order pointed at in each.
     wait_live(ctx, 0.0f, [&] { return vars.app->state().books.updates_received() > 0; });
@@ -608,11 +638,152 @@ void play_live(ImGuiTestContext* ctx) {
     show_ticker(ctx, 18.0f, 6, 3);
     point_live(ctx, 21.0f, 0.5f, 25.0f);
     show_ticker(ctx, 27.0f, 0, 1);
-    wait_live(ctx, std::chrono::duration<float>(kLiveLength).count(), [] { return true; });
-    check_live(ctx);
-    if (g_demo.record) {
-        IM_CHECK(ctx->CaptureEndVideo());
+    end_live(ctx, kLiveLength);
+}
+
+// Clicks made at once, where the mouse already rests: the Test Engine's watchable speeds wait about
+// each click as a person's hand would, which, a step at a time, made stepping back take seconds.
+// The demo's own pace (linger) keeps each step on screen.
+struct QuickClicks {
+    explicit QuickClicks(ImGuiTestContext* ctx) : io{*ctx->EngineIO}, speed{io.ConfigRunSpeed} { io.ConfigRunSpeed = ImGuiTestRunSpeed_Fast; }
+    ~QuickClicks() { io.ConfigRunSpeed = speed; }
+    QuickClicks(const QuickClicks&) = delete;
+    QuickClicks& operator=(const QuickClicks&) = delete;
+    ImGuiTestEngineIO& io;
+    ImGuiTestRunSpeed speed;
+};
+
+// Live, watched or recorded: frames for `seconds` of real time, so a step stays on screen; in the
+// tests, nothing.
+void linger(ImGuiTestContext* ctx, float seconds) {
+    if (!g_demo.record && ctx->EngineIO->ConfigRunSpeed == ImGuiTestRunSpeed_Fast) {
+        return;
     }
+    const auto until = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(seconds));
+    while (std::chrono::steady_clock::now() < until) {
+        ctx->Yield();
+    }
+}
+
+// Clicks a time-shifting control, the mouse aside after, and lets the frame show it.
+void click_shift(ImGuiTestContext* ctx, const char* control) {
+    ctx->ItemClick(std::format("**/{}", control).c_str());
+    mouse_aside_live(ctx);
+    ctx->Yield(2);
+}
+
+// Of the shown book's rows in view, the order that arrived last (its add the latest update), and that
+// update: the one fewest steps back from the update shown. Nothing if none in view was seen arriving.
+// In view, not just drawn: the table lays out a row or two past its visible edge, which the rendered
+// text includes, and a click there would land outside the window.
+std::optional<std::pair<fillscope::Order, std::uint64_t>> latest_arrival(ImGuiTestContext* ctx) {
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    const fillscope::BookBuilder& books = vars.app->state().books;
+    const std::uint32_t ticker = vars.app->state().shown_ticker;
+    const std::vector<fillscope::Order> rows = rows_of(books.book(ticker));
+    std::vector<std::pair<fillscope::Order, std::uint64_t>> arrivals;  // newest first
+    for (std::size_t row = 0; row < std::min(drawn_rows(vars.text).size(), rows.size()); ++row) {
+        const auto history = books.history(ticker, rows[row].order_id);
+        if (!history.empty() && !history.front().from_snapshot) {
+            arrivals.emplace_back(rows[row], history.front().seq);
+        }
+    }
+    std::ranges::sort(arrivals, std::greater<>{}, [](const auto& arrival) { return arrival.second; });
+    for (const auto& arrival : arrivals) {
+        const ImGuiTestItemInfo info = ctx->ItemInfo(std::format("**/{}", fillscope::order_label(arrival.first).c_str()).c_str());
+        if (info.Window != nullptr && info.Window->InnerClipRect.Contains(info.RectFull)) {
+            return arrival;
+        }
+    }
+    return std::nullopt;
+}
+
+// The time-shifting demo, recorded from just before the client starts to 32 seconds later.
+void play_time_shift(ImGuiTestContext* ctx) {
+    begin_live(ctx);
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    const auto& state = vars.app->state();
+    wait_live(ctx, 0.0f, [&] { return state.books.updates_received() > 0; });
+    show_ticker(ctx, 5.0f, 3, 6);  // a busy book
+    // Paused: the books stand still while the updates keep arriving, and are kept. The mouse waits on
+    // pause, and clicks just after an order arrives in a row in view, so that it arrived only a few
+    // updates before the moment held: a few steps back show it arriving.
+    wait_live(ctx, 7.0f, [] { return true; });
+    ctx->MouseMove(std::format("**/{}", fillscope::kShiftPause).c_str());
+    wait_live(ctx, 8.0f, [&] {
+        const fillscope::MarketUpdate* newest = vars.app->kept().newest() ? vars.app->kept().update(*vars.app->kept().newest()) : nullptr;
+        if (newest == nullptr || newest->type != fillscope::UpdateType::add || newest->ticker != state.shown_ticker) {
+            return false;
+        }
+        // Its row in view, as latest_arrival will want it, from this frame's text alone (asking the Test
+        // Engine about an item takes frames, during which more updates arrive): drawn, and not among
+        // the last few rows drawn, which can be past the table's visible edge.
+        const std::vector<DrawnRow> drawn = drawn_rows(vars.text);
+        return std::ranges::any_of(drawn.begin(), drawn.size() > 4 ? drawn.end() - 4 : drawn.begin(),
+                                   [&](const DrawnRow& row) { return row.order_id == newest->order_id; });
+    });
+    {
+        const QuickClicks quick{ctx};  // the mouse waits on pause: the click comes at once
+        ctx->MouseClick(ImGuiMouseButton_Left);
+    }
+    mouse_aside_live(ctx);
+    ctx->Yield(2);
+    IM_CHECK_RETV(state.time_shift.has_value(), void());
+    check_live(ctx);
+    // In the still book, the order that arrived last of those drawn, pointed at.
+    wait_live(ctx, 10.0f, [&] { return state.time_shift->newest > state.time_shift->shown; });
+    // Paused, the books shown don't move: no need to hold the market data for the click.
+    const auto arrival = latest_arrival(ctx);
+    IM_CHECK_RETV(arrival.has_value(), void());
+    const ImRect row = ctx->ItemInfo(std::format("**/{}", fillscope::order_label(arrival->first).c_str()).c_str()).RectFull;
+    ctx->MouseMoveToPos(ImVec2{row.Min.x + row.GetHeight(), row.GetCenter().y});
+    ctx->MouseClick(ImGuiMouseButton_Left);
+    ctx->Yield(2);
+    const auto& [order, added] = *arrival;
+    const std::string pointing = std::format("Pointing at order {} of ticker {}", order.order_id, state.shown_ticker);
+    IM_CHECK(contains(vars.text, pointing));
+    mouse_aside_live(ctx);
+    check_kept_address();
+    // Back, an update at a time, to the one before it arrived: the bar says it was never seen, and
+    // its row is gone; then forward one, and it arrives.
+    wait_live(ctx, 13.0f, [] { return true; });
+    IM_CHECK_LE(state.time_shift->shown - added, 20u);  // a few steps, so the demo keeps its time
+    ctx->MouseMove(std::format("**/{}", fillscope::kShiftBack).c_str());
+    while (state.time_shift->shown >= added) {
+        {
+            const QuickClicks quick{ctx};  // the mouse rests on <: a click a step
+            ctx->MouseClick(ImGuiMouseButton_Left);
+        }
+        ctx->Yield(2);
+        linger(ctx, 0.2f);
+    }
+    mouse_aside_live(ctx);
+    ctx->Yield(2);
+    IM_CHECK_EQ(state.time_shift->shown, added - 1);
+    IM_CHECK(!ctx->ItemExists(std::format("**/{}", fillscope::order_label(order).c_str()).c_str()));
+    IM_CHECK(contains(vars.text, pointing + ": never seen"));
+    check_live(ctx);
+    wait_live(ctx, 16.0f, [] { return true; });
+    click_shift(ctx, fillscope::kShiftForward);
+    IM_CHECK_EQ(state.time_shift->shown, added);
+    IM_CHECK(ctx->ItemExists(std::format("**/{}", fillscope::order_label(order).c_str()).c_str()));
+    IM_CHECK(contains(vars.text, pointing + ": " + std::string{to_string(order.side)}));
+    check_live(ctx);
+    check_kept_address();
+    // Played on from there, at the pace the updates arrived, behind live.
+    wait_live(ctx, 19.0f, [] { return true; });
+    click_shift(ctx, fillscope::kShiftPlay);
+    IM_CHECK(state.time_shift->playing);
+    wait_live(ctx, 25.0f, [&] { return state.time_shift->shown > added + 5; });
+    IM_CHECK(state.time_shift->playing);
+    IM_CHECK_GT(state.time_shift->newest, state.time_shift->shown);
+    check_live(ctx);
+    // And back to live.
+    wait_live(ctx, 27.0f, [] { return true; });
+    click_shift(ctx, fillscope::kShiftLive);
+    IM_CHECK(!state.time_shift.has_value());
+    check_live(ctx);
+    end_live(ctx, kTimeShiftLength);
 }
 
 // Starts the exchange, once its port is open, and joins its streams for the viewer and for the demo.
@@ -685,8 +856,9 @@ bool prepare(const std::string& answer_tool, const std::filesystem::path& course
 }  // namespace
 
 int main(int argc, char** argv) {
-    // --live first, then the two programs' paths, as the lesson's two are given.
-    g_live_mode = argc > 1 && std::string_view{argv[1]} == "--live";
+    // --live or --time-shift first, then the two programs' paths, as the lesson's two are given.
+    g_time_shift_mode = argc > 1 && std::string_view{argv[1]} == "--time-shift";
+    g_live_mode = g_time_shift_mode || (argc > 1 && std::string_view{argv[1]} == "--live");
     if (g_live_mode) {
         --argc;
         ++argv;
@@ -695,7 +867,8 @@ int main(int argc, char** argv) {
     const bool watch = record || (argc == 4 && std::string_view{argv[3]} == "--watch");
     if (argc != 3 && !watch) {
         std::fprintf(stderr, "usage: viewer_demo FILLSCOPE_ANSWER COURSE_DIR [--watch | --record FILE.mp4]\n"
-                             "       viewer_demo --live EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]\n");
+                             "       viewer_demo --live EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]\n"
+                             "       viewer_demo --time-shift EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]\n");
         return 2;
     }
     std::string ffmpeg;
@@ -751,7 +924,9 @@ int main(int argc, char** argv) {
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     fillscope::apply_viewer_look();
-    const char* title = g_live_mode ? "Fillscope demo: live trading" : "Fillscope demo: a market maker";
+    const char* title = g_time_shift_mode ? "Fillscope demo: time-shifting"
+                        : g_live_mode       ? "Fillscope demo: live trading"
+                                            : "Fillscope demo: a market maker";
     if (!app->InitCreateWindow(app, title, ImVec2(static_cast<float>(size.width), static_cast<float>(size.height)))) {
         std::fprintf(stderr, "viewer_demo: can't create the window\n");
         return 1;
@@ -783,10 +958,12 @@ int main(int argc, char** argv) {
     test_io.ConfigMouseDrawCursor = watch;
 
     ImGuiTestEngine_Start(engine, ImGui::GetCurrentContext());
-    ImGuiTest* test = IM_REGISTER_TEST(engine, "demo", g_live_mode ? "live_trading" : "a_market_maker_provides_liquidity");
+    ImGuiTest* test = IM_REGISTER_TEST(engine, "demo", g_time_shift_mode ? "time_shifting"
+                                                       : g_live_mode     ? "live_trading"
+                                                                         : "a_market_maker_provides_liquidity");
     test->SetVarsDataType<DemoVars>(set_up);
     test->GuiFunc = viewer_frame;
-    test->TestFunc = g_live_mode ? play_live : play_the_lesson;
+    test->TestFunc = g_time_shift_mode ? play_time_shift : g_live_mode ? play_live : play_the_lesson;
     ImGuiTestEngine_QueueTests(engine, ImGuiTestGroup_Tests, "all", ImGuiTestRunFlags_RunFromCommandLine);
 
     while (!ImGuiTestEngine_IsTestQueueEmpty(engine)) {

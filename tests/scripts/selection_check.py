@@ -30,7 +30,7 @@ CODE_MAP = {"code_map_tests", "code_map_check"}
 ANSWER = {"answer_tests", "answer_system_tests", "course_system_tests"}
 # Answers' demo: the viewer's drawing and loop compiled in, its core linked, and the answer tool
 # run, which runs exchange_replay.
-DEMO = {"viewer_demo", "viewer_live_demo"}
+DEMO = {"viewer_demo", "viewer_live_demo", "viewer_time_shift_demo"}
 # The viewer program itself, run by its own test: its window and loop, its core, and the exchange.
 VIEWER_PROGRAM = {"viewer_program_tests"}
 ALL = {"common_tests", "docs_tests",

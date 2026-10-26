@@ -435,6 +435,12 @@ pointed at in a still book, a step back to see it arrive, play resumed behind li
 live.
 **Done when:** it runs in the tests, checked against books of its own as the live demo is, and
 records itself.
+**Status:** done (2026-10-26). `viewer_demo --time-shift`, the test `viewer_time_shift_demo`, and the
+**demo: time-shifting** and **demo: record time-shifting** launches ([ARCHITECTURE.md](ARCHITECTURE.md),
+§10, *The demos*). It found two things in the viewer: the line about the time shift wrapped as its
+numbers grew, and the controls moved with the lines above them as the market changed them, so the
+mouse could miss; the line is shorter (what its seconds are, in its tooltip), and the controls
+are pinned to the pane's bottom (the owner, 2026-10-26).
 
 ### 20. A replay shown from what is kept
 The viewer's replay is held as what is kept (`TimeShiftBuffer::from_replay`, built in step 16), and

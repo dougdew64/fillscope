@@ -90,6 +90,9 @@ inline constexpr const char* kShiftBack = "<##shift_back";
 inline constexpr const char* kShiftForward = ">##shift_forward";
 inline constexpr const char* kShiftSlider = "##shift_position";
 inline constexpr const char* kShiftLive = "live##shift_live";
+// Live, the region of the market pane above the time-shifting controls: the tickers, the book, the
+// history.
+inline constexpr const char* kLiveMarket = "live_market";
 // An answer's pane, the market beside it, and the answer's controls: to its start, back a frame,
 // forward a frame, to its end.
 inline constexpr const char* kAnswerPane = "answer";

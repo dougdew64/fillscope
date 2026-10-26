@@ -201,18 +201,46 @@ void divider() {
     paragraph_break();
 }
 
-// Live, the time-shifting controls (feed/time_shift.h), and what the screen shows: the newest
-// update, or one behind it, paused or playing. Each control asks; the loop moves the books shown
-// (ViewerApp::go_to and the rest).
-void draw_time_shift(const ViewerView& view, ViewerActions& actions) {
+// Live, what the screen shows, for the line above the time-shifting controls: the newest update, or
+// one behind it, paused or playing. Short, so it doesn't wrap at the windows it is shown in.
+std::string time_shift_line(const ViewerView& view) {
     const TimeShiftBuffer& kept = *view.kept;
     const std::optional<TimeShift>& shift = view.state.time_shift;
     if (!shift) {
+        return kept.newest() ? std::format("showing: live, the newest update; {} kept",
+                                           kept.kept() == 1 ? std::string{"1 update"} : std::format("{} updates", kept.kept()))
+                             : std::string{"showing: live; nothing kept yet"};
+    }
+    const std::uint64_t behind = shift->newest - shift->shown;
+    std::string where = std::format("showing: update {}, {}, {}", shift->shown, shift->playing ? "playing" : "paused",
+                                    behind == 1 ? std::string{"1 update"} : std::format("{} updates", behind));
+    if (shift->behind_seconds) {
+        where += std::format(" ({:.1f} s)", *shift->behind_seconds);
+    }
+    return where + " behind live";
+}
+
+// The height the time-shifting footer takes (draw_time_shift, after a divider): so the market above it
+// can end where it begins, and the controls stay at the pane's bottom whatever the lines above say.
+float time_shift_height(const ViewerView& view) {
+    const float spacing = ImGui::GetStyle().ItemSpacing.y;
+    const float half_line = ImGui::GetTextLineHeight() * 0.5f;
+    const float divider_height = 2.0f * (half_line + spacing) + 1.0f + spacing;
+    const float line = ImGui::CalcTextSize(time_shift_line(view).c_str(), nullptr, false, ImGui::GetContentRegionAvail().x).y + spacing;
+    return divider_height + line + half_line + spacing + ImGui::GetFrameHeight() + spacing;
+}
+
+// Live, the time-shifting controls (feed/time_shift.h), at the bottom of the market pane, under the
+// line saying what the screen shows. Each control asks; the loop moves the books shown
+// (ViewerApp::go_to and the rest). At the bottom, as a video player's are, so they stay put however
+// the lines above them change as the market moves: they once moved as the mouse reached for them.
+void draw_time_shift(const ViewerView& view, ViewerActions& actions) {
+    const TimeShiftBuffer& kept = *view.kept;
+    const std::optional<TimeShift>& shift = view.state.time_shift;
+    wrapped(time_shift_line(view));
+    if (!shift) {
         const bool can_pause = kept.newest() && kept.newest() == view.state.live.last_seq();
-        wrapped(kept.newest() ? std::format("showing: live, the newest update; {} kept", kept.kept() == 1 ? std::string{"1 update"}
-                                                                                                         : std::format("{} updates", kept.kept()))
-                              : std::string{"showing: live; nothing kept yet"});
-        paragraph_break();  // the controls apart from the lines above them
+        paragraph_break();  // the controls apart from the line above them
         if (ImGui::SmallButton(kShiftPause) && can_pause) {
             actions.pause = true;
         }
@@ -222,14 +250,11 @@ void draw_time_shift(const ViewerView& view, ViewerActions& actions) {
         });
         return;
     }
-    const std::uint64_t behind = shift->newest - shift->shown;
-    std::string where = std::format("showing: update {}, {}, {} behind live", shift->shown, shift->playing ? "playing" : "paused",
-                                    behind == 1 ? std::string{"1 update"} : std::format("{} updates", behind));
-    if (shift->behind_seconds) {
-        where += std::format(" ({:.1f} s, as the updates arrived here)", *shift->behind_seconds);
-    }
-    wrapped(where);
-    paragraph_break();  // the controls apart from the lines above them
+    tooltip([] {
+        return std::string{"The seconds are between the two updates' arrivals here, at the viewer: the market data carries "
+                           "no times of its own"};
+    });
+    paragraph_break();  // the controls apart from the line above them
     const std::uint64_t oldest = kept.runs().front().first;
     if (ImGui::SmallButton(kShiftOldest)) {
         actions.go_to = oldest;
@@ -759,8 +784,11 @@ ViewerActions draw_viewer(const ViewerView& view) {
     if (view.state.replay && !answering) {
         draw_replay(view, actions);
     }
+    // Live, the market in a region of its own, ending where the time-shifting footer begins, so the
+    // footer's controls stay at the pane's bottom.
     if (view.kept) {
-        draw_time_shift(view, actions);
+        const float footer = time_shift_height(view);
+        ImGui::BeginChild(kLiveMarket, {0.0f, std::max(ImGui::GetContentRegionAvail().y - footer, ImGui::GetFrameHeight() * 4.0f)});
     }
     divider();
     draw_tickers(view, actions);
@@ -769,6 +797,11 @@ ViewerActions draw_viewer(const ViewerView& view) {
     if (view.published && view.published->follow) {
         divider();
         draw_history(*view.published->follow);
+    }
+    if (view.kept) {
+        ImGui::EndChild();
+        divider();
+        draw_time_shift(view, actions);
     }
     if (answering) {
         ImGui::EndChild();

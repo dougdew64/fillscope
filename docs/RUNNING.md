@@ -167,6 +167,12 @@ the slower program adds the tier to its name.
   at orders, its books checked against the demo's own. About 10 seconds. **demo: live trading**
   shows it in a window; **demo: record live trading** records its 30 seconds to
   `build/debug/demo-live-trading.mp4`.
+- **`viewer_time_shift_demo` (the Test Engine's own, `system`):** the time-shifting demo,
+  headless: on the real exchange, paused, an order pointed at in the still book, stepped back to
+  before it arrived and forward to see it arrive, played behind live, back to live, checked at each
+  step against the demo's own books. About 10 seconds. **demo: time-shifting** shows it in a
+  window; **demo: record time-shifting** records its 32 seconds to
+  `build/debug/demo-time-shifting.mp4`.
 - **`feed_tests` (GoogleTest, `unit`):** Fillscope's reading of the market data: decoding (the
   back end's own test bytes among others), a book, keeping the books in step and every way recovery
   starts and ends, each order's history, a replay's market data file, and receiving real multicast
@@ -281,7 +287,7 @@ window, as it was last drawn, to FILE (a PPM image) as the viewer exits. `--incr
 choose the market data streams (by default the exchange's). The viewer prints on stderr when
 publishing the context fails and when it works again, and if it can't join a stream.
 
-**Pause, play, step and live.** Live, under the feed's lines, `pause` holds the books shown where
+**Pause, play, step and live.** Live, at the bottom of the market pane, `pause` holds the books shown where
 they are while the updates arriving are kept; then `|<`, `<` and `>` and the slider move over what
 is kept (the whole session), `play` plays on from the update shown at the pace the updates arrived,
 behind live, and `live` returns to the newest. While behind live, the status line, the context bar

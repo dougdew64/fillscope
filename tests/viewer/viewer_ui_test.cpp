@@ -327,7 +327,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK_EQ(vars.app->state().books.book(0).order_count(), 6u);
         IM_CHECK_EQ(vars.app->state().live.last_seq(), 10u);
         IM_CHECK(!ctx->ItemExists("**/buy##order17"));
-        IM_CHECK(contains(vars.text, "showing: update 6, paused, 4 updates behind live (0.4 s, as the updates arrived here)"));
+        IM_CHECK(contains(vars.text, "showing: update 6, paused, 4 updates (0.4 s) behind live"));
         IM_CHECK(contains(vars.text, "market data: live, the books are as of update 10"));  // the feed's
         IM_CHECK(bar_starts(vars.text, "Exchange live at update 10 · paused at update 6, 4 updates behind (0.4 s) · showing ticker 0"));
         yield_until(ctx, [&] { return read_context(vars)["background"]["timeShift"].is_object(); });
@@ -402,7 +402,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK_EQ(vars.app->state().time_shift->shown, 3u);
         IM_CHECK(vars.app->state().time_shift->playing);
-        IM_CHECK(contains(vars.text, "showing: update 3, playing, 7 updates behind live (0.7 s, as the updates arrived here)"));
+        IM_CHECK(contains(vars.text, "showing: update 3, playing, 7 updates (0.7 s) behind live"));
         // At 2.95 s, 1,050 ms: all ten; it plays no further than the newest.
         vars.now = at(2950);
         ctx->Yield(2);
@@ -413,7 +413,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         vars.now = at(3000);
         ctx->Yield(2);
         IM_CHECK_EQ(vars.app->state().time_shift->shown, 10u);
-        IM_CHECK(contains(vars.text, "showing: update 10, playing, 1 update behind live"));
+        IM_CHECK(contains(vars.text, "showing: update 10, playing, 1 update ("));
         // Pause stops it where it is.
         ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());
         vars.now = at(9000);
@@ -475,7 +475,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK(vars.app->state().time_shift.has_value());
         IM_CHECK_EQ(vars.app->state().books.last_seq(), 3u);
-        IM_CHECK(contains(vars.text, "showing: update 3, paused, 0 updates behind live"));
+        IM_CHECK(contains(vars.text, "showing: update 3, paused, 0 updates"));
         ctx->ItemClick(std::format("**/{}", fillscope::kShiftBack).c_str());
         ctx->Yield(2);
         IM_CHECK_EQ(vars.app->state().books.last_seq(), 2u);

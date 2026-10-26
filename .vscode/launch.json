@@ -86,6 +86,32 @@
       "preLaunchTask": "build"
     },
     {
+      // The time-shifting demo: the live viewer paused, an order pointed at in the still book, stepped
+      // back to before it arrived and forward to see it arrive, played behind live, and back to live,
+      // checked against the demo's own books (viewer_demo.cpp).
+      "name": "demo: time-shifting",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/tests/viewer/viewer_demo",
+      "args": ["--time-shift", "${workspaceFolder}/build/debug/backend/Chapter12/exchange_main",
+               "${workspaceFolder}/build/debug/backend/Chapter12/trading_main", "--watch"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build"
+    },
+    {
+      // The same, recorded as a video for sharing (with ffmpeg), in a 1280 by 720 window, to
+      // build/debug/demo-time-shifting.mp4.
+      "name": "demo: record time-shifting",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/tests/viewer/viewer_demo",
+      "args": ["--time-shift", "${workspaceFolder}/build/debug/backend/Chapter12/exchange_main",
+               "${workspaceFolder}/build/debug/backend/Chapter12/trading_main", "--record",
+               "${workspaceFolder}/build/debug/demo-time-shifting.mp4"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build"
+    },
+    {
       // A snapshot every 5 seconds, where the book's exchange has a minute, so a viewer started late
       // catches up quickly; each run's requests recorded, replacing the last run's.
       "name": "exchange",

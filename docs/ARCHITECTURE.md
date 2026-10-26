@@ -439,6 +439,11 @@ gives both every update, so they are the same; time-shifted (`ViewerState::time_
   has no arrival time of its own and takes the next update's.
 - **Live** follows the newest update again: the books shown become the live books.
 
+The controls sit at the bottom of the market pane, under a line saying what the screen shows, as a
+video player's do: the tickers, the book and the followed order's history are a region of their
+own above them (`kLiveMarket`), ending where they begin. Below the bar and the feed's lines, whose
+text changes length as the market moves, they had moved a line as the mouse reached for them.
+
 Moving the books shown forward, a few updates within a run, applies the kept updates to them, as the
 live books applied them; anything else rebuilds them (`BookBuilder::as_of`): the kept books as of
 the update, with the live books' histories and recoveries up to it, which are what the books had
@@ -446,8 +451,8 @@ then, since they apply updates in order. A point or a follow is about the books 
 the order pointed at stays as the screen shows it however the live books have moved on.
 
 While the screen isn't at the newest update, it says so, and how far behind: in the status
-("showing: update 561, paused, 115 updates behind live (1.8 s, as the updates arrived here)"), in
-the bar ("paused at update 561, 103 updates behind (1.7 s)"), and in the context file
+("showing: update 561, paused, 115 updates (1.8 s) behind live", its tooltip saying the seconds
+are the viewer's arrival times; short, so it doesn't wrap as its numbers grow), in the bar ("paused at update 561, 103 updates behind (1.7 s)"), and in the context file
 (`background.timeShift`: the update shown, the newest, how far behind, playing or not), where a point
 or a follow says it is as of the update shown (`asOfSeq`). The feed's own lines (live, as of update
 N, received, recoveries) stay the live feed's. While the viewer runs, the context file names the
@@ -1049,6 +1054,21 @@ book doesn't change under the mouse on its way to the row; what arrives meanwhil
 sockets, as it does when a paint has taken its most, and is taken in a moment later. In the
 tests it waits for the orders each step needs rather than for the set times.
 
+**The time-shifting demo** (`--time-shift`, the test `viewer_time_shift_demo`) is the live demo's
+set-up showing time-shifting (§4, *Time-shifting*), over about 32 seconds. On ticker 3's book it
+pauses, and the books stand still while the status line counts the updates arriving behind them;
+it points at the order in view that arrived last; it steps back, an update at a time, to the one
+before it arrived, where the bar says the order was never seen and its row is gone, and forward
+one, where it arrives; it plays on from there, behind live; and it returns to live. Each step is
+checked as the live demo checks, at the update shown, and each point's address in the kept file
+rebuilds the demo's own books. To keep the steps back few, the mouse waits on `pause` and clicks
+just after an order arrives in a row in view (read from the frame's text, so the click comes
+within a frame or two); clicks where the mouse already rests are made at once, rather than with
+the pauses of a person's hand the Test Engine's watchable speeds add to each, and the demo's own
+pace keeps each step on screen. It found that the time-shifting controls could move as the mouse
+reached for them, as a line above them wrapped or unwrapped with the market; they are now pinned
+to the pane's bottom (§4, *Time-shifting*).
+
 **How a demo is built.** `viewer_demo` is a program of its own, built from the demo's file and
 the viewer's own drawing code (`viewer_view.cpp`, `viewer_app.cpp`: the same sources the viewer
 compiles). It doesn't start the viewer program and drive it from outside. It holds a `ViewerApp`
@@ -1068,23 +1088,24 @@ which Dear ImGui's logging (`LogToBuffer`) captures as text while the frame is d
 a flag, `--record FILE.mp4`: the same run, with the Test Engine's capture tool reading each frame
 back from the window's OpenGL framebuffer and piping it to `ffmpeg` (below).
 
-Both are one script run three ways, through the Dear ImGui Test Engine, which drives the UI tests too.
+Each is one script run three ways, through the Dear ImGui Test Engine, which drives the UI tests too.
 The waits are the Test Engine's own (`Sleep`), skipped at full speed, so the checks are the same
 every way, and a demo that shows something false fails like any test.
 - *In the tests,* on the Test Engine's null backend at full speed: answers' about 1.5 seconds,
-  the live one about 10 (the exchange's start, the client's, and the orders the steps wait for),
+  the live ones about 10 (the exchange's start, the client's, and the orders the steps wait for),
   with no window, at the viewer's own size and look (`window_size`, `apply_viewer_look`).
-- *Watched* (`--watch`, the **demo: a market maker** and **demo: live trading** launches), in a real window through GLFW and
+- *Watched* (`--watch`, the **demo: a market maker**, **demo: live trading** and **demo: time-shifting**
+  launches), in a real window through GLFW and
   OpenGL, the viewer's size, at the Test Engine's *cinematic* speed, the mouse slow enough to
   follow; four seconds a frame.
-- *Recorded* (`--record FILE.mp4`, the **demo: record a market maker** and **demo: record live
-  trading** launches), for sharing (on
+- *Recorded* (`--record FILE.mp4`, the **demo: record a market maker**, **demo: record live
+  trading** and **demo: record time-shifting** launches), for sharing (on
   LinkedIn, say): the Test Engine reads each frame back from the window and pipes it to `ffmpeg`,
   so the video holds the viewer's window alone, pixel for pixel, its drawn mouse included, at 30
   frames a second. It is made for a viewer on a laptop, in a hurry, who pauses to read a frame in
   full: a 16:9 window of 1280 by 720, smaller than the viewer's, so the text is larger in the
   video; the Test Engine's normal speed, the mouse quick; two seconds a frame. Answers' is about 80 seconds
-  and 5 MB; the live one, 30 seconds and 2 MB. No screen recorder is involved, and a new recording after a change is one command,
+  and 5 MB; the live one, 30 seconds and 2 MB; the time-shifting one, 32 seconds. No screen recorder is involved, and a new recording after a change is one command,
   with the same moves and timing every time.
 
 **Moving as a person would.** What the video shows has to be caused by the mouse, or it looks

@@ -35,6 +35,16 @@ fillscope_test_program(viewer_live_demo system
   RUNTIME_DEPS $<TARGET_FILE:viewer_demo> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>)
 set_tests_properties(viewer_live_demo PROPERTIES RESOURCE_LOCK exchange)
 
+# The time-shifting demo (viewer_demo --time-shift): the live viewer paused, an order pointed at in the
+# still book, stepped back to before it arrived and forward to see it arrive, played behind live, and
+# back to live, checked at each against the demo's own books; `--watch` shows it (the "demo:
+# time-shifting" launch). As the live demo: the system tier, the exchange's lock, viewer_demo among
+# the files it uses.
+fillscope_test_program(viewer_time_shift_demo system
+  COMMAND $<TARGET_FILE:viewer_demo> --time-shift $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>
+  RUNTIME_DEPS $<TARGET_FILE:viewer_demo> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>)
+set_tests_properties(viewer_time_shift_demo PROPERTIES RESOURCE_LOCK exchange)
+
 # The viewer program itself (viewer_program_test.py): its window, paint loop, report lines, and every
 # way it ends, on the real exchange and a client. The one test of src/viewer/main.cpp, which the UI
 # tests and the demos don't run. The system tier, holding the exchange's lock. It opens the window on
