@@ -320,7 +320,26 @@ real clicks, checked at every frame, headless in the tests and watchable in a wi
 ([ARCHITECTURE.md](ARCHITECTURE.md), §10, *The demos*).
 
 
-### 15 to 18. Time-shifting the live market data
+### 15. The viewer's log
+Decided by the owner on 2026-10-26, before time-shifting, so a crash while building it can be
+diagnosed: what it is is in [FEATURES.md](FEATURES.md), item 17. **Who writes what:** Claude, all
+of it. **Where:** a file per run in the `logs` directory beside the context file (`.fillscope/logs/`
+by default), named by when the viewer started and its process id. **Bounded:** a starting viewer
+keeps the newest 20 logs, and a run's log stops at 10 MB, saying so.
+The viewer writes each line as it happens, in one write, so a crash loses nothing written before
+it: how it was started (its command line, the build, its sanitizers), the feed's events (joining,
+errors, recoveries), answers read and refused, the context file's failures, the user's actions,
+the line it prints each second, and how it ended (the window closed, `--exit-after`, a signal, an
+error). A crash is recorded too: the fatal signal and a backtrace, an uncaught exception's message;
+in the sanitizer build, whose own handlers report a crash, the sanitizers' reports go to a file
+beside the log. The log is kept when the viewer exits.
+**Done when:** unit tests check the lines, the naming, keeping the newest 20 (and nothing else in
+the directory touched), the 10 MB stop, and that a crash (a fatal signal, an uncaught exception, an
+abort) is recorded, in a process that dies of it; the viewer program's test finds, for each way it
+ends, the log saying so, and for a viewer killed outright, everything up to then; where the logs
+are and how to read them is in [RUNNING.md](RUNNING.md).
+
+### 16 to 19. Time-shifting the live market data
 Decided by the owner on 2026-10-26: what it is, and why, is in [FEATURES.md](FEATURES.md), item 16.
 **Who writes what** (the owner, 2026-10-26): Claude writes all four steps; the owner's hand-written
 code comes later. **Resuming** plays from the buffer at the pace the updates arrived, behind live,
@@ -331,7 +350,7 @@ long as the viewer runs. A viewer that couldn't clean up (killed outright) leave
 and the next viewer to start removes those of viewers no longer running. The context file is not
 such a file: its last write, saying the viewer has stopped, is meant to be read afterwards.
 
-### 15. The viewer keeps what it receives
+### 16. The viewer keeps what it receives
 The viewer's core keeps every incremental update it applies, with the time it arrived, and can
 give the books exactly as they were after any update it kept. The updates come in runs: a run
 starts at update 1, or at a recovery, with the books as the snapshot gave them, and ends at a gap.
@@ -344,7 +363,7 @@ refused; going to any update of an hour's session takes less than a frame (measu
 checkpoints if rebuilding from a run's start is too slow); replay still passes all its tests.
 **Open:** whether a run keeps checkpoints of the books, decided by the measurement.
 
-### 16. Pause, resume, step and live, in the viewer
+### 17. Pause, resume, step and live, in the viewer
 Live, the viewer gains a recorder's controls: pause, which holds the screen at one update while
 updates keep arriving; play, which plays from the buffer at the pace the updates arrived, behind
 live; step back and forward; a slider over what is kept; and live, which returns to the newest.
@@ -357,7 +376,7 @@ pointing while paused stays on the order pointed at, and behind live is shown an
 whenever the screen isn't at the newest; the viewer program's test pauses and resumes the real
 viewer.
 
-### 17. A live moment's address
+### 18. A live moment's address
 The viewer writes what it keeps to a file as it arrives, readable while it grows, even mid-write:
 the updates, their arrival times and the runs. While the viewer runs, the context file gives a live
 moment's address, that file and an update number, as a replay's does now; a command-line tool
@@ -372,7 +391,7 @@ SIGINT), and the last context file names none; a file left by a killed viewer is
 next one, and a running viewer's never is; the format is in [ARCHITECTURE.md](ARCHITECTURE.md).
 **Open:** the file's format (an extension of the market data file's, or one of its own).
 
-### 18. The demo
+### 19. The demo
 A demo, part of the tests like the others, recorded for sharing: the live viewer paused, an order
 pointed at in a still book, a step back to see it arrive, play resumed behind live, and back to
 live.
@@ -381,4 +400,4 @@ records itself.
 
 ## Later
 The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are
-ordered and broken into steps here when steps 15 to 18 have landed.
+ordered and broken into steps here when steps 15 to 19 have landed.

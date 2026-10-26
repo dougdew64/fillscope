@@ -4,8 +4,8 @@
 it rests on. **Status:** live plan; an item is removed when it is built (git keeps it), and the file
 is deleted when empty. **Read when:** choosing what to build next, or asking what Fillscope will do.
 
-Time-shifting live market data (16) is next, as [PLAN.md](PLAN.md)'s steps 15 on; answers (15)
-are built, and its later parts remain here. The other items aren't in order yet. The [charter](CHARTER.md)'s
+The viewer's log (17) is next, then time-shifting live market data (16), as [PLAN.md](PLAN.md)'s
+steps 15 on; answers (15) are built, and its later parts remain here. The other items aren't in order yet. The [charter](CHARTER.md)'s
 rules bind every one of them. Known defects and test gaps are in [TECH-DEBT.md](TECH-DEBT.md).
 
 Built so far: the back end, built and tested by Fillscope at a pinned commit; the live view of the
@@ -226,4 +226,4 @@ The stages of the roadmap, each a change to the fork.
     what is logged must already be on disk, and the crash itself recorded where possible (the fatal
     signal, a backtrace, the sanitizers' reports). Kept when the viewer exits, unlike the files it
     cleans up (16): it is meant to be read afterwards. Bounded, so a long session or many runs
-    can't fill the disk. Not yet planned.
+    can't fill the disk. Planned: [PLAN.md](PLAN.md), step 15.
