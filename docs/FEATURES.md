@@ -34,6 +34,20 @@ The stages of the roadmap, each a change to the fork.
    model of the specification, checked mechanically and against an independent model; a
    deterministic generator writes the decoders from it; they must agree with the hand-written ones
    on every message of a real trading day. The data is downloaded locally, never committed.
+   - **Decided (the owner, 2026-10-26): publish it first, then simulate clients' orders against it;
+     never re-match it.** First, a program decodes a day's ITCH and publishes it on the exchange's
+     market data feed, in the format the viewer reads, as `exchange_replay` publishes a recording:
+     Nasdaq's book, order by order, exactly as it happened; no client places orders. Then, with fill
+     simulation (7), clients' orders are simulated against the replayed book: an order joins the
+     queue at its price behind the real orders there, and fills when real executions at that price
+     have used up the queue ahead of it, after a simulated latency; it doesn't change the historical
+     market, the method's known limitation, said wherever its results are shown. Not re-matched in
+     Ghosh's matcher: many of the orders behind ITCH's executions never appear in it (market,
+     immediate-or-cancel, hidden and midpoint orders, the auctions), and the matcher has none of
+     them, so its book would drift from Nasdaq's and show what didn't happen.
+   - **To carry over:** the exchange's 8 tickers (8 stocks of a day's thousands), its order ids
+     (ITCH's are far larger, so renumbered), and ITCH's nanosecond timestamps, which the exchange's
+     own feed lacks: time-shifting (16) could then play at the exchange's pace, not the viewer's.
 6. **Backtesting on simulated time, with recovery from a snapshot.** Latency in a backtest is
    simulated, not the network's ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)).
 7. **Fill simulation:** queue position, latency, fees.
