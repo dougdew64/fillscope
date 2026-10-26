@@ -43,14 +43,14 @@ void TimeShiftBuffer::observe(const BookBuilder& live) {
         // the books as they are now. The updates before them were never applied one at a time.
         recoveries_seen_ = live.recoveries().size();
         runs_.push_back(Run{.first = last_seq, .last = last_seq});
-        data_.push_back(RunData{.updates = {}, .checkpoints = {copy_of(live)}});
+        data_.push_back(RunData{.updates = {}, .checkpoints = {copy_of(live)}, .tip = std::nullopt});
         pending_.erase(pending_.begin(), pending_.upper_bound(last_seq));
         return;
     }
     if (runs_.empty()) {
         // Live from update 1, with no recovery: the first run starts before it, from empty books.
         runs_.push_back(Run{.first = 0, .last = 0});
-        data_.push_back(RunData{.updates = {}, .checkpoints = {Moment{}}});
+        data_.push_back(RunData{.updates = {}, .checkpoints = {Moment{}}, .tip = std::nullopt});
     }
     Run& run = runs_.back();
     RunData& data = data_.back();
@@ -70,22 +70,42 @@ void TimeShiftBuffer::observe(const BookBuilder& live) {
     }
 }
 
+std::expected<void, std::string> TimeShiftBuffer::start_run(Moment base) {
+    if (!runs_.empty() && base.seq <= runs_.back().last) {
+        return std::unexpected{std::format("a run can't start at update {}: the last run ends at {}", base.seq, runs_.back().last)};
+    }
+    runs_.push_back(Run{.first = base.seq, .last = base.seq});
+    data_.push_back(RunData{.updates = {}, .checkpoints = {base}, .tip = base});
+    return {};
+}
+
+std::expected<void, std::string> TimeShiftBuffer::append(const MarketUpdate& update, std::optional<Clock::time_point> arrived) {
+    if (runs_.empty() || !data_.back().tip) {
+        return std::unexpected{std::string{"an update needs a run started for it"}};
+    }
+    Run& run = runs_.back();
+    RunData& data = data_.back();
+    if (update.seq != run.last + 1) {
+        return std::unexpected{std::format("update {} can't follow update {}", update.seq, run.last)};
+    }
+    if (auto applied = apply_to(*data.tip, update); !applied) {
+        return std::unexpected{std::format("update {} can't be applied: {}", update.seq, applied.error())};
+    }
+    data.updates.push_back(Kept{.update = update, .arrived = arrived});
+    ++run.last;
+    ++kept_;
+    if (run.last - data.checkpoints.back().seq >= kCheckpointEvery) {
+        data.checkpoints.push_back(*data.tip);
+    }
+    return {};
+}
+
 TimeShiftBuffer TimeShiftBuffer::from_replay(std::span<const MarketUpdate> updates) {
     TimeShiftBuffer buffer;
-    buffer.runs_.push_back(Run{.first = 0, .last = 0});
-    buffer.data_.push_back(RunData{.updates = {}, .checkpoints = {Moment{}}});
-    Run& run = buffer.runs_.back();
-    RunData& data = buffer.data_.back();
-    Moment books;
+    (void)buffer.start_run(Moment{});
     for (const MarketUpdate& update : updates) {
-        if (update.seq != run.last + 1 || !apply_to(books, update)) {
+        if (!buffer.append(update, std::nullopt)) {
             break;  // the books can't go further, as the viewer's replay stops there
-        }
-        data.updates.push_back(Kept{.update = update, .arrived = std::nullopt});
-        ++run.last;
-        ++buffer.kept_;
-        if (run.last - data.checkpoints.back().seq >= kCheckpointEvery) {
-            data.checkpoints.push_back(books);
         }
     }
     return buffer;

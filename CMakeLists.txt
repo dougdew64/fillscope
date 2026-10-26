@@ -55,7 +55,7 @@ endif()
 # src/feed: the exchange's market data: decoding and receiving it, and the books it describes.
 add_library(fillscope_feed STATIC
   src/feed/market_update.cpp src/feed/book.cpp src/feed/book_builder.cpp src/feed/feed_socket.cpp
-  src/feed/market_data_file.cpp src/feed/time_shift.cpp)
+  src/feed/market_data_file.cpp src/feed/time_shift.cpp src/feed/kept_file.cpp src/feed/books_text.cpp)
 target_include_directories(fillscope_feed PUBLIC src)
 target_compile_options(fillscope_feed PRIVATE ${FILLSCOPE_WARNINGS})
 
@@ -79,6 +79,12 @@ add_library(fillscope_answer STATIC
 target_include_directories(fillscope_answer PUBLIC src)
 target_link_libraries(fillscope_answer PUBLIC fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
 target_compile_options(fillscope_answer PRIVATE ${FILLSCOPE_WARNINGS})
+# fillscope-books: the books at a live moment's address, from the file the viewer writes what it
+# keeps to.
+add_executable(fillscope-books src/feed/books_main.cpp)
+target_link_libraries(fillscope-books PRIVATE fillscope_feed)
+target_compile_options(fillscope-books PRIVATE ${FILLSCOPE_WARNINGS})
+
 add_executable(fillscope-answer src/answer/main.cpp)
 target_link_libraries(fillscope-answer PRIVATE fillscope_answer)
 target_compile_options(fillscope-answer PRIVATE ${FILLSCOPE_WARNINGS})
@@ -113,7 +119,7 @@ add_custom_target(course DEPENDS ${course_answers})
 add_library(fillscope_viewer_core STATIC
   src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp
   src/viewer/stop_signals.cpp src/viewer/answer_state.cpp src/viewer/viewer_log.cpp src/viewer/crash_log.cpp
-  src/viewer/log_events.cpp)
+  src/viewer/log_events.cpp src/viewer/kept_files.cpp)
 target_include_directories(fillscope_viewer_core PUBLIC src)
 target_link_libraries(fillscope_viewer_core PUBLIC fillscope_answer fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
 target_compile_options(fillscope_viewer_core PRIVATE ${FILLSCOPE_WARNINGS})

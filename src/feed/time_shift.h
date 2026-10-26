@@ -63,6 +63,12 @@ public:
     // apply (a replay's updates stop there, as the viewer's replay does), with no arrival times.
     [[nodiscard]] static TimeShiftBuffer from_replay(std::span<const MarketUpdate> updates);
 
+    // Building one from what was written of another (feed/kept_file.h): a run starting from `base`
+    // (after a gap, if one came before: base.seq must be past the last run's end), then each update
+    // after it, in order, applied to the books for the checkpoints. Or why the update can't follow.
+    [[nodiscard]] std::expected<void, std::string> start_run(Moment base);
+    [[nodiscard]] std::expected<void, std::string> append(const MarketUpdate& update, std::optional<Clock::time_point> arrived);
+
     [[nodiscard]] const std::vector<Run>& runs() const noexcept { return runs_; }
     // The newest update kept, if any.
     [[nodiscard]] std::optional<std::uint64_t> newest() const;
@@ -96,6 +102,7 @@ private:
     struct RunData {
         std::vector<Kept> updates;        // first + 1, first + 2, ...
         std::vector<Moment> checkpoints;  // by seq; the first is the run's start
+        std::optional<Moment> tip;        // built by append: the books after the run's last update
     };
 
     [[nodiscard]] static Moment copy_of(const BookBuilder& live);

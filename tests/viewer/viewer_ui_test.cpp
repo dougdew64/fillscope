@@ -15,6 +15,7 @@
 // Exits 0 only if at least one test ran and every test that ran passed.
 
 #include "feed/feed_socket.h"
+#include "feed/kept_file.h"
 #include "feed/market_update.h"
 #include "support/answer_fixture.h"
 #include "support/test_support.h"
@@ -29,9 +30,11 @@
 #include <imgui_app.h>
 #include <nlohmann/json.hpp>
 
+#include <sys/resource.h>
 #include <unistd.h>
 
 #include <chrono>
+#include <csignal>
 #include <cstdio>
 #include <deque>
 #include <exception>
@@ -507,6 +510,73 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->ItemClick(std::format("**/{}", fillscope::kShiftForward).c_str());
         ctx->Yield(2);
         IM_CHECK_EQ(vars.app->state().books.last_seq(), 5u);
+    });
+
+    // ---- a live moment's address (feed/kept_file.h) ----
+
+    // Live, what is kept is written to a file, and what is pointed at has an address there: the file and
+    // the update the books shown are as of, whose books the file rebuilds exactly. The last context,
+    // as the viewer exits and deletes the file, gives none.
+    viewer_test(engine, "live_a_point_has_an_address_in_the_file_of_what_is_kept", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const std::filesystem::path file = scratch_root() / ctx->Test->Name / "kept" / "viewer.kept";
+        std::filesystem::create_directories(file.parent_path());
+        auto writer = fillscope::KeptFileWriter::create(file);
+        IM_CHECK_RETV(writer.has_value(), void());
+        vars.app->keep_to(std::move(*writer));
+        add_book(vars);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        ctx->ItemClick("**/buy##order2");
+        ctx->Yield(2);
+        nlohmann::json context = read_context(vars);
+        IM_CHECK_EQ(context["background"]["keptFile"].get<std::string>(), file.string());
+        IM_CHECK_EQ(context["point"]["keptAddress"]["file"].get<std::string>(), file.string());
+        IM_CHECK_EQ(context["point"]["keptAddress"]["seq"].get<int>(), 6);
+        const auto read = fillscope::read_kept_file(file);
+        IM_CHECK_RETV(read.has_value(), void());
+        IM_CHECK(read->moment(6).value().books[0].orders() == vars.app->state().books.book(0).orders());
+        // Paused and stepped back, the address is the update shown.
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftPause).c_str());
+        ctx->ItemClick(std::format("**/{}", fillscope::kShiftBack).c_str());
+        ctx->ItemClick("**/buy##order2");
+        ctx->Yield(2);
+        context = read_context(vars);
+        IM_CHECK_EQ(context["point"]["keptAddress"]["seq"].get<int>(), 5);
+        IM_CHECK(fillscope::read_kept_file(file).value().moment(5).value().books[0].orders() == vars.app->state().books.book(0).orders());
+        IM_CHECK(vars.app->finish());
+        context = read_context(vars);
+        IM_CHECK(context["background"]["keptFile"].is_null());
+        IM_CHECK(context["point"]["keptAddress"].is_null());
+    });
+
+    // A write that fails stops the writing, and the address with it, and says so once.
+    viewer_test(engine, "a_failed_write_of_what_is_kept_stops_it_and_the_address", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const std::filesystem::path file = scratch_root() / ctx->Test->Name / "kept" / "viewer.kept";
+        std::filesystem::create_directories(file.parent_path());
+        vars.app->keep_to(fillscope::KeptFileWriter::create(file).value());
+        // Past the largest file the process may write, a write fails rather than ending the process.
+        const auto old_handler = std::signal(SIGXFSZ, SIG_IGN);
+        rlimit old_limit{};
+        ::getrlimit(RLIMIT_FSIZE, &old_limit);
+        rlimit limit = old_limit;
+        limit.rlim_cur = 2048;
+        ::setrlimit(RLIMIT_FSIZE, &limit);
+        std::optional<std::string> report;
+        for (std::uint64_t seq = 1; seq <= 100 && !report; ++seq) {
+            vars.app->apply_incremental(add(seq, seq, Side::buy, 100, 1, seq), std::chrono::steady_clock::now());
+            report = vars.app->kept_file_report();
+        }
+        ::setrlimit(RLIMIT_FSIZE, &old_limit);
+        std::signal(SIGXFSZ, old_handler);
+        IM_CHECK_RETV(report.has_value(), void());
+        IM_CHECK(contains(*report, "writing what is kept stopped: can't write"));
+        IM_CHECK(contains(*report, "live moments have no address now"));
+        IM_CHECK(!vars.app->kept_file_report());  // once
+        IM_CHECK(!vars.app->state().kept_file);
+        ctx->Yield(2);
+        IM_CHECK(read_context(vars)["background"]["keptFile"].is_null());
     });
 
     viewer_test(engine, "clicking_an_order_points_at_it", [](ImGuiTestContext* ctx) {

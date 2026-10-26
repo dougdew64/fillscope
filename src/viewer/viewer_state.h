@@ -50,6 +50,10 @@ struct ViewerState {
     BookBuilder live;
     // Live: set while the screen shows a moment that isn't the newest.
     std::optional<TimeShift> time_shift;
+    // Live: the file what is kept is written to while the viewer runs (feed/kept_file.h), and whether
+    // the books shown are a moment in it, so the context can give their address there.
+    std::optional<std::filesystem::path> kept_file;
+    bool books_kept = false;
     // The ticker whose book is shown: the user's choice of view, which the context publishes as
     // background (the assistant should know what the user is looking at).
     std::uint32_t shown_ticker = 0;

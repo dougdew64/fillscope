@@ -48,6 +48,8 @@ VIEWER_LOG = "src/viewer/viewer_log.cpp"
 CRASH_LOG = "src/viewer/crash_log.cpp"
 LOG_EVENTS = "src/viewer/log_events.cpp"
 TIME_SHIFT = "src/feed/time_shift.cpp"
+KEPT_FILE = "src/feed/kept_file.cpp"
+KEPT_FILES = "src/viewer/kept_files.cpp"
 VIEWER_APP = "src/viewer/viewer_app.cpp"
 PARSE = "src/common/parse.h"
 FD = "src/common/fd.h"
@@ -352,7 +354,7 @@ MUTANTS = [
      [("    if (seq > runs_[index].last) {\n        return std::nullopt;\n    }\n", "")],
      "TimeShiftBuffer.SaysWhyAnUpdateCantBeShown"),
     ("a replay goes on past an update the books can't apply", TIME_SHIFT,
-     [("if (update.seq != run.last + 1 || !apply_to(books, update)) {", "if (update.seq != run.last + 1) {")],
+     [("    if (auto applied = apply_to(*data.tip, update); !applied) {", "    if (auto applied = apply_to(*data.tip, update); false) {")],
      "TimeShiftBuffer.AReplayIsHeldTheSameWayWithNoTimes"),
     ("a run's start says it arrived", TIME_SHIFT,
      [("    if (!run || seq == runs_[*run].first) {\n        return std::nullopt;  // a run's start",
@@ -396,6 +398,37 @@ MUTANTS = [
     ("back from a run's start stays there", TIME_SHIFT,
      [("    if (*run > 0) {\n        return runs_[*run - 1].last;\n    }\n", "")],
      "ui:back_across_a_gap_goes_to_the_last_update_before_it"),
+    # A live moment's address: the kept file (kept_file.cpp), the viewer's cleaning up (kept_files.cpp,
+    # main.cpp), the address (viewer_app.cpp).
+    ("a kept file cut short in an update is refused", KEPT_FILE,
+     [("            if (!reader.need(kUpdateSize + sizeof(std::int64_t))) {\n                break;",
+       "            if (!reader.need(kUpdateSize + sizeof(std::int64_t))) {\n                return std::unexpected{std::string{\"cut short\"}};")],
+     "KeptFile.ReadWhileBeingWrittenItIsWhatWasWrittenToTheLastWholeRecord"),
+    ("a run's start isn't written", KEPT_FILE,
+     [("        if (run >= runs_written_) {\n            const auto base", "        if (false) {\n            const auto base")],
+     "KeptFile.ReadBackItIsWhatWasKept"),
+    ("an update's arrival isn't written", KEPT_FILE,
+     [("    put(out, arrived ? static_cast<std::int64_t>(arrived->time_since_epoch().count()) : kNoTime);", "    put(out, kNoTime);")],
+     "KeptFile.ReadBackItIsWhatWasKept"),
+    ("a run's last trades aren't written", KEPT_FILE,
+     [("        trades += trade ? 1 : 0;", "        trades += 0;")],
+     "KeptFile.ARunsStartKeepsItsOrdersAndLastTrades"),
+    ("a running viewer's kept file is removed", KEPT_FILES,
+     [("if (pid && ::kill(*pid, 0) != 0 && errno == ESRCH) {", "if (pid) {")],
+     "KeptFiles.AStartingViewerRemovesOnlyThoseOfViewersNoLongerRunning"),
+    ("the last context gives an address in the deleted file", VIEWER_APP,
+     [("    state_.kept_file.reset();\n    publisher_.finish(", "    publisher_.finish(")],
+     "ui:live_a_point_has_an_address_in_the_file_of_what_is_kept"),
+    ("a failed write of what is kept keeps the address", VIEWER_APP,
+     [("        kept_writer_.reset();\n        state_.kept_file.reset();", "        kept_writer_.reset();")],
+     "ui:a_failed_write_of_what_is_kept_stops_it_and_the_address"),
+    ("the viewer leaves its kept file behind", VIEWER_MAIN,
+     [("            delete_kept_file.emplace(file);\n", "")],
+     "viewer_program_tests"),
+    ("a starting viewer leaves killed viewers' kept files", VIEWER_MAIN,
+     [("        for (const std::filesystem::path& removed : fillscope::remove_abandoned_kept_files(directory)) {",
+       "        for (const std::filesystem::path& removed : std::vector<std::filesystem::path>{}) {")],
+     "viewer_program_tests"),
     # The viewer's log (viewer_log.cpp), its crash recording (crash_log.cpp), and what it records
     # (log_events.cpp).
     ("a starting viewer keeps one log too many", VIEWER_LOG,

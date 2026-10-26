@@ -415,7 +415,19 @@ equal the viewer's at that moment; a file being written is read to its last whol
 is gone after the viewer exits by each way it can (closing the window, `--exit-after`, SIGTERM,
 SIGINT), and the last context file names none; a file left by a killed viewer is removed by the
 next one, and a running viewer's never is; the format is in [ARCHITECTURE.md](ARCHITECTURE.md).
-**Open:** the file's format (an extension of the market data file's, or one of its own).
+**Status:** done (2026-10-26). The open question: a format of its own, `FSKEEP01` (the market data
+file has no times and no runs): `KeptFileWriter` and `read_kept_file` (`src/feed/kept_file.h`),
+`fillscope-books` (`books_main.cpp`, `books_text.h`), the viewer's file and cleanup
+(`src/viewer/kept_files.h`, `main.cpp`), `background.keptFile` and a point's and a follow's
+`keptAddress` ([ARCHITECTURE.md](ARCHITECTURE.md), §3, *A live moment's address*). A running
+viewer's file is told by its process existing, not by a lock: simpler, and as safe. Checked by
+`kept_file_tests` (read back; read while written, cut anywhere; refused; a failed write; the books'
+text), `viewer_tests` (the names; only dead viewers' files removed), two UI tests (the address,
+paused too, and none in the last context; a failed write), `viewer_program_tests` (on the real
+exchange: the file while it runs, read by the tool, gone each way it ends; a killed viewer's removed
+by the next; a running viewer's never; the tool's command line), the live demo (on the real
+exchange, the books the file rebuilds at the address of each point equal the demo's own), and 9
+mutants.
 
 ### 19. The demo
 A demo, part of the tests like the others, recorded for sharing: the live viewer paused, an order

@@ -1,5 +1,5 @@
 # The viewer's core (selection, context, publishing, options), unit-tested without Dear ImGui.
-fillscope_gtest(viewer_tests unit SOURCES viewer_test.cpp LIBS fillscope_viewer_core)
+fillscope_gtest(viewer_tests unit SOURCES viewer_test.cpp kept_files_test.cpp LIBS fillscope_viewer_core)
 
 # The viewer's log and its crash recording, each crash in a process of its own (death tests).
 fillscope_gtest(viewer_log_tests unit SOURCES viewer_log_test.cpp LIBS fillscope_viewer_core)
@@ -42,8 +42,8 @@ set_tests_properties(viewer_live_demo PROPERTIES RESOURCE_LOCK exchange)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 fillscope_test_program(viewer_program_tests system
   COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/viewer_program_test.py
-          $<TARGET_FILE:viewer> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>
+          $<TARGET_FILE:viewer> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main> $<TARGET_FILE:fillscope-books>
   RUNTIME_DEPS ${CMAKE_CURRENT_SOURCE_DIR}/viewer_program_test.py
                $<TARGET_FILE:viewer> $<TARGET_FILE:exchange_main>
-               $<TARGET_FILE:trading_main> ${Python3_EXECUTABLE})
+               $<TARGET_FILE:trading_main> $<TARGET_FILE:fillscope-books> ${Python3_EXECUTABLE})
 set_tests_properties(viewer_program_tests PROPERTIES RESOURCE_LOCK exchange SKIP_RETURN_CODE 77)

@@ -13,7 +13,9 @@
 
 #include "feed/feed_socket.h"
 #include "feed/market_data_file.h"
+#include "feed/kept_file.h"
 #include "viewer/crash_log.h"
+#include "viewer/kept_files.h"
 #include "viewer/log_events.h"
 #include "viewer/viewer_app.h"
 #include "viewer/viewer_log.h"
@@ -271,6 +273,26 @@ int main(int argc, char** argv) {
     }
 
     fillscope::ViewerApp app{options->context_file};
+    // Live: what is kept, written to a file of this run's own in the kept directory beside the context
+    // file, deleted on every way main returns; those of viewers no longer running removed first.
+    std::optional<fillscope::DeleteOnExit> delete_kept_file;
+    if (incremental) {
+        const std::filesystem::path directory =
+            (options->context_file.has_parent_path() ? options->context_file.parent_path() : ".") / "kept";
+        std::error_code made;
+        std::filesystem::create_directories(directory, made);
+        for (const std::filesystem::path& removed : fillscope::remove_abandoned_kept_files(directory)) {
+            note(std::format("kept: removed {}, left by a viewer no longer running", removed.string()));
+        }
+        const std::filesystem::path file = directory / fillscope::kept_file_name(::getpid());
+        if (auto writer = fillscope::KeptFileWriter::create(file); writer) {
+            delete_kept_file.emplace(file);
+            app.keep_to(std::move(*writer));
+            note(std::format("kept: writing what is kept to {}, deleted on exit", file.string()));
+        } else {
+            say(std::format("live moments will have no address: {}", writer.error()));
+        }
+    }
     if (replay) {
         app.open_replay(*options->replay, std::move(*replay));
     }
@@ -319,6 +341,9 @@ int main(int argc, char** argv) {
         }
         ImGui::Render();
         if (const auto report = app.publish_report()) {
+            say(*report);
+        }
+        if (const auto report = app.kept_file_report()) {
             say(*report);
         }
 

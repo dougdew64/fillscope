@@ -31,6 +31,7 @@
 #include "feed/book.h"
 #include "feed/book_builder.h"
 #include "feed/feed_socket.h"
+#include "feed/kept_file.h"
 #include "support/test_support.h"
 #include "viewer/answer_state.h"
 #include "viewer/viewer_app.h"
@@ -42,6 +43,7 @@
 #include <imgui_te_context.h>
 #include <imgui_te_engine.h>
 #include <imgui_app.h>
+#include <nlohmann/json.hpp>
 
 #include <unistd.h>
 
@@ -50,6 +52,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -125,6 +128,12 @@ void set_up(ImGuiTestContext*, DemoVars& vars) {
     if (!g_live_mode) {
         vars.app->watch_answer(scratch_root() / ".fillscope" / "answer.json");
         vars.app->open_course(g_demo.course, g_demo.built);
+    } else {
+        // Live, as the viewer does: what is kept written to a file, so a moment has an address there.
+        std::filesystem::create_directories(scratch_root() / "kept");
+        if (auto writer = fillscope::KeptFileWriter::create(scratch_root() / "kept" / "viewer.kept")) {
+            vars.app->keep_to(std::move(*writer));
+        }
     }
 }
 
@@ -497,6 +506,29 @@ void mouse_aside_live(ImGuiTestContext* ctx) {
     ctx->MouseMoveToPos(ImVec2{last.Max.x + last.GetWidth() * 3.0f, last.GetCenter().y});
 }
 
+// Live: the address the context gives what is pointed at (the kept file, and the update the books
+// shown are as of) rebuilds, from the file, the books the demo built from its own stream as of that
+// update: what a question asked later would be about is exactly what was on the screen.
+void check_kept_address() {
+    std::ifstream in{scratch_root() / "context.json"};
+    const nlohmann::json context = nlohmann::json::parse(in, nullptr, false);
+    IM_CHECK_RETV(!context.is_discarded() && context["point"]["keptAddress"].is_object(), void());
+    const std::string file = context["point"]["keptAddress"]["file"].get<std::string>();
+    const auto seq = context["point"]["keptAddress"]["seq"].get<std::uint64_t>();
+    const auto kept = fillscope::read_kept_file(file);
+    IM_CHECK_RETV(kept.has_value(), void());
+    const auto moment = kept->moment(seq);
+    IM_CHECK_RETV(moment.has_value(), void());
+    IM_CHECK_RETV(g_live.updates.size() >= seq, void());
+    fillscope::BookBuilder own;
+    for (std::uint64_t next = 1; next <= seq; ++next) {
+        own.on_incremental(g_live.updates[next - 1]);
+    }
+    for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
+        IM_CHECK(moment->books[ticker].orders() == own.book(ticker).orders());
+    }
+}
+
 // Shows `ticker`'s book with its button, once it has at least `orders` resting.
 void show_ticker(ImGuiTestContext* ctx, float seconds, std::uint32_t ticker, std::size_t orders) {
     DemoVars& vars = ctx->GetVars<DemoVars>();
@@ -538,6 +570,7 @@ void point_live(ImGuiTestContext* ctx, float seconds, float fraction, float unti
     const fillscope::PointTarget expected{fillscope::OrderRef{.ticker = ticker, .order_id = order.order_id}};
     IM_CHECK(vars.app->selection().pointed() == expected);
     IM_CHECK(contains(vars.text, std::format("Pointing at order {} of ticker {}", order.order_id, ticker)));
+    check_kept_address();
     hold.reset();
     mouse_aside_live(ctx);
     check_live(ctx);

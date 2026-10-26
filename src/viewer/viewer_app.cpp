@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <format>
+#include <utility>
 
 namespace fillscope {
 
@@ -28,6 +29,7 @@ void ViewerApp::apply_incremental(const MarketUpdate& update, Clock::time_point 
     kept_.received(update, now);
     state_.live.on_incremental(update);
     kept_.observe(state_.live);
+    write_kept();
     if (!state_.time_shift) {
         state_.books.on_incremental(update);
     }
@@ -37,10 +39,30 @@ void ViewerApp::apply_incremental(const MarketUpdate& update, Clock::time_point 
 void ViewerApp::apply_snapshot(const MarketUpdate& update) {
     state_.live.on_snapshot(update);
     kept_.observe(state_.live);
+    write_kept();
     if (!state_.time_shift) {
         state_.books.on_snapshot(update);
     }
 }
+
+void ViewerApp::keep_to(KeptFileWriter writer) {
+    state_.kept_file = std::filesystem::absolute(writer.path());
+    kept_writer_.emplace(std::move(writer));
+    write_kept();
+}
+
+void ViewerApp::write_kept() {
+    if (!kept_writer_) {
+        return;
+    }
+    if (auto written = kept_writer_->write_new(kept_); !written) {
+        kept_file_error_ = std::format("writing what is kept stopped: {}; live moments have no address now", written.error());
+        kept_writer_.reset();
+        state_.kept_file.reset();
+    }
+}
+
+std::optional<std::string> ViewerApp::kept_file_report() { return std::exchange(kept_file_error_, std::nullopt); }
 
 void ViewerApp::pause() {
     if (state_.time_shift) {
@@ -234,6 +256,7 @@ void ViewerApp::choose(std::size_t choice) {
 
 ViewerActions ViewerApp::paint(Clock::time_point now) {
     advance(now);
+    state_.books_kept = kept_.updates_to_apply(state_.books.last_seq()).has_value();
     ViewerTiming timing{.seconds_since_update = std::nullopt, .paints = paints_};
     if (last_update_at_) {
         timing.seconds_since_update = std::chrono::duration<double>(now - *last_update_at_).count();
@@ -277,6 +300,8 @@ ViewerActions ViewerApp::paint(Clock::time_point now) {
 }
 
 bool ViewerApp::finish() {
+    // The file is deleted as the viewer exits: the last context gives no address in it.
+    state_.kept_file.reset();
     publisher_.finish(make_context(state_, selection_));
     return !publisher_.error();
 }

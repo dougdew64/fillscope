@@ -35,7 +35,7 @@ DEMO = {"viewer_demo", "viewer_live_demo"}
 VIEWER_PROGRAM = {"viewer_program_tests"}
 ALL = {"common_tests", "docs_tests",
        "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
-       "lowlatency_allocation_tests", "feed_tests", "time_shift_tests",
+       "lowlatency_allocation_tests", "feed_tests", "time_shift_tests", "kept_file_tests",
        "feed_system_tests", "replay_debugger_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP | ANSWER | DEMO | VIEWER_PROGRAM
 # The programs iterate.py runs every time, affected or not.
 ALWAYS = {"docs_tests", "attribution_report_check", "code_map_check"}
@@ -60,14 +60,16 @@ CASES = [
     # The feed's socket, the atomic write and the answer tool's replay own their descriptors with
     # Fd, so everything that links them is affected, and the helpers' own tests.
     ("src/common/fd.h", CPP_PROBE,
-     {"common_tests", "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "feed_tests", "feed_system_tests"} | ANSWER
+     {"common_tests", "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "feed_tests", "kept_file_tests", "feed_system_tests"}
+     | ANSWER
      | DEMO | VIEWER_PROGRAM),
     # The viewer's core is linked by the viewer, its test programs and its demos, and by nothing else.
     ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
     # The books: Fillscope's reading of the market data, which the viewer (its log's events among
     # it), the answer tool and the system test link.
     ("src/feed/book_builder.cpp", CPP_PROBE,
-     {"feed_tests", "time_shift_tests", "feed_system_tests", "viewer_tests", "viewer_log_tests", "viewer_ui_tests"}
+     {"feed_tests", "time_shift_tests", "kept_file_tests", "feed_system_tests", "viewer_tests", "viewer_log_tests",
+      "viewer_ui_tests"}
      | ANSWER | DEMO | VIEWER_PROGRAM),
     ("tests/support/test_support.h", CPP_PROBE,
      {"feed_tests", "feed_system_tests", "viewer_ui_tests", "replay_debugger_tests", "answer_system_tests",

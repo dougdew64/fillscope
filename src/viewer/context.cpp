@@ -94,6 +94,10 @@ Context make_context(const ViewerState& state, const Selection& selection) {
     feed.status = feed_books.status();
     feed.last_seq = feed_books.last_seq();
     feed.books_seq = books.last_seq();
+    if (state.kept_file) {
+        feed.kept_file = state.kept_file->string();
+        feed.books_kept = state.books_kept;
+    }
     feed.updates_received = feed_books.updates_received();
     feed.recovering_because = feed_books.recovering_because();
     feed.recovery_count = feed_books.recoveries().size();
@@ -193,6 +197,14 @@ nlohmann::ordered_json event_json(const OrderEvent& event) {
             {"price", event.price},       {"qty", event.qty},              {"fromSnapshot", event.from_snapshot}};
 }
 
+// Live, the address of the books shown in the file what is kept is written to, while the viewer runs.
+nlohmann::ordered_json kept_json(const Context::Feed& feed) {
+    if (!feed.kept_file || !feed.books_kept) {
+        return nullptr;
+    }
+    return {{"file", *feed.kept_file}, {"seq", feed.books_seq}};
+}
+
 nlohmann::ordered_json replay_json(const std::optional<ReplayAddress>& address) {
     if (!address) {
         return nullptr;
@@ -264,6 +276,10 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
         "television recorder does), background.timeShift says which update is shown (shownSeq), the newest "
         "(newestSeq) and how far behind in seconds of the viewer's own arrival times (behindSeconds); then point and "
         "follow are as of shownSeq, and background.feed is the live feed's. "
+        "Live, while the viewer runs, it writes every update it keeps to background.keptFile, and point and follow carry "
+        "a keptAddress there (the file, and the update their books are as of), from which `fillscope-books FILE --at "
+        "SEQ` prints the books exactly as they were; the viewer deletes the file when it exits, and its last file "
+        "gives none. "
         "'writer' says which viewer wrote this file and whether it is still running.";
 
     const Context::Feed& feed = context.feed;
@@ -295,6 +311,7 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
                                                                                                 : nlohmann::ordered_json(feed.answer->lesson)}}
                                : nlohmann::ordered_json(nullptr)},
         {"noAnswer", or_null(feed.no_answer)},
+        {"keptFile", or_null(feed.kept_file)},
         {"timeShift", feed.time_shift ? nlohmann::ordered_json{{"shownSeq", feed.time_shift->shown_seq},
                                                                {"newestSeq", feed.time_shift->newest_seq},
                                                                {"behindUpdates", feed.time_shift->newest_seq - feed.time_shift->shown_seq},
@@ -305,7 +322,8 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
 
     if (context.point) {
         const Context::Point& point = *context.point;
-        json["point"] = {{"seq", point.seq}, {"asOfSeq", feed.books_seq}, {"replayAddress", replay_json(point.replay)}};
+        json["point"] = {{"seq", point.seq}, {"asOfSeq", feed.books_seq}, {"replayAddress", replay_json(point.replay)},
+                         {"keptAddress", kept_json(feed)}};
         if (const auto* order = std::get_if<OrderState>(&point.target)) {
             json["point"]["order"] = order_json(*order);
         } else {
@@ -332,7 +350,8 @@ nlohmann::ordered_json to_json(const Context& context, const Writer& writer, std
                           {"events", events},
                           {"eventsTruncated", follow.truncated()},
                           {"gaps", gaps},
-                          {"replayAddress", replay_json(follow.replay)}};
+                          {"replayAddress", replay_json(follow.replay)},
+                          {"keptAddress", kept_json(feed)}};
     } else {
         json["follow"] = nullptr;
     }

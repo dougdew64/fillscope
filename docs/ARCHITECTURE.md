@@ -268,8 +268,25 @@ the live history's up to N, since the books apply updates in order.
 
 A replay's market data is held the same way (`from_replay`): one run, from before update 1, with no
 arrival times, ending where the books can't apply an update, as the viewer's replay stops there.
-The viewer doesn't show either from the buffer yet: that is time-shifting's next step
-([PLAN.md](PLAN.md), step 17).
+
+**A live moment's address** (`kept_file.h`). Live, the viewer writes what it keeps to a file as it
+keeps it, so a moment has an address: the file and an update number, from which the books then
+are rebuilt exactly, however much later the question comes, while the viewer runs. The file is
+`FSKEEP01`, then records, each written with one `write(2)`, so a reader of a file still being
+written takes every whole record and leaves a last one cut short: a run's start (the update it
+starts at, its resting orders and each ticker's last trade, since the updates before it, across a
+gap, aren't in the file), and each update (its 42 bytes on the wire, and when it arrived, on the
+viewer's steady clock, whose values mean something only beside each other). `read_kept_file` gives
+back a `TimeShiftBuffer` (`start_run`, `append`), whose checkpoints are made as it reads.
+`fillscope-books FILE --at N` prints the books after update N from such a file, as the viewer lists
+them (`books_text.h`), or says why it can't.
+
+**The viewer cleans up after itself** (`kept_files.h`): its file is `viewer-<pid>.kept` in the
+`kept` directory beside the context file, deleted on every way `main` returns (closing the window,
+`--exit-after`, SIGINT, SIGTERM, an error), and its last context file names none. A viewer killed
+outright, or crashed, can't: a starting viewer removes the files of viewers no longer running, a
+file being a running viewer's while a process with its id exists. A running viewer's is never
+removed, and a dead one's whose id another process has taken waits for a later viewer.
 
 ## 4. The viewer (`src/viewer/`)
 **The problem:** show the books as the market data describes them, let you point at and follow
@@ -433,7 +450,10 @@ While the screen isn't at the newest update, it says so, and how far behind: in 
 the bar ("paused at update 561, 103 updates behind (1.7 s)"), and in the context file
 (`background.timeShift`: the update shown, the newest, how far behind, playing or not), where a point
 or a follow says it is as of the update shown (`asOfSeq`). The feed's own lines (live, as of update
-N, received, recoveries) stay the live feed's.
+N, received, recoveries) stay the live feed's. While the viewer runs, the context file names the
+file it writes what it keeps to (`background.keptFile`), and a point or a follow gives the moment's
+address there (`keptAddress`: the file, and that update), from which `fillscope-books` prints the
+books exactly as they were on the screen (§3, *A live moment's address*).
 
 ### The viewer's log
 When the viewer fails, crashes included, the assistant has to find out why afterwards, and the

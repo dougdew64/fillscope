@@ -5,9 +5,11 @@
 # a second, and end on --exit-after, SIGTERM or SIGINT with a last context file saying it has
 # stopped; --screenshot must write the window's last frame; a bad command line must be refused.
 # And its log (src/viewer/viewer_log.h) must say, for each way it ends, how it ended: killed
-# outright, it has everything up to then; crashed, the crash.
+# outright, it has everything up to then; crashed, the crash. And live, it writes what it keeps to a
+# file of its own, which fillscope-books reads, deletes it each way it ends, and removes at start
+# the files of viewers killed before, never a running one's.
 #
-#   python3 -I tests/viewer/viewer_program_test.py VIEWER EXCHANGE_MAIN TRADING_MAIN
+#   python3 -I tests/viewer/viewer_program_test.py VIEWER EXCHANGE_MAIN TRADING_MAIN FILLSCOPE_BOOKS
 #
 # It needs a display for the viewer's window: an Xvfb of its own, started here, so no window ever
 # appears on the screen. Never the desktop's: its windows covered the user's. Without Xvfb, the
@@ -26,7 +28,7 @@ import tempfile
 import time
 import unittest
 
-VIEWER, EXCHANGE, TRADING = (os.path.abspath(path) for path in sys.argv[1:4])
+VIEWER, EXCHANGE, TRADING, BOOKS = (os.path.abspath(path) for path in sys.argv[1:5])
 
 
 def claim_slot():
@@ -157,6 +159,21 @@ def the_log(directory):
     return lines, path
 
 
+def kept_files(directory):
+    """The kept files in `directory`'s kept directory (feed/kept_file.h)."""
+    kept_dir = os.path.join(directory, "kept")
+    return sorted(os.listdir(kept_dir)) if os.path.isdir(kept_dir) else []
+
+
+def wait_for(condition, limit=START_LIMIT):
+    deadline = time.monotonic() + limit
+    while not condition():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
 def sanitized(lines):
     """Whether the log says the viewer was built with the sanitizers."""
     return any(line.startswith("build:") and "AddressSanitizer" in line for line in lines)
@@ -181,6 +198,14 @@ class ViewerOnTheExchangeTest(unittest.TestCase):
                 viewer = start_viewer(["--exit-after", "6", *STREAMS, "--context-file", context, "--screenshot", screenshot],
                                       directory)
                 client = Process([TRADING, "5", "RANDOM", "--warm-up-seconds", "1", *ENDPOINTS], directory)
+                # While it runs: its kept file, named in its context, which fillscope-books reads.
+                kept = os.path.join(directory, "kept", f"viewer-{viewer.pid}.kept")
+                self.assertTrue(wait_for(lambda: os.path.exists(kept)), kept_files(directory))
+                self.assertTrue(wait_for(lambda: os.path.exists(context) and read_context(context)["background"]["keptFile"] == kept))
+                self.assertTrue(wait_for(lambda: read_context(context)["background"]["feed"]["lastSeq"] >= 20))
+                books = subprocess.run([BOOKS, kept, "--at", "20"], capture_output=True, text=True, timeout=30)
+                self.assertEqual(books.returncode, 0, books.stderr)
+                self.assertTrue(books.stdout.startswith("the books after update 20; it arrived "), books.stdout)
                 stdout, stderr = viewer.communicate(timeout=START_LIMIT + 6)
             finally:
                 if client is not None:
@@ -236,6 +261,10 @@ class ViewerOnTheExchangeTest(unittest.TestCase):
             self.assertEqual(log[-3:-1], ["stopping: --exit-after 6 s",
                                          f"the final context is published to {context}, saying this viewer has stopped"])
             self.assertEqual(log[-1], "end: --exit-after 6 s; exit code 0")
+            # Gone as it exited, and the last context names none.
+            self.assertEqual(kept_files(directory), [])
+            self.assertIsNone(final["background"]["keptFile"])
+            self.assertIn(f"kept: writing what is kept to {kept}, deleted on exit", log)
 
 
 class ViewerEndsOnASignalTest(unittest.TestCase):
@@ -257,6 +286,8 @@ class ViewerEndsOnASignalTest(unittest.TestCase):
             self.assertEqual(viewer.returncode, 0, stderr)
             self.assertIn("viewer: stopping, as a signal asked", stderr)
             self.assertFalse(read_context(context)["writer"]["running"])
+            self.assertEqual(kept_files(directory), [])  # deleted as it exited
+            self.assertIsNone(read_context(context)["background"]["keptFile"])
             log, _ = the_log(directory)
             name = signal.Signals(signum).name
             self.assertIn(f"stopping: {name}", log)
@@ -291,6 +322,34 @@ class ViewerDiesTest(unittest.TestCase):
             self.assertTrue(log[0].startswith("start: viewer "), log)
             self.assertTrue(any(REPORT.match("viewer: " + line) for line in log), log)  # the first second's line
             self.assertFalse(any(line.startswith("end:") for line in log), log)
+            # Its kept file is left behind; the next viewer to start removes it.
+            left = f"viewer-{viewer.pid}.kept"
+            self.assertEqual(kept_files(directory), [left])
+            following = start_viewer(["--exit-after", "1", *STREAMS, "--context-file", os.path.join(directory, "context.json")],
+                                     directory)
+            following.communicate(timeout=START_LIMIT)
+            self.assertEqual(following.returncode, 0)
+            self.assertEqual(kept_files(directory), [])
+            logs = sorted(os.listdir(os.path.join(directory, "logs")))
+            with open(os.path.join(directory, "logs", logs[-1])) as file:
+                self.assertIn(f"kept: removed {os.path.join(directory, 'kept', left)}, left by a viewer no longer running", file.read())
+
+    def test_a_viewer_starting_never_removes_a_running_viewers_kept_file(self):
+        needs_display(self)
+        with tempfile.TemporaryDirectory() as directory:
+            running = self.run_until_reporting(directory)
+            try:
+                mine = f"viewer-{running.pid}.kept"
+                self.assertEqual(kept_files(directory), [mine])
+                other = start_viewer(["--exit-after", "1", *STREAMS, "--context-file", os.path.join(directory, "context.json")],
+                                     directory)
+                other.communicate(timeout=START_LIMIT)
+                self.assertEqual(other.returncode, 0)
+                self.assertEqual(kept_files(directory), [mine])  # the other's is gone; the running one's stays
+            finally:
+                running.send_signal(signal.SIGTERM)
+                running.communicate(timeout=START_LIMIT)
+            self.assertEqual(kept_files(directory), [])
 
     def test_a_crash_is_recorded(self):
         needs_display(self)
@@ -312,6 +371,33 @@ class ViewerDiesTest(unittest.TestCase):
                 self.assertEqual(viewer.returncode, -signal.SIGSEGV)
                 self.assertIn("crash: fatal signal 11 (SIGSEGV); the backtrace, innermost first:", log)
                 self.assertEqual(log[-1], "crash: end of the backtrace; the signal now ends the process")
+
+
+class BooksToolTest(unittest.TestCase):
+    """fillscope-books's command line, and what it refuses (the books it prints are its library's,
+    checked by kept_file_tests; on a real viewer's file, above)."""
+
+    def run_books(self, *args):
+        return subprocess.run([BOOKS, *args], capture_output=True, text=True, timeout=30)
+
+    def test_a_bad_command_line_is_refused_with_its_usage(self):
+        for args in ([], ["a.kept"], ["a.kept", "--at"], ["a.kept", "--at", "x"], ["a.kept", "--at", "1", "--ticker", "8"],
+                     ["a.kept", "--bogus"]):
+            result = self.run_books(*args)
+            self.assertEqual(result.returncode, 2, args)
+            self.assertIn("usage: fillscope-books FILE --at SEQ [--ticker T]", result.stderr, args)
+
+    def test_a_file_it_cant_read_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = self.run_books(os.path.join(directory, "missing.kept"), "--at", "1")
+            other = os.path.join(directory, "other")
+            with open(other, "w") as file:
+                file.write("not a kept file")
+            wrong = self.run_books(other, "--at", "1")
+        self.assertEqual(missing.returncode, 1)
+        self.assertIn("can't open", missing.stderr)
+        self.assertEqual(wrong.returncode, 1)
+        self.assertIn("isn't a kept file", wrong.stderr)
 
 
 class ViewerRefusesTest(unittest.TestCase):

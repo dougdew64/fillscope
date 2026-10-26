@@ -8,6 +8,7 @@
 #include "feed/feed_socket.h"
 #include "feed/market_data_file.h"
 #include "feed/market_update.h"
+#include "feed/kept_file.h"
 #include "feed/time_shift.h"
 #include "viewer/context.h"
 #include "viewer/context_publisher.h"
@@ -53,6 +54,12 @@ public:
     void go_live();
     // Moves a playing time shift on to `now`, and brings how far behind up to date; once a paint.
     void advance(Clock::time_point now);
+
+    // Live: writes what is kept to `writer`'s file as it is kept, and gives the books shown an
+    // address in it in the context while the viewer runs. A write that fails stops the writing, and
+    // the address; kept_file_report says so once.
+    void keep_to(KeptFileWriter writer);
+    [[nodiscard]] std::optional<std::string> kept_file_report();
 
     // Shows a replay instead of the live exchange: the books start empty, before its first update.
     // `file` is where it was read from.
@@ -115,6 +122,10 @@ private:
 
     ViewerState state_;
     TimeShiftBuffer kept_;
+    std::optional<KeptFileWriter> kept_writer_;
+    std::optional<std::string> kept_file_error_;  // the write that failed, until reported
+    // After each update given: writes what was kept, if writing.
+    void write_kept();
     Selection selection_;
     ContextPublisher publisher_;
     std::optional<Clock::time_point> last_update_at_;

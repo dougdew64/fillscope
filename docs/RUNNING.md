@@ -143,6 +143,11 @@ the slower program adds the tier to its name.
   **demo: a market maker**, shows it in a window at a pace to follow, about a minute; **demo:
   record a market maker** records it as a video for sharing, quicker and in a 1280 by 720 window,
   about 80 seconds, to `build/debug/demo-a-market-maker.mp4` (it needs `ffmpeg`).
+- **`kept_file_tests` (GoogleTest, `unit`):** the file the viewer writes what it keeps to, read back:
+  what was kept, through a feed with gaps and recoveries; read while being written, cut at every
+  byte of its first records and at places through the rest, what was written to its last whole
+  record; a file that isn't one refused; a write that fails saying why; and the books as
+  `fillscope-books` prints them.
 - **`viewer_log_tests` (GoogleTest, `unit`):** the viewer's log: its names, its lines, keeping the
   newest 20 and nothing else in the directory touched, the 10 MB limit; a crash recorded by a
   process that really dies of it (an abort, an uncaught exception, a segmentation fault, a stack
@@ -282,6 +287,12 @@ is kept (the whole session), `play` plays on from the update shown at the pace t
 behind live, and `live` returns to the newest. While behind live, the status line, the context bar
 and the context file say which update is shown and how far behind, and what you point at is as of
 that update ([ARCHITECTURE.md](ARCHITECTURE.md), §4, *Time-shifting*).
+
+**A live moment's address.** Live, the viewer writes what it keeps to `.fillscope/kept/viewer-<pid>.kept`
+while it runs, and deletes it as it exits (those of viewers killed before are removed when the next
+starts). The context file names it, and what you point at or follow has a `keptAddress` there; to
+see the books exactly as they were at that update: `build/debug/fillscope-books FILE --at SEQ`
+(`--ticker T` for one ticker's book).
 
 **The viewer's log.** Each run writes one, in `.fillscope/logs/` (the `logs` directory beside the
 context file), named for when it started and its process id; the newest 20 are kept. It says how

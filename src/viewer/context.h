@@ -76,8 +76,9 @@ inline constexpr std::size_t kMaxListedRecoveries = 10;
 
 // Why a live viewer's context has no replay address: only a recorded run can be rebuilt exactly.
 inline constexpr std::string_view kNoReplayAddress =
-    "live: the viewer follows the exchange as it runs, which can't be rebuilt exactly. A recorded run can: "
-    "exchange_main --record FILE, then exchange_replay FILE MARKET_DATA, then viewer --replay MARKET_DATA";
+    "live: the viewer follows the exchange as it runs, which no recording rebuilds; while the viewer runs, a "
+    "keptAddress rebuilds what it shows. A recorded run can always be rebuilt: exchange_main --record FILE, then "
+    "exchange_replay FILE MARKET_DATA, then viewer --replay MARKET_DATA";
 
 // One exact state of a recorded run: the books after update `seq` of a replay's market data, which
 // exchange_replay made from the recording. Rebuilt by applying the file's updates 1 to `seq`.
@@ -163,6 +164,11 @@ struct Context {
             friend bool operator==(const TimeShifted&, const TimeShifted&) = default;
         };
         std::optional<TimeShifted> time_shift;
+        // Live, while the viewer runs: the file it writes what it keeps to (feed/kept_file.h), and
+        // whether the books shown, as of books_seq, are a moment in it: then a point and a follow
+        // have an address there, from which the books are rebuilt (fillscope-books).
+        std::optional<std::string> kept_file;
+        bool books_kept = false;
 
         friend bool operator==(const Feed&, const Feed&) = default;
     };
