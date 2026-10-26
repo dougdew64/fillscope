@@ -180,9 +180,16 @@ TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsALateReaderRecoversA
     {
         Program exchange(with_endpoints({g_exchange, "--snapshot-interval-seconds", "1", "--record", "requests.rec"}), directory);
         ASSERT_TRUE(exchange.started());
-        std::this_thread::sleep_for(std::chrono::seconds{10});  // its parts start a couple of seconds apart
-        ASSERT_TRUE(exchange.running()) << "the exchange exited";
-        Program client(with_endpoints({g_trading, "5", "RANDOM"}), directory);
+        // Its order port opens in about a second; the limit allows for the sanitizer build and a
+        // loaded machine.
+        const auto opened_by = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+        while (!order_port_open()) {
+            ASSERT_TRUE(exchange.running()) << "the exchange exited";
+            ASSERT_LT(std::chrono::steady_clock::now(), opened_by) << "the exchange didn't open port " << kOrderPort;
+            std::this_thread::sleep_for(std::chrono::milliseconds{100});
+        }
+        // Trading after a second, not the book's 10.
+        Program client(with_endpoints({g_trading, "5", "RANDOM", "--warm-up-seconds", "1"}), directory);
         ASSERT_TRUE(client.started());
 
         // Until three snapshots taken after trading began have arrived whole, or a minute has passed.

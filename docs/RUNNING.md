@@ -103,22 +103,24 @@ the slower program adds the tier to its name.
   tests, in the fork (`backend/Chapter12/tests/`): the market data's layout on the wire, the
   matching (price-time priority, partial fills, sweeps, cancels), the incremental feed's sequence
   numbers, a snapshot's content and its interval, recording and replaying requests, and the order
-  server refusing what the matcher can't process. One process for them all, about 17 s and 4.3 GB (about 40 s in the sanitizer build alongside the other tests):
-  the exchange's objects take seconds and gigabytes to make. The fork's own CI runs them too.
+  server refusing what the matcher can't process. One process for them all, about 3 s and 4.3 GB (about 20 s in the sanitizer build):
+  the exchange's objects take gigabytes to make. The fork's own CI runs them too.
 - **`lowlatency_allocation_tests` (GoogleTest, `system`, the whole program as one test):** in the
   fork too: what must not allocate (a queue's write and read, a memory pool's allocate and release,
   a price level added and removed, the snapshot synthesizer's updates, and an `ASSERT` that holds),
-  counted by its own `operator new`, which is why it is a program apart. About a second, most of
-  it making the snapshot synthesizer.
+  counted by its own `operator new`, which is why it is a program apart. A fraction of a second,
+  most of it making the snapshot synthesizer.
 - **`backend_system_tests` (Python, `system`):** the back end as Fillscope builds it: the exchange
-  and a random-trading client run together for about half a minute, and the test, joined to the
+  and a random-trading client run together for a few seconds, and the test, joined to the
   exchange's incremental market data feed on the loopback interface, sees orders added and every
   update arrive in sequence, and none of it on the default interface, which leads off the machine
   (that check is left out on a machine with no network); updates sent on the book's own stream
   meanwhile, as a replay stepped in VS Code would send them, never reach it; an order past the
   order ids, sent to the exchange directly, is rejected and left out of the recording, and the
   exchange runs on and accepts the next; and the exchange refuses bad options, its new ones
-  (`--order-port`, `--snapshot`, `--incremental`) among them.
+  (`--order-port`, `--snapshot`, `--incremental`) among them, and the client a bad
+  `--warm-up-seconds`. Its client warms up for a second rather than the book's 10, and its first
+  market update must arrive within 9 s, so a warm-up the client ignored fails it.
 - **`replay_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** lockstep on a replay: `exchange_replay`, publishing a three-request recording on a
   group of the test's own, under GDB and LLDB, by breakpoint and by self-stop, at `-O0` and `-O2`;
@@ -149,7 +151,7 @@ the slower program adds the tier to its name.
   (a snapshot every second) and a client trading at random: every incremental update arrives, the
   books built from updates 1 to S equal each of the exchange's snapshots as of S, a reader that
   joins late recovers and ends with the same books, and the exchange's recording of the run,
-  replayed by `exchange_replay`, gives every update that arrived, byte for byte. About half a minute.
+  replayed by `exchange_replay`, gives every update that arrived, byte for byte. About 6 s.
   The exchange and the client run on the test's own ports.
 - **`viewer_tests` (GoogleTest, `unit`):** the viewer's core without Dear ImGui: the selection, the
   context built from the books and the selection (an order's place in its queue, a level's orders,

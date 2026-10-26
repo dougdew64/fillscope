@@ -82,6 +82,7 @@ MATCHING_ENGINE = "backend/Chapter12/exchange/matcher/matching_engine.h"
 REPLAY_MAIN = "backend/Chapter12/exchange/exchange_replay.cpp"
 REQUEST_ANCHOR = "backend/Chapter12/exchange/matcher/lockstep_anchor.cpp"
 LF_QUEUE = "backend/Chapter12/common/lf_queue.h"
+THREAD_UTILS = "backend/Chapter12/common/thread_utils.h"
 MACROS = "backend/Chapter12/common/macros.h"
 MUTANTS_SCRIPT = "tests/scripts/mutants.py"
 SCRATCH_TREE_SCRIPT = "tests/scripts/scratch_tree.py"
@@ -198,7 +199,7 @@ MUTANTS = [
     ("the code map's check passes whatever it finds", CODE_MAP,
      [("    if found:\n        print(f\"{MAP}:", "    if False:\n        print(f\"{MAP}:")],
      "code_map_tests"),
-    # The system tier's timeout must reach its test: at one second, the test (half a minute) fails.
+    # The system tier's timeout must reach its test: at one second, the test (about 8 s) fails.
     ("the system tier's timeout is one second", "tests/CMakeLists.txt",
      [("set(FILLSCOPE_TIMEOUT_system 120)", "set(FILLSCOPE_TIMEOUT_system 1)")],
      "backend_system_tests"),
@@ -504,6 +505,25 @@ MUTANTS = [
      "backend_system_tests|feed_system_tests"),
     ("the client looks for the exchange on the book's port whatever it is given", TRADING_MAIN_SOURCE,
      [("const int order_gw_port = endpoints.order_port;", "const int order_gw_port = 12345;")],
+     "backend_system_tests"),
+    # The thread's own copies (common/thread_utils.h), and the client's warm-up (trading_main.cpp).
+    ("a new thread refers to the caller's arguments again", THREAD_UTILS,
+     [("... args = std::forward<A>(args)]", "&... args = args]")],
+     "lowlatency:CreateAndStartThread.TheThreadReadsItsOwnCopiesOfWhatItWasGiven"),
+    ("starting a thread waits a second again", THREAD_UTILS,
+     [("    return t;\n  }", "    std::this_thread::sleep_for(std::chrono::seconds(1));\n    return t;\n  }")],
+     "lowlatency:CreateAndStartThread.ReturnsWithoutWaitingASecond"),
+    ("the client ignores its warm-up", TRADING_MAIN_SOURCE,
+     [("std::chrono::duration<double>(warm_up_seconds)", "std::chrono::duration<double>(warm_up_seconds * 0 + 10)")],
+     "backend_system_tests"),
+    ("the client takes a warm-up of any length", TRADING_MAIN_SOURCE,
+     [("!(seconds >= 0 && seconds <= 3600)", "!(seconds >= 0)")],
+     "backend_system_tests"),
+    ("the client takes a warm-up with something after the number", TRADING_MAIN_SOURCE,
+     [(" || *end != '\\0' ||", " ||")],
+     "backend_system_tests"),
+    ("the client reads a warm-up past the end of its command line", TRADING_MAIN_SOURCE,
+     [("i + 1 < argc ? std::strtod", "true ? std::strtod")],
      "backend_system_tests"),
     ("the exchange's multicast leaves on the default interface", SOCKET_UTILS,
      [("if (socket_cfg.is_udp_ && !socket_cfg.is_listening_) {", "if (false) {")],

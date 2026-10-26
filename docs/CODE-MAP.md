@@ -48,24 +48,24 @@ numbers are ARCHITECTURE.md's unless another document is named.
 ## The back end (`backend/Chapter12/`)
 | Part | Files | Explained in | Asked about |
 |---|---|---|---|
-| The exchange program | `exchange/exchange_main.cpp` | §1, *Three programs*, *Why the first orders take about half a minute* (in part) | 2026-10-24: what the exchange is; why the first orders take so long to appear; how to stop it |
+| The exchange program | `exchange/exchange_main.cpp` | §1, *Three programs*, *Why the first orders take about twelve seconds* (in part) | 2026-10-24: what the exchange is; why the first orders take so long to appear; how to stop it |
 | The matching engine: its thread and queues | `exchange/matcher/matching_engine.*` | §3, *What a replay is* (in part) | |
 | The exchange's order books, and matching | `exchange/matcher/me_order*`, `exchange/matcher/price_level_table.h`, `exchange/matcher/unordered_map_me_order_book.*` | not yet; the fork's fixes to its two tables in the back end's README ([backend/README.md](../backend/README.md)) | 2026-10-24: why a table left uninitialized went unnoticed until the sanitizer build (commit `f9633eb`) |
 | The order server: orders over TCP, in arrival order | `exchange/order_server/` | not yet | |
 | The market data publisher and the snapshot synthesizer | `exchange/market_data/` | §3, *Two streams* (in part) | 2026-10-24: whether the exchange sends whole books or only changes |
 | Recording and replaying requests | `exchange/matcher/request_recording.*`, `exchange/matcher/replay.*`, `exchange/exchange_replay.cpp` | §3, *What a replay is*, *Replaying* | |
 | The lockstep anchor | `exchange/matcher/lockstep_anchor.*` | §6 | |
-| The trading client program | `trading/trading_main.cpp` | §1, *Three programs*, *Why the first orders take about half a minute* (in part) | 2026-10-24: what the client is, and why it is a program apart from the viewer; why it waits before trading; how to stop it |
+| The trading client program | `trading/trading_main.cpp` | §1, *Three programs*, *Why the first orders take about twelve seconds* (in part) | 2026-10-24: what the client is, and why it is a program apart from the viewer; why it waits before trading; how to stop it |
 | The client's market data consumer | `trading/market_data/` | not yet | |
 | The client's order gateway | `trading/order_gw/` | not yet | |
 | The client's trade engine, and its strategies | `trading/strategy/trade_engine.*`, `trading/strategy/feature_engine.h`, `trading/strategy/liquidity_taker.*`, `trading/strategy/market_maker.*` | not yet | |
 | The client's copy of the books | `trading/strategy/market_order*` | not yet | |
 | The client's orders, risk and position | `trading/strategy/om_order.h`, `trading/strategy/order_manager.*`, `trading/strategy/risk_manager.*`, `trading/strategy/position_keeper.h` | not yet | |
 | The lock-free queue between threads | `common/lf_queue*` | §1, *How the exchange's threads hand each other work* | 2026-10-24: how it works, what happens when one is full, and what to do about it |
-| Memory pools | `common/mem_pool*`, `common/opt_mem_pool.h` | §1, *Why the first orders take about half a minute* (in part) | 2026-10-24: why starting takes seconds |
+| Memory pools | `common/mem_pool*`, `common/opt_mem_pool.h` | §1, *Why the first orders take about twelve seconds* (in part) | 2026-10-24: why starting takes seconds |
 | Logging | `common/logging*`, `common/opt_logging.h` | not yet | |
 | Sockets: TCP and multicast, and where the programs meet | `common/socket_*`, `common/mcast_socket.*`, `common/tcp_*`, `common/endpoints.h` | §1, *Why the viewer listens to multicast* (in part) | |
-| Threads, time, types, macros, measurement | `common/thread_*`, `common/time_utils.h`, `common/types.h`, `common/macros.h`, `common/perf_utils.h` | §3, *A ticker* (in part); §1, *Why the first orders take about half a minute* (`ASSERT`) | 2026-10-24: what a ticker is; whether `ASSERT` is a macro, and what building its message costs |
+| Threads, time, types, macros, measurement | `common/thread_*`, `common/time_utils.h`, `common/types.h`, `common/macros.h`, `common/perf_utils.h` | §3, *A ticker* (in part); §1, *Why the first orders take about twelve seconds* (`ASSERT`, `createAndStartThread`) | 2026-10-24: what a ticker is; whether `ASSERT` is a macro, and what building its message costs |
 | Benchmarks and performance analysis | `benchmarks/`, `notebooks/`, `perf_analysis.html`, `scripts/run_benchmarks.sh` | not yet | |
 | The build, and the book's run scripts | `CMakeLists.txt`, `common/CMakeLists.txt`, `exchange/CMakeLists.txt`, `trading/CMakeLists.txt`, `scripts/build.sh`, `scripts/no_clean_build.sh`, `scripts/run_clients.sh`, `scripts/run_exchange_and_clients.sh` | not yet | |
 | The back end's tests | `tests/` | the back end's README ([backend/README.md](../backend/README.md)), in part | |

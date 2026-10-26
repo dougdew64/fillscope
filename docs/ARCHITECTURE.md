@@ -69,19 +69,25 @@ for room was the other choice: it changes the latency the book measures, and it 
 matcher waiting for room in a full queue of responses, while the order server, the only reader of
 that queue, waits for room in a full queue of requests, waits forever.
 
-**Why the first orders take about half a minute.** The back end's own code is slow to start, in
-two ways. In a run of the debug build started from VS Code (its logs' times):
+**Why the first orders take about twelve seconds.** Almost all of it is one deliberate wait: the
+client sleeps 10 seconds after starting, before it trades. In a run of the debug build (its logs'
+times; started from VS Code, the debugger adds a second or two of loading):
 
 | from start | what |
 |---|---|
-| 0 to 2 s | the exchange loads, under the debugger |
-| 2 to 4 s | the matcher builds its books: each ticker's pool of 1,048,576 orders (`ME_MAX_ORDER_IDS`), every one constructed in advance |
-| 4 to 8.5 s | the publisher's snapshot synthesizer builds its own pool of a million updates, and clears a table of a million entries per ticker |
-| 9.6 s | the order server opens port 12345; the "wait for the exchange" task sees it and starts the client |
-| 11.5 to 16 s | the client builds its own books and pools the same way |
-| 16 to 17 s | the client joins the market data |
-| 17 to 28 s | the client sleeps 10 seconds before trading (`usleep(10 * 1000 * 1000)` in `trading_main.cpp`) |
-| 28 s | its first order reaches the exchange, which publishes it, and the viewer shows it |
+| 0.1 to 0.5 s | the matcher builds its books: each ticker's pool of 1,048,576 orders (`ME_MAX_ORDER_IDS`), every one constructed in advance |
+| 0.5 to 0.9 s | the publisher's snapshot synthesizer builds its own pool of a million updates, and clears a table of a million entries per ticker |
+| 1.1 s | the order server opens its port; the "wait for the exchange" task sees it and starts the client |
+| 1.3 to 2 s | the client builds its own books and pools the same way, and joins the market data |
+| 2 to 12 s | the client sleeps 10 seconds before trading (`trading_main.cpp`; tests shorten it with `--warm-up-seconds`) |
+| 12.4 s | its first order reaches the exchange, which publishes it, and the viewer shows it |
+
+It once took about 28 seconds. The book's `createAndStartThread()` (`common/thread_utils.h`) slept a
+second after starting each thread, and the exchange and the client start about eight each, a logger
+for each part among them. The sleep was there because the new thread was given references to the
+function and arguments in the caller's frame, which are gone once the call returns; the second made
+it likely the thread had used them by then, and a thread not scheduled within it read freed stack.
+The fork's version gives the thread its own copies, as `std::thread` does, and returns at once.
 
 The pools are built up front so that trading never allocates memory, which is slow and takes an
 unpredictable time; the book's design pays that cost once, at start. The checks inside them, and
@@ -89,7 +95,7 @@ in the queues (`ASSERT`, in `common/macros.h`), are a macro, so a check's messag
 when it fails. The book's `ASSERT` was a function taking a `std::string`, which built the message
 on every call, and that allocated: one allocation per message read from a queue, three per order
 taken from a pool and returned. The debug build is
-unoptimized, so building them takes seconds. The viewer is ready from the start and waits on
+unoptimized, so building them takes most of a second. The viewer is ready from the start and waits on
 nothing: it shows the first order as soon as the exchange publishes it.
 
 **Why separate processes:** a debugger stop freezes the whole process it is debugging. With the

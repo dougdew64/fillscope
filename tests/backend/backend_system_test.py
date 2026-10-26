@@ -67,10 +67,13 @@ REQUEST = struct.Struct("<QBIIQbqI")
 RESPONSE = struct.Struct("<QBIIQQbqII")
 RECORDED = struct.Struct("<BIIQbqI")
 NEW, BUY, ACCEPTED, REJECTED = 1, 1, 1, 5
-# The exchange starts its parts a couple of seconds apart, so it takes about 10 s to open its port;
-# the client takes about 15 s more to start and send its first order (orders then follow every
-# 20 ms). The limits allow for the sanitizer build, which is slower.
+# The exchange opens its port in about a second; the client, told to warm up for WARM_UP second
+# rather than the book's 10, sends its first order about a second after that (orders then follow
+# every 20 ms). The limits allow for the sanitizer build, which is slower, and a loaded machine;
+# FIRST_UPDATE_LIMIT is still short of the book's 10 s, so a warm-up the client ignored fails it.
 EXCHANGE_LIMIT = 30.0
+WARM_UP = "1"
+FIRST_UPDATE_LIMIT = 9.0
 FIRST_UPDATES_LIMIT = 60.0
 UPDATES_WANTED = 200
 
@@ -196,6 +199,18 @@ class ExchangeCommandLineTest(unittest.TestCase):
                 self.assertEqual(file.read(), "an earlier run", "a refused command line left the recording alone")
 
 
+class ClientCommandLineTest(unittest.TestCase):
+    def test_a_bad_warm_up_is_refused(self):
+        """Refused before anything starts, so these need no client to be stopped."""
+        with tempfile.TemporaryDirectory() as directory:
+            for value in (["-1"], ["3601"], ["inf"], ["nan"], ["x"], ["1s"], []):
+                args = [TRADING, "5", "RANDOM", "--warm-up-seconds", *value]
+                result = subprocess.run(args, cwd=directory, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 1, value)
+                self.assertIn("USAGE trading_main", result.stderr, value)
+                self.assertIn("[--warm-up-seconds SECONDS]", result.stderr, value)
+
+
 def start_exchange(test, args, directory):
     """The exchange, started in `directory`, once its order port is open."""
     test.assertFalse(order_port_open(), f"something is already listening on this test's order port, {ORDER_PORT}")
@@ -259,12 +274,17 @@ class ExchangeAndClientTest(unittest.TestCase):
                     self.assertTrue(exchange.running(), f"the exchange exited with code {exchange.process.returncode}")
                     self.assertLess(time.monotonic(), deadline, f"the exchange didn't open port {ORDER_PORT}")
                     time.sleep(0.1)
-                client = Process([TRADING, "5", "RANDOM", *ENDPOINTS], directory)
+                client = Process([TRADING, "5", "RANDOM", "--warm-up-seconds", WARM_UP, *ENDPOINTS], directory)
 
                 updates = []
                 feed.settimeout(1.0)
-                deadline = time.monotonic() + FIRST_UPDATES_LIMIT
+                client_started = time.monotonic()
+                deadline = client_started + FIRST_UPDATES_LIMIT
                 while len(updates) < UPDATES_WANTED:
+                    if not updates:
+                        self.assertLess(time.monotonic() - client_started, FIRST_UPDATE_LIMIT,
+                                        f"no market update {FIRST_UPDATE_LIMIT:.0f} s after the client started, "
+                                        f"told to warm up for {WARM_UP}")
                     self.assertTrue(exchange.running(), f"the exchange exited with code {exchange.process.returncode}")
                     self.assertTrue(client.running(), f"the client exited with code {client.process.returncode}")
                     self.assertLess(time.monotonic(), deadline,

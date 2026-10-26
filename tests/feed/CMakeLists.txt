@@ -1,8 +1,8 @@
 fillscope_gtest(feed_tests unit SOURCES feed_test.cpp LIBS fillscope_feed)
 
-# Fillscope's books against the real exchange's, and its recording replayed (feed_system_test.cpp). The system tier: about half a
-# minute, mostly the back end's own start-up waits. It runs an exchange and a client, on ports of its
-# own; the exchange alone takes about 2 GB of memory, so it holds the lock every test that runs one
+# Fillscope's books against the real exchange's, and its recording replayed (feed_system_test.cpp).
+# The system tier: about 6 s, most of it the three snapshots, a second apart, that it waits for once
+# trading has begun. It runs an exchange and a client, on ports of its own; the exchange alone takes about 2 GB of memory, so it holds the lock every test that runs one
 # holds, and two never run at once.
 add_executable(feed_system_tests feed_system_test.cpp)
 target_link_libraries(feed_system_tests PRIVATE fillscope_feed GTest::gtest)
