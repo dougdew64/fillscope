@@ -214,7 +214,9 @@ The stages of the roadmap, each a change to the fork.
       begins there, or has a hole at the gap, and the books before a hole can't be rebuilt from
       after it. What can be shown, and what can't, is said.
     - **Small:** an update is 42 bytes, and the book's random client causes about 50 a second
-      (1,100 in the live demo's first 21 seconds of trading), about 8 MB an hour.
+      (1,100 in the live demo's first 21 seconds of trading), about 8 MB an hour in a file; in
+      memory, with the checkpoints that let the viewer go to any update in under a frame, about
+      18 MB an hour (measured, [ARCHITECTURE.md](ARCHITECTURE.md), §3, *Keeping what arrives*).
     - **Rests on** replay (built); it gives the animated replay (4) live data as a source, and the
       live moments that fill explanations (1) and counterfactuals (2) need.
 17. **A viewer log, to diagnose a failure after it happened** (the owner, 2026-10-26). When the

@@ -35,7 +35,7 @@ DEMO = {"viewer_demo", "viewer_live_demo"}
 VIEWER_PROGRAM = {"viewer_program_tests"}
 ALL = {"common_tests", "docs_tests",
        "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
-       "lowlatency_allocation_tests", "feed_tests",
+       "lowlatency_allocation_tests", "feed_tests", "time_shift_tests",
        "feed_system_tests", "replay_debugger_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP | ANSWER | DEMO | VIEWER_PROGRAM
 # The programs iterate.py runs every time, affected or not.
 ALWAYS = {"docs_tests", "attribution_report_check", "code_map_check"}
@@ -67,8 +67,8 @@ CASES = [
     # The books: Fillscope's reading of the market data, which the viewer (its log's events among
     # it), the answer tool and the system test link.
     ("src/feed/book_builder.cpp", CPP_PROBE,
-     {"feed_tests", "feed_system_tests", "viewer_tests", "viewer_log_tests", "viewer_ui_tests"} | ANSWER | DEMO
-     | VIEWER_PROGRAM),
+     {"feed_tests", "time_shift_tests", "feed_system_tests", "viewer_tests", "viewer_log_tests", "viewer_ui_tests"}
+     | ANSWER | DEMO | VIEWER_PROGRAM),
     ("tests/support/test_support.h", CPP_PROBE,
      {"feed_tests", "feed_system_tests", "viewer_ui_tests", "replay_debugger_tests", "answer_system_tests",
       "course_system_tests"} | DEMO),

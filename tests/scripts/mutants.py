@@ -47,6 +47,8 @@ VIEWER_MAIN = "src/viewer/main.cpp"
 VIEWER_LOG = "src/viewer/viewer_log.cpp"
 CRASH_LOG = "src/viewer/crash_log.cpp"
 LOG_EVENTS = "src/viewer/log_events.cpp"
+TIME_SHIFT = "src/feed/time_shift.cpp"
+VIEWER_APP = "src/viewer/viewer_app.cpp"
 PARSE = "src/common/parse.h"
 FD = "src/common/fd.h"
 REPLAY_DRIVER = "tests/backend/replay_lldb_driver.py"
@@ -332,6 +334,32 @@ MUTANTS = [
      [("    const auto latest = recoveries.last(std::min(recoveries.size(), kMaxListedRecoveries));",
        "    const auto latest = recoveries.first(std::min(recoveries.size(), kMaxListedRecoveries));")],
      "MakeContext.OnlyTheLatestRecoveries"),
+    # What the viewer keeps of the market data (time_shift.cpp), and its being given every live update.
+    ("no checkpoints are kept", TIME_SHIFT,
+     [("    if (run.last - data.checkpoints.back().seq >= kCheckpointEvery) {\n        data.checkpoints.push_back(copy_of(live));",
+       "    if (false) {\n        data.checkpoints.push_back(copy_of(live));")],
+     "TimeShiftBuffer.AnyMomentIsACheckpointAndFewerThanItsIntervalOfUpdates"),
+    ("a recovery continues the run it broke", TIME_SHIFT,
+     [("    if (live.recoveries().size() > recoveries_seen_) {", "    if (false) {")],
+     "TimeShiftBuffer.KeepsTheBooksAfterEveryUpdateThroughGapsAndRecoveries"),
+    ("a kept moment has no last trades", TIME_SHIFT,
+     [("        moment.last_trades[update.ticker] = update;\n", "")],
+     "TimeShiftBuffer.KeepsTheBooksAfterEveryUpdateThroughGapsAndRecoveries"),
+    ("a moment is one update short", TIME_SHIFT,
+     [("next <= seq; ++next) {", "next < seq; ++next) {")],
+     "TimeShiftBuffer.KeepsTheBooksAfterEveryUpdateThroughGapsAndRecoveries"),
+    ("an update after the newest is shown", TIME_SHIFT,
+     [("    if (seq > runs_[index].last) {\n        return std::nullopt;\n    }\n", "")],
+     "TimeShiftBuffer.SaysWhyAnUpdateCantBeShown"),
+    ("a replay goes on past an update the books can't apply", TIME_SHIFT,
+     [("if (update.seq != run.last + 1 || !apply_to(books, update)) {", "if (update.seq != run.last + 1) {")],
+     "TimeShiftBuffer.AReplayIsHeldTheSameWayWithNoTimes"),
+    ("a run's start says it arrived", TIME_SHIFT,
+     [("    if (!run || seq == runs_[*run].first) {", "    if (!run || seq == 0) {")],
+     "TimeShiftBuffer.KeepsTheBooksAfterEveryUpdateThroughGapsAndRecoveries"),
+    ("the viewer keeps nothing of a snapshot's recovery", VIEWER_APP,
+     [("    state_.books.on_snapshot(update);\n    kept_.observe(state_.books);", "    state_.books.on_snapshot(update);")],
+     "ui:live_after_a_recovery_it_keeps_from_the_rebuilt_books"),
     # The viewer's log (viewer_log.cpp), its crash recording (crash_log.cpp), and what it records
     # (log_events.cpp).
     ("a starting viewer keeps one log too many", VIEWER_LOG,

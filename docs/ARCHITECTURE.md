@@ -232,6 +232,33 @@ one thread, so when the debugger stops after request N, the viewer, listening to
 shows the books after it; the live exchange's publisher is a thread of its own, which a stop would
 freeze mid-way. How the anchor stops a program is §6.
 
+**Keeping what arrives** (`time_shift.h`). Live, the viewer keeps every update its books apply,
+with the time it arrived, so it can show the books exactly as they were after any of them, as a
+television recorder plays back what it recorded ([FEATURES.md](FEATURES.md), item 16). The live
+books (`BookBuilder`) stay as they are; `TimeShiftBuffer` watches them. Each update is handed to it
+as it arrives, before the books are given it, and after the books are given any update, incremental
+or snapshot, it looks at what they applied and keeps those updates, in order. They come in **runs**:
+a run starts before update 1 (from empty books), or where the books were rebuilt from a snapshot
+after a gap (from a copy of the books as rebuilt), and ends where the next gap began. The books
+inside a gap were never built one update at a time, so an update there can't be shown, and the
+buffer says why instead; so does an update before the first kept, or after the newest.
+
+The books after update N are a copy of the nearest **checkpoint** before it, with the updates since
+applied (`apply_to`, which applies them as `BookBuilder` does: a trade becomes the ticker's last
+trade, an add, modify or cancel changes its book). A checkpoint is a copy of the live books every
+1,024 updates: their resting orders, a few hundred, small beside the updates. Measured over an
+hour's session (180,000 updates, the live demo's rate, with about 340 resting orders; GCC 16.2.1),
+the slowest moment to rebuild, 1,023 updates past a checkpoint, takes 0.4 ms in the debug build
+and 1.9 ms in the sanitizer build, against a frame's 16.7 ms; without checkpoints, an hour in, it
+would apply 180 times as many. The session takes about 18 MB of memory an hour, the live books'
+histories of every order included. An order's history needs no checkpoint: its events as of N are
+the live history's up to N, since the books apply updates in order.
+
+A replay's market data is held the same way (`from_replay`): one run, from before update 1, with no
+arrival times, ending where the books can't apply an update, as the viewer's replay stops there.
+The viewer doesn't show either from the buffer yet: that is time-shifting's next step
+([PLAN.md](PLAN.md), step 17).
+
 ## 4. The viewer (`src/viewer/`)
 **The problem:** show the books as the market data describes them, let you point at and follow
 orders, and publish exactly what you've assembled for the assistant, without ever claiming more

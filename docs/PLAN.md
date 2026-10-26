@@ -368,7 +368,15 @@ doesn't grow, so live and replay share one way of showing a moment. No change on
 those the live books had after it; an update in a gap, before the first or after the last is
 refused; going to any update of an hour's session takes less than a frame (measured, with
 checkpoints if rebuilding from a run's start is too slow); replay still passes all its tests.
-**Open:** whether a run keeps checkpoints of the books, decided by the measurement.
+**Status:** done (2026-10-26). `TimeShiftBuffer` (`src/feed/time_shift.h`), given every live
+update by `ViewerApp` ([ARCHITECTURE.md](ARCHITECTURE.md), §3, *Keeping what arrives*). The open
+question, decided by the measurement: a run keeps a checkpoint every 1,024 updates; the slowest
+moment of an hour's session takes 0.4 ms in the debug build, 1.9 ms in the sanitizer build, where
+without checkpoints it would apply 180 times as many updates. A replay can be held the same way
+(`from_replay`), tested; the viewer's replay switches to it in step 17, when the screen shows a
+moment from the buffer, since that is when the shown moment and the live books part. Checked by
+`time_shift_tests` (5), two UI tests (live, and after a recovery), the live demo (the buffer's
+newest moment against the demo's own books, on the real exchange), and 8 mutants.
 
 ### 17. Pause, resume, step and live, in the viewer
 Live, the viewer gains a recorder's controls: pause, which holds the screen at one update while

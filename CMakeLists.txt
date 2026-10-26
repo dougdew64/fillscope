@@ -55,7 +55,7 @@ endif()
 # src/feed: the exchange's market data: decoding and receiving it, and the books it describes.
 add_library(fillscope_feed STATIC
   src/feed/market_update.cpp src/feed/book.cpp src/feed/book_builder.cpp src/feed/feed_socket.cpp
-  src/feed/market_data_file.cpp)
+  src/feed/market_data_file.cpp src/feed/time_shift.cpp)
 target_include_directories(fillscope_feed PUBLIC src)
 target_compile_options(fillscope_feed PRIVATE ${FILLSCOPE_WARNINGS})
 

@@ -459,6 +459,16 @@ void check_live(ImGuiTestContext* ctx) {
     for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
         IM_CHECK(books.book(ticker).orders() == own.book(ticker).orders());
     }
+    // And what the viewer keeps of it (feed/time_shift.h) gives the same books, as of the same update.
+    IM_CHECK(vars.app->kept().newest() == books.last_seq());
+    if (const auto moment = vars.app->kept().moment(books.last_seq())) {
+        for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
+            IM_CHECK(moment->books[ticker].orders() == own.book(ticker).orders());
+        }
+    } else {
+        IM_ERRORF("the viewer kept no moment as of update %llu: %s", static_cast<unsigned long long>(books.last_seq()),
+                  moment.error().c_str());
+    }
     const std::vector<DrawnRow> rows = as_rows(rows_of(books.book(vars.app->state().shown_ticker)));
     const std::vector<DrawnRow> drawn = drawn_rows(vars.text);
     IM_CHECK(rows.empty() || !drawn.empty());

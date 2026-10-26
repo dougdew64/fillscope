@@ -23,11 +23,16 @@ void ViewerApp::receive(FeedSocket& incremental, FeedSocket& snapshot, Clock::ti
 }
 
 void ViewerApp::apply_incremental(const MarketUpdate& update, Clock::time_point now) {
+    kept_.received(update, now);
     state_.books.on_incremental(update);
+    kept_.observe(state_.books);
     last_update_at_ = now;
 }
 
-void ViewerApp::apply_snapshot(const MarketUpdate& update) { state_.books.on_snapshot(update); }
+void ViewerApp::apply_snapshot(const MarketUpdate& update) {
+    state_.books.on_snapshot(update);
+    kept_.observe(state_.books);
+}
 
 void ViewerApp::open_replay(const std::filesystem::path& file, MarketDataFile market_data) {
     state_.books = BookBuilder{};

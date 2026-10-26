@@ -166,6 +166,11 @@ the slower program adds the tier to its name.
   back end's own test bytes among others), a book, keeping the books in step and every way recovery
   starts and ends, each order's history, a replay's market data file, and receiving real multicast
   datagrams (test-only groups and ports).
+- **`time_shift_tests` (GoogleTest, `unit`):** what the viewer keeps of the market data: through a
+  simulated exchange's feed that starts late, loses updates and swaps two, recovering from
+  snapshots, the books after every update the live books were live at are kept, and those near a
+  run's edges and its checkpoints, and one in 23 of the rest, rebuilt exactly; every update in a
+  gap refused, saying why; arrival times; checkpoints; a replay held the same way.
 - **`feed_system_tests` (GoogleTest, `system`, the whole program as one test):** the real exchange
   (a snapshot every second) and a client trading at random: every incremental update arrives, the
   books built from updates 1 to S equal each of the exchange's snapshots as of S, a reader that

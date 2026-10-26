@@ -253,6 +253,51 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK_EQ(context["background"]["feed"]["lastSeq"].get<int>(), 6);
     });
 
+    // Live, the viewer keeps every update it applies (feed/time_shift.h), from before update 1: the
+    // books after any of them can be shown, as they were then.
+    viewer_test(engine, "live_it_keeps_every_update_it_applies", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        add_book(vars);
+        ctx->Yield(2);
+        const fillscope::TimeShiftBuffer& kept = vars.app->kept();
+        IM_CHECK((kept.runs() == std::vector<fillscope::TimeShiftBuffer::Run>{{.first = 0, .last = 6}}));
+        const auto newest = kept.moment(6);
+        IM_CHECK_RETV(newest.has_value(), void());
+        IM_CHECK(newest->books[0].orders() == vars.app->state().books.book(0).orders());
+        const auto third = kept.moment(3);  // asks 10 at 102, 11 and 12 at 101: no bids yet
+        IM_CHECK_RETV(third.has_value(), void());
+        IM_CHECK_EQ(third->books[0].order_count(), 3u);
+        IM_CHECK(third->books[0].levels(Side::buy).empty());
+        IM_CHECK(kept.arrived(6).has_value());
+    });
+
+    // Joined late, the viewer keeps from the books a snapshot rebuilt, and the updates after.
+    viewer_test(engine, "live_after_a_recovery_it_keeps_from_the_rebuilt_books", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const auto now = std::chrono::steady_clock::now();
+        vars.app->apply_incremental(add(4, 1, Side::buy, 100, 5, 1), now);  // updates 1 to 3 were before it joined
+        // A snapshot as of update 4: order 1, resting.
+        std::vector<MarketUpdate> snapshot{{.seq = 0, .type = UpdateType::snapshot_start, .order_id = 4}};
+        for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
+            snapshot.push_back({.type = UpdateType::clear, .ticker = ticker});
+            if (ticker == 0) {
+                snapshot.push_back(add(0, 1, Side::buy, 100, 5, 1));
+            }
+        }
+        snapshot.push_back({.type = UpdateType::snapshot_end, .order_id = 4});
+        for (std::uint64_t i = 0; i < snapshot.size(); ++i) {
+            snapshot[i].seq = i;
+            vars.app->apply_snapshot(snapshot[i]);
+        }
+        vars.app->apply_incremental(add(5, 2, Side::sell, 101, 3, 1), now);
+        ctx->Yield(2);
+        const fillscope::TimeShiftBuffer& kept = vars.app->kept();
+        IM_CHECK((kept.runs() == std::vector<fillscope::TimeShiftBuffer::Run>{{.first = 4, .last = 5}}));
+        IM_CHECK_EQ(kept.moment(4).value().books[0].order_count(), 1u);
+        IM_CHECK_EQ(kept.moment(5).value().books[0].order_count(), 2u);
+        IM_CHECK(!kept.moment(3).has_value());
+    });
+
     viewer_test(engine, "clicking_an_order_points_at_it", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         add_book(vars);

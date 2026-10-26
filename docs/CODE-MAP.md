@@ -28,6 +28,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | Keeping the books in step, and recovery | `src/feed/book_builder.*` | §3, *Keeping the books in step* | 2026-10-24: why the exchange sends snapshots as well as changes |
 | Receiving a stream | `src/feed/feed_socket.*` | §3, *Receiving* | |
 | A replay's market data file | `src/feed/market_data_file.*` | §3, *Replaying*; §4, *A replay* | |
+| Keeping what arrives, to show the books after any update | `src/feed/time_shift.*` | §3, *Keeping what arrives* | |
 | The viewer program: start, options, stop signals, its window | `src/viewer/main.cpp`, `src/viewer/viewer_options.*`, `src/viewer/stop_signals.*`, `src/viewer/window_size.h` | §4, *The loop* (in part); the options in [RUNNING.md](RUNNING.md) | 2026-10-24: what the viewer is, beside the exchange and the client; how to stop it |
 | The viewer's loop and state | `src/viewer/viewer_app.*`, `src/viewer/viewer_state.h` | §4, *The loop*, *The pieces* | |
 | Drawing, and clicks | `src/viewer/viewer_view.*` | §4, *What it draws*; §8 | 2026-10-24: what the ticker buttons choose |

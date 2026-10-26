@@ -8,6 +8,7 @@
 #include "feed/feed_socket.h"
 #include "feed/market_data_file.h"
 #include "feed/market_update.h"
+#include "feed/time_shift.h"
 #include "viewer/context.h"
 #include "viewer/context_publisher.h"
 #include "viewer/viewer_state.h"
@@ -79,6 +80,10 @@ public:
     // (with --exit-after, say) has only its output.
     [[nodiscard]] std::optional<std::string> publish_report();
 
+    // What the viewer has kept of the live market data, every update applied with when it arrived
+    // (feed/time_shift.h), from which the books after any of them can be shown.
+    [[nodiscard]] const TimeShiftBuffer& kept() const noexcept { return kept_; }
+
     // The state, which tests also set directly (for example, the feed's error).
     [[nodiscard]] ViewerState& state() noexcept { return state_; }
     [[nodiscard]] const Selection& selection() const noexcept { return selection_; }
@@ -90,6 +95,7 @@ public:
 
 private:
     ViewerState state_;
+    TimeShiftBuffer kept_;
     Selection selection_;
     ContextPublisher publisher_;
     std::optional<Clock::time_point> last_update_at_;
