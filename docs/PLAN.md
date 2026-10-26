@@ -322,7 +322,7 @@ real clicks, checked at every frame, headless in the tests and watchable in a wi
 
 ### 15. The viewer's log
 Decided by the owner on 2026-10-26, before time-shifting, so a crash while building it can be
-diagnosed: what it is is in [FEATURES.md](FEATURES.md), item 17. **Who writes what:** Claude, all
+diagnosed: what it is is in [ARCHITECTURE.md](ARCHITECTURE.md), §4, *The viewer's log*. **Who writes what:** Claude, all
 of it. **Where:** a file per run in the `logs` directory beside the context file (`.fillscope/logs/`
 by default), named by when the viewer started and its process id. **Bounded:** a starting viewer
 keeps the newest 20 logs, and a run's log stops at 10 MB, saying so.

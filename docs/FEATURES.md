@@ -4,14 +4,64 @@
 it rests on. **Status:** live plan; an item is removed when it is built (git keeps it), and the file
 is deleted when empty. **Read when:** choosing what to build next, or asking what Fillscope will do.
 
-The viewer's log (17) is next, then time-shifting live market data (16), as [PLAN.md](PLAN.md)'s
-steps 15 on; answers (15) are built, and its later parts remain here. The other items aren't in order yet. The [charter](CHARTER.md)'s
-rules bind every one of them. Known defects and test gaps are in [TECH-DEBT.md](TECH-DEBT.md).
+**The showcase is item 18:** a pattern detector trained offline and used online, inside a strategy
+(the owner, 2026-10-26). Most other features are chosen to serve it, and its demonstration.
+Time-shifting live market data (16) is being built now, as [PLAN.md](PLAN.md)'s steps 16 to 20;
+what comes after it is decided then. Answers (15) are built, and their later parts remain here.
+The other items aren't in order yet. The [charter](CHARTER.md)'s rules bind every one of them.
+Known defects and test gaps are in [TECH-DEBT.md](TECH-DEBT.md).
 
 Built so far: the back end, built and tested by Fillscope at a pinned commit; the live view of the
 exchange's books; deterministic replay; the matching engine stepped in a debugger while the book
-view follows; and answers, scenarios the real matcher plays, explained step by step
-([ARCHITECTURE.md](ARCHITECTURE.md)).
+view follows; answers, scenarios the real matcher plays, explained step by step; and the viewer's
+log, which records a crash ([ARCHITECTURE.md](ARCHITECTURE.md)).
+
+## The showcase: a detector trained offline, used online in a strategy
+18. **A slicing detector trained offline, used online by a market-making strategy, and its worth
+    measured exactly by replay** (the owner, 2026-10-26: the showcase; most other features serve
+    it). A model learns, offline, to recognize a trader slicing a large order; online, as the
+    market data arrives, it scores each trade, and a strategy the owner writes uses the score to
+    protect itself; replay then measures, exactly, what the detector changed. The parts below are
+    proposed, to be decided when it is planned.
+    - **Labelled data, generated rather than found.** Real market data is anonymous, so who was
+      slicing is never known; on Fillscope's exchange the recording knows every order's client, so
+      every trade comes labelled. Many sessions are recorded: Ghosh's market maker and liquidity
+      taker as the background, and planted slicers of varied behaviour (fixed sizes and random
+      ones, regular timing and jittered, different paces). Deterministic replay makes each
+      reproducible.
+    - **Features written once, in C++, used both offline and online.** Computed incrementally, an
+      update at a time: how many trades of one side and size lately, how regular the gaps between
+      them, how a size compares with the usual, whether it took the best price, the recent rate. A
+      tool runs them over the recorded sessions and writes the training table; live, the same code
+      computes the same features. Training/serving skew, the commonest way such systems fail, is
+      ruled out by construction. Each feature uses only what was known at its moment.
+    - **Training offline, in Python** (scikit-learn or LightGBM, the industry's norm): gradient-boosted
+      trees or logistic regression, explainable, on tabular features. Trained on some sessions and
+      tested on held-out ones, slicer behaviours never seen in training among them: the honest
+      test of how far it generalizes. Measured by hits against false alarms, never accuracy (most
+      trades aren't a slicer's). Its result is a small, versioned file: weights or trees.
+    - **Inference online, in C++,** from that file, in microseconds a trade, with no machine-learning
+      runtime in the trading path (trees or a linear model are a few dozen lines to evaluate).
+      Checked independently of the training: the C++ scores equal Python's on the same table.
+    - **The strategy, the owner's:** a market maker that reads the score, and when a slicer is
+      likely active on one side, widens or leans its quotes away from it, since that flow moves the
+      price. Run in the deterministic loop of strategies the backlog describes under answers (15,
+      *strategies in the loop*).
+    - **Its worth, measured exactly.** The same recorded day played twice, with the detector and
+      without, compared: profit, fills that went against the strategy, inventory. Deterministic
+      replay makes the difference the detector's alone, which most backtests can't claim. Each
+      flag can be paused on and stepped through (16), and its moment rebuilt.
+    - **The demonstration:** a video of the whole loop: the slicer hidden in the background, the
+      detector finding it, the strategy stepping aside, and the measured difference.
+    - **Limits, said wherever results are shown.** A model trained on planted slicers learns them;
+      the held-out behaviours show how far it generalizes, not how it would fare against real ones.
+      Ghosh's exchange is simple (no hidden orders, no auctions), so its patterns are cleaner than a
+      real market's. On real data (5), with no labels, its flags are guesses, and shown as such.
+    - **Rests on** the rule-based detector and its truth and scoring (13), which it is measured
+      against (and could be that item's third scene: the detector improved, finding the slicer
+      again); the sweep of settings (14), its tuning half; strategies in the loop (15); and, on
+      real data, replay of ITCH and fill simulation (5, 7).
+
 
 ## What Fillscope shows
 The features that distinguish it.
@@ -233,13 +283,3 @@ The stages of the roadmap, each a change to the fork.
       18 MB an hour (measured, [ARCHITECTURE.md](ARCHITECTURE.md), §3, *Keeping what arrives*).
     - **Rests on** replay (built); it gives the animated replay (4) live data as a source, and the
       live moments that fill explanations (1) and counterfactuals (2) need.
-17. **A viewer log, to diagnose a failure after it happened** (the owner, 2026-10-26). When the
-    viewer fails, crashes included, the assistant needs to find out why afterwards, from a file,
-    since the viewer's own output is gone with its terminal. What the viewer did and saw: how it was
-    started (its command line, the build), the feed's events (joining, errors, gaps and recoveries),
-    the context file's failures, the user's actions, the line it prints each second, and how it
-    ended (closed, a signal, an error). A crash ends the process before anything orderly can run, so
-    what is logged must already be on disk, and the crash itself recorded where possible (the fatal
-    signal, a backtrace, the sanitizers' reports). Kept when the viewer exits, unlike the files it
-    cleans up (16): it is meant to be read afterwards. Bounded, so a long session or many runs
-    can't fill the disk. Planned: [PLAN.md](PLAN.md), step 15.
