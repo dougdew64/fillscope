@@ -16,6 +16,7 @@
 #include "viewer/viewer_app.h"
 #include "viewer/stop_signals.h"
 #include "viewer/viewer_options.h"
+#include "viewer/window_size.h"
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -68,10 +69,7 @@ public:
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
         ImGui::GetIO().IniFilename = nullptr;  // no imgui.ini written to the working directory
-        // Text twice Dear ImGui's default size, in its scalable font: the pixel font it would
-        // otherwise choose is drawn for 13 pixels and blurs when scaled.
-        ImGui::GetIO().Fonts->AddFontDefaultVector();
-        ImGui::GetStyle().FontScaleMain = 2.0f;
+        fillscope::apply_viewer_look();
         glfw_ready_ = ImGui_ImplGlfw_InitForOpenGL(window, true);
         opengl_ready_ = glfw_ready_ && ImGui_ImplOpenGL3_Init("#version 330");
     }
@@ -172,21 +170,7 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    // Room for text at twice the default size (ImGuiSession): 1800 by 1400, or the screen's work area
-    // if that is smaller.
-    int window_width = 1800;
-    int window_height = 1400;
-    if (GLFWmonitor* monitor = glfwGetPrimaryMonitor()) {
-        int x = 0;
-        int y = 0;
-        int area_width = 0;
-        int area_height = 0;
-        glfwGetMonitorWorkarea(monitor, &x, &y, &area_width, &area_height);
-        if (area_width > 0 && area_height > 0) {
-            window_width = std::min(window_width, area_width);
-            window_height = std::min(window_height, area_height);
-        }
-    }
+    const auto [window_width, window_height] = fillscope::primary_window_size();
     const WindowPtr window{glfwCreateWindow(window_width, window_height, "Fillscope viewer", nullptr, nullptr), &glfwDestroyWindow};
     if (!window) {
         std::println(stderr, "viewer: can't create a window with OpenGL 3.3");

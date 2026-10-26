@@ -79,7 +79,7 @@ inline constexpr const char* kAnswerStart = "|<##answer_start";
 inline constexpr const char* kAnswerBack = "<##answer_back";
 inline constexpr const char* kAnswerForward = ">##answer_forward";
 inline constexpr const char* kAnswerEnd = ">|##answer_end";
-// The choice of what the pane shows, with a course: your questions, or a lesson.
+// The choice of what the pane shows, with a course: your latest question, or a lesson.
 inline constexpr const char* kLessonChoice = "##lesson";
 
 // A short label, formatted into a fixed buffer: built without allocating, which matters for labels
@@ -112,6 +112,20 @@ private:
 [[nodiscard]] bool level_marked(const LevelRef& level, const std::optional<Context>& published);
 [[nodiscard]] bool order_pointed(const OrderRef& order, const std::optional<Context>& published);
 [[nodiscard]] bool order_followed(const OrderRef& order, const std::optional<Context>& published);
+
+// The viewer's look: text twice Dear ImGui's default size, in its scalable font (the pixel font it
+// would otherwise choose is drawn for 13 pixels and blurs when scaled). Call once, after
+// ImGui::CreateContext() and before the first frame.
+void apply_viewer_look();
+
+// The window's size, in screen coordinates, with room for that text: 1800 by 1400, or the screen's
+// work area (`area_width` by `area_height`) where that is smaller; 1800 by 1400 if the area is
+// unknown (zero).
+struct WindowSize {
+    int width;
+    int height;
+};
+[[nodiscard]] WindowSize window_size(int area_width, int area_height);
 
 // Draws the viewer's one full-screen window. Call between ImGui::NewFrame() and ImGui::Render().
 [[nodiscard]] ViewerActions draw_viewer(const ViewerView& view);

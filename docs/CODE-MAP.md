@@ -28,7 +28,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | Keeping the books in step, and recovery | `src/feed/book_builder.*` | §3, *Keeping the books in step* | 2026-10-24: why the exchange sends snapshots as well as changes |
 | Receiving a stream | `src/feed/feed_socket.*` | §3, *Receiving* | |
 | A replay's market data file | `src/feed/market_data_file.*` | §3, *Replaying*; §4, *A replay* | |
-| The viewer program: start, options, stop signals | `src/viewer/main.cpp`, `src/viewer/viewer_options.*`, `src/viewer/stop_signals.*` | §4, *The loop* (in part); the options in [RUNNING.md](RUNNING.md) | 2026-10-24: what the viewer is, beside the exchange and the client; how to stop it |
+| The viewer program: start, options, stop signals, its window | `src/viewer/main.cpp`, `src/viewer/viewer_options.*`, `src/viewer/stop_signals.*`, `src/viewer/window_size.h` | §4, *The loop* (in part); the options in [RUNNING.md](RUNNING.md) | 2026-10-24: what the viewer is, beside the exchange and the client; how to stop it |
 | The viewer's loop and state | `src/viewer/viewer_app.*`, `src/viewer/viewer_state.h` | §4, *The loop*, *The pieces* | |
 | Drawing, and clicks | `src/viewer/viewer_view.*` | §4, *What it draws*; §8 | 2026-10-24: what the ticker buttons choose |
 | The context: what is published | `src/viewer/context.*` | §4, *What it draws*, *The pieces*, *An order pointed at* | 2026-10-24: what "showing ticker 0" in the bar means; 2026-10-25: whether "exchange live at update N" is part of the context |

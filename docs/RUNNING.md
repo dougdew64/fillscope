@@ -135,6 +135,11 @@ the slower program adds the tier to its name.
 - **`course_system_tests` (GoogleTest, `system`):** every lesson of the course played through the
   answer tool and the real `exchange_replay`, read back as the viewer reads it with every claim
   checked again, and the manifest naming exactly the lessons `course/` holds. About 10 seconds.
+- **`viewer_demo` (the Test Engine's own, `system`):** answers' demo, headless: lesson 6 played in
+  the viewer with real clicks, checked at every frame. About 1.5 seconds. Run and Debug, then
+  **demo: a market maker**, shows it in a window at a pace to follow, about a minute; **demo:
+  record a market maker** records it as a video for sharing, quicker and in a 1280 by 720 window,
+  about 75 seconds, to `build/debug/demo-a-market-maker.mp4` (it needs `ffmpeg`).
 - **`feed_tests` (GoogleTest, `unit`):** Fillscope's reading of the market data: decoding (the
   back end's own test bytes among others), a book, keeping the books in step and every way recovery
   starts and ends, each order's history, a replay's market data file, and receiving real multicast

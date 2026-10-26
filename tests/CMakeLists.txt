@@ -84,8 +84,9 @@ function(fillscope_gtest name tier)
 endfunction()
 
 # Dear ImGui again, built with the Test Engine's hooks (viewer/imconfig_test_engine.h), plus the
-# Test Engine and its null backend: real Dear ImGui frames with no window. Kept apart from
-# imgui_app so the viewer itself has no hooks.
+# Test Engine and its app layer: the null backend, real Dear ImGui frames with no window, for the
+# tests; and GLFW with OpenGL 3, a real window, for the demo when watched. Kept apart from imgui_app
+# so the viewer itself has no hooks.
 set(TE_DIR ${imgui_test_engine_SOURCE_DIR})
 add_library(imgui_te STATIC ${IMGUI_SOURCES}
   ${TE_DIR}/imgui_test_engine/imgui_te_context.cpp
@@ -99,8 +100,8 @@ add_library(imgui_te STATIC ${IMGUI_SOURCES}
   ${TE_DIR}/shared/imgui_app.cpp)
 target_include_directories(imgui_te PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends
   ${TE_DIR} ${TE_DIR}/imgui_test_engine ${TE_DIR}/shared ${CMAKE_CURRENT_SOURCE_DIR}/viewer)
-target_compile_definitions(imgui_te PUBLIC IMGUI_USER_CONFIG="imconfig_test_engine.h")
-target_link_libraries(imgui_te PUBLIC Threads::Threads)
+target_compile_definitions(imgui_te PUBLIC IMGUI_USER_CONFIG="imconfig_test_engine.h" IMGUI_APP_GLFW_GL3)
+target_link_libraries(imgui_te PUBLIC Threads::Threads glfw OpenGL::GL)
 
 add_subdirectory(answer)
 add_subdirectory(attribution)

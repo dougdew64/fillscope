@@ -47,7 +47,9 @@ The stages of the roadmap, each a change to the fork.
     (charter §3, decision 5).
 12. **Demo recordings:** each feature shown by a scripted demo that is part of the test suite
     (charter §2, priority 3), recorded with the Dear ImGui Test Engine, which already drives the
-    viewer's UI tests (charter §3, decision 4).
+    viewer's UI tests (charter §3, decision 4). Answers' demo is built and records itself
+    ([ARCHITECTURE.md](ARCHITECTURE.md), §10, *The demo*); what remains is a demo for each other
+    feature: the live book, a replay, and the debugger lockstep.
 
 ## Inferring traders from anonymous orders
 13. **Which orders belong to one trader, inferred from the market data alone.** The market data

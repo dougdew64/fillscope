@@ -868,6 +868,53 @@ lesson made false by a change to the back end or the tool fails the tests, rathe
 shown. A lesson's name has one dot, before `json`, so the build and the viewer name its directory
 alike.
 
+### The demo
+Each feature is to be shown by a scripted demo that is part of the tests (charter §2, priority 3);
+answers' demo is `viewer_demo` (`tests/viewer/viewer_demo.cpp`). It plays lesson 6, the market
+maker, as a person would: the viewer started as **viewer (answers)** starts it, nothing chosen; the
+drop-down opened, and the lesson chosen from it; then `>` pressed to the end. After each step that
+trades, it points at the resting order the trade changed (the step's explanation is about it),
+then stops pointing with the context bar's `x`. At every frame it checks the screen against the
+lesson's answer, read on its own: where the pane says the user is, the step's question or its
+explanation, every claim present and true, and the book, one row per order resting after the step,
+rebuilt from the market data rather than taken from the viewer; and at every point, that the bar
+names the order pointed at. The lesson is played first, through the answer tool, so the demo
+doesn't need the course built.
+
+It is one script run three ways, through the Dear ImGui Test Engine, which drives the UI tests too.
+The waits are the Test Engine's own (`Sleep`), skipped at full speed, so the checks are the same
+every way, and a demo that shows something false fails like any test.
+- *In the tests,* on the Test Engine's null backend at full speed: about 1.5 seconds, with no
+  window, at the viewer's own size and look (`window_size`, `apply_viewer_look`).
+- *Watched* (`--watch`, the **demo: a market maker** launch), in a real window through GLFW and
+  OpenGL, the viewer's size, at the Test Engine's *cinematic* speed, the mouse slow enough to
+  follow; four seconds a frame.
+- *Recorded* (`--record FILE.mp4`, the **demo: record a market maker** launch), for sharing (on
+  LinkedIn, say): the Test Engine reads each frame back from the window and pipes it to `ffmpeg`,
+  so the video holds the viewer's window alone, pixel for pixel, its drawn mouse included, at 30
+  frames a second. It is made for a viewer on a laptop, in a hurry, who pauses to read a frame in
+  full: a 16:9 window of 1280 by 720, smaller than the viewer's, so the text is larger in the
+  video; the Test Engine's normal speed, the mouse quick; two seconds a frame. About 75 seconds
+  and 5 MB. No screen recorder is involved, and a new recording after a change is one command,
+  with the same moves and timing every time.
+
+**Moving as a person would.** What the video shows has to be caused by the mouse, or it looks
+like a glitch. The mouse rests where no tooltip covers the frame, near the next control it clicks
+(beside the answer's controls; below the book while pointing). A frame longer than the pane is
+scrolled to its end with the mouse's wheel, a notch at a time, and back to the top before `>` is
+pressed: left to itself, the Test Engine would bring an item scrolled out of view back into view
+with no mouse in sight. The drop-down stays open long enough to read a few lessons.
+
+**What recording needs.** The capture must keep other windows visible
+(`ImGuiCaptureFlags_IncludeOtherWindows`): by default it hides them, and the drop-down's list is a
+window of its own. It reads the framebuffer in the window's coordinates, so on a display at scale
+2 it would record a quarter of the window, magnified; the recording's window asks GLFW for a
+framebuffer of its own size (`GLFW_SCALE_FRAMEBUFFER` off), so the video is the same on any
+display. The video is H.264, which players and sites accept widely: `libx264` where `ffmpeg` has
+it, otherwise `libopenh264`, and no recording at all where it has neither, since left to choose,
+`ffmpeg` falls back to MPEG-4 Part 2 (Fedora's `ffmpeg-free` has no `libx264`), which many players
+can't play.
+
 **What tests it:** `viewer_tests`: the frames, loading (claims checked again, whose each order is,
 and every refusal: no answer, not an answer, stale, a replay file gone, a scenario that can't be
 read), a replaced file's new stamp, the context and the bar, and the options. `viewer_ui_tests`,

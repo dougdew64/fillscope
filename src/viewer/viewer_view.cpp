@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>  // IMGUI_TEST_ENGINE_ITEM_INFO, ImGuiItemStatusFlags
 
+#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <string>
@@ -23,6 +24,13 @@ constexpr ImVec4 kContextBarColor{0.16f, 0.22f, 0.30f, 1.0f};  // a muted slate 
 // Draws text that is already formatted. TextUnformatted takes the characters as they are, with no
 // printf-style % processing, so a '%' in the text can't be misread as a format directive.
 void text(std::string_view s) { ImGui::TextUnformatted(s.data(), s.data() + s.size()); }
+
+// Text wrapped at the edge of the pane it is in.
+void wrapped(std::string_view s) {
+    ImGui::PushTextWrapPos(0.0f);
+    text(s);
+    ImGui::PopTextWrapPos();
+}
 
 // A tooltip for the item just drawn, while it is hovered. `describe` builds the text, and is called
 // only while hovered, so no tooltip text is built for the items nobody is pointing at.
@@ -60,24 +68,31 @@ std::string_view sends(const std::optional<std::string>& publish_error) {
 void draw_context_bar_lines(const ViewerView& view, ViewerActions& actions) {
     text(kContextHeading);
     ImGui::Indent();
+    // The pointing line's room, kept while nothing is pointed at, so that pointing at something, or
+    // stopping, doesn't move everything below the bar: a line of text, as tall as the line with its
+    // bullet and its small button (a small button has no padding above and below its text).
+    const auto room_for_a_point = [] { ImGui::Dummy(ImVec2{0.0f, ImGui::GetTextLineHeight()}); };
     if (!view.published_bar) {
         text(view.publish_error ? "nothing published" : "nothing published yet");
+        room_for_a_point();
     } else {
         const ContextBarText& bar = *view.published_bar;
         ImGui::Bullet();  // one per item of context, so each reads as a separate one
-        text(bar.background);
+        wrapped(bar.background);
         if (bar.point) {
             ImGui::Bullet();
-            text(*bar.point);
+            wrapped(*bar.point);
             ImGui::SameLine();
             if (ImGui::SmallButton(kClearPointButton)) {
                 actions.clear_point = true;
             }
             tooltip([&] { return std::format("Stop pointing at it: {}", sends(view.publish_error)); });
+        } else {
+            room_for_a_point();
         }
         if (bar.follow) {
             ImGui::Bullet();
-            text(*bar.follow);
+            wrapped(*bar.follow);
             ImGui::SameLine();
             if (ImGui::SmallButton(kClearFollowButton)) {
                 actions.clear_follow = true;
@@ -88,7 +103,7 @@ void draw_context_bar_lines(const ViewerView& view, ViewerActions& actions) {
     if (view.publish_error) {
         // Push and pop must pair; the style stack is checked at the end of the frame.
         ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
-        text(std::format("NOT published: {}", *view.publish_error));
+        wrapped(std::format("NOT published: {}", *view.publish_error));
         ImGui::PopStyleColor();
     }
     ImGui::Unindent();
@@ -116,40 +131,50 @@ void draw_context_bar(const ViewerView& view, ViewerActions& actions) {
 void draw_status(const ViewerView& view) {
     const ViewerState& state = view.state;
     const BookBuilder& books = state.books;
+    const bool answering = state.answer.has_value();
     if (state.answer && !state.replay) {
-        text("market data: none until an answer is shown");
+        wrapped("market data: none until an answer is shown");
     } else if (state.replay) {
         // A replay is read from a file: not the exchange, and with no snapshots to recover from.
         if (books.status() == BookBuilder::Status::recovering) {
-            text(std::format("market data: a replay, stuck after update {}: {}; a replay has no snapshots to recover from",
+            wrapped(std::format("market data: a replay, stuck after update {}: {}; a replay has no snapshots to recover from",
                              books.last_seq(), books.recovering_because().value_or("an update can't be applied")));
         } else {
-            text(std::format("market data: a replay, the books are as of update {}", books.last_seq()));
+            // In an answer, the replay is the answer's own, so only where it is matters.
+            wrapped(answering ? std::format("the books as of update {}", books.last_seq())
+                              : std::format("market data: a replay, the books are as of update {}", books.last_seq()));
         }
     } else {
         switch (books.status()) {
         case BookBuilder::Status::waiting:
-            text("market data: waiting for the exchange");
+            wrapped("market data: waiting for the exchange");
             break;
         case BookBuilder::Status::live:
-            text(std::format("market data: live, the books are as of update {}", books.last_seq()));
+            wrapped(std::format("market data: live, the books are as of update {}", books.last_seq()));
             break;
         case BookBuilder::Status::recovering:
-            text(std::format("market data: recovering, the books are as of update {}: {}; waiting for a snapshot",
+            wrapped(std::format("market data: recovering, the books are as of update {}: {}; waiting for a snapshot",
                              books.last_seq(), books.recovering_because().value_or("updates were missed")));
             break;
         }
     }
-    text(std::format("updates received: {}  recoveries: {}", books.updates_received(), books.recoveries().size()));
+    // In an answer, the line above says all a viewer needs; the rest are the feed's and the viewer's
+    // health, for watching the exchange.
+    if (!answering) {
+        wrapped(std::format("updates received: {}  recoveries: {}", books.updates_received(), books.recoveries().size()));
+    }
     if (state.feed_error) {
         ImGui::PushStyleColor(ImGuiCol_Text, kErrorColor);
-        text(std::format("last market data error: {}", *state.feed_error));
+        wrapped(std::format("last market data error: {}", *state.feed_error));
         ImGui::PopStyleColor();
     }
-    if (view.timing.seconds_since_update) {
-        text(std::format("seconds since last update: {:.1f}", *view.timing.seconds_since_update));
+    if (answering) {
+        return;
     }
-    text(std::format("viewer paints: {} (keeps rising while the exchange is stopped)", view.timing.paints));
+    if (view.timing.seconds_since_update) {
+        wrapped(std::format("seconds since last update: {:.1f}", *view.timing.seconds_since_update));
+    }
+    wrapped(std::format("viewer paints: {} (keeps rising while the exchange is stopped)", view.timing.paints));
 }
 
 // A replay's position and controls. Each control asks for the books after one update; the loop
@@ -184,13 +209,6 @@ void draw_replay(const ViewerView& view, ViewerActions& actions) {
     if (ImGui::SliderScalar(kReplaySlider, ImGuiDataType_U64, &position, &first, &last) && position != at) {
         actions.replay_to = position;
     }
-}
-
-// Text wrapped at the edge of the pane it is in.
-void wrapped(std::string_view s) {
-    ImGui::PushTextWrapPos(0.0f);
-    text(s);
-    ImGui::PopTextWrapPos();
 }
 
 // The space between paragraphs of an answer: half a line, so it grows with the text.
@@ -296,6 +314,21 @@ void draw_step_played(const LoadedAnswer& answer, std::size_t step, const Book& 
     }
 }
 
+// `s`, cut to fit `width` with "..." at its end if it is wider: a combo's preview is otherwise cut
+// off mid-letter at its arrow.
+std::string fit(std::string s, float width) {
+    if (ImGui::CalcTextSize(s.c_str()).x <= width) {
+        return s;
+    }
+    while (!s.empty() && ImGui::CalcTextSize((s + "...").c_str()).x > width) {
+        s.pop_back();
+    }
+    while (!s.empty() && s.back() == ' ') {
+        s.pop_back();
+    }
+    return s + "...";
+}
+
 // With a course: what the pane shows, the user's latest question or one of its lessons; nothing, until
 // one is chosen.
 void draw_course_choice(const CourseChoice& course, ViewerActions& actions) {
@@ -311,7 +344,8 @@ void draw_course_choice(const CourseChoice& course, ViewerActions& actions) {
         [[maybe_unused]] ImGuiContext& g = *ImGui::GetCurrentContext();
         IMGUI_TEST_ENGINE_ITEM_INFO(ImGui::GetID(kLessonChoice), kLessonChoice, ImGuiItemStatusFlags_Openable);
     }
-    const std::string shown = course.chosen ? label(*course.chosen) : std::string{"Choose a lesson, or your latest question"};
+    const std::string shown = fit(course.chosen ? label(*course.chosen) : std::string{"Choose a lesson, or your latest question"},
+                                  ImGui::CalcItemWidth() - ImGui::GetFrameHeight() - ImGui::GetStyle().FramePadding.x * 2);
     if (ImGui::BeginCombo(kLessonChoice, shown.c_str())) {
         for (std::size_t choice = 0; choice <= course.course.lessons.size(); ++choice) {
             // A std::string, not a Label: a lesson's title may pass a Label's 64 characters, and the
@@ -605,6 +639,19 @@ Label level_label(const LevelRef& level) { return Label{"{}##level{}", level.pri
 Label order_label(const Order& order) { return Label{"{}##order{}", to_string(order.side), order.order_id}; }
 
 Label follow_label(const Order& order) { return Label{"{}##follow", order.order_id}; }
+
+void apply_viewer_look() {
+    ImGui::GetIO().Fonts->AddFontDefaultVector();
+    ImGui::GetStyle().FontScaleMain = 2.0f;
+}
+
+WindowSize window_size(int area_width, int area_height) {
+    constexpr WindowSize kRoomy{.width = 1800, .height = 1400};
+    if (area_width <= 0 || area_height <= 0) {
+        return kRoomy;
+    }
+    return {.width = std::min(kRoomy.width, area_width), .height = std::min(kRoomy.height, area_height)};
+}
 
 ViewerActions draw_viewer(const ViewerView& view) {
     ViewerActions actions;

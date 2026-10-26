@@ -258,10 +258,14 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         add_book(vars);
         ctx->SetRef(fillscope::kViewerWindow);
         ctx->Yield(2);
+        const float book_top = top_of(ctx, "**/sell##order10");
         ctx->ItemClick("**/buy##order2");
         ctx->Yield(2);
 
         IM_CHECK((vars.app->selection().pointed() == fillscope::PointTarget{fillscope::OrderRef{0, 2}}));
+        // The bar keeps room for the pointing line, so pointing doesn't move the book, nor does
+        // stopping (below).
+        IM_CHECK_EQ(top_of(ctx, "**/sell##order10"), book_top);
         IM_CHECK(contains(vars.text, "Pointing at order 2 of ticker 0: buy 7 @ 100, 1 order (5) ahead of it in its queue"));
         const nlohmann::json context = read_context(vars);
         IM_CHECK_EQ(context["point"]["order"]["orderId"].get<int>(), 2);
@@ -269,6 +273,11 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK_EQ(context["point"]["asOfSeq"].get<int>(), 6);
         IM_CHECK(marked(ctx, "**/buy##order2"));
         IM_CHECK(!marked(ctx, "**/buy##order1"));
+
+        ctx->ItemClick(std::format("**/{}", fillscope::kClearPointButton).c_str());
+        ctx->Yield(2);
+        IM_CHECK(!contains(vars.text, "Pointing at"));
+        IM_CHECK_EQ(top_of(ctx, "**/sell##order10"), book_top);
     });
 
     viewer_test(engine, "clicking_a_price_points_at_its_level", [](ImGuiTestContext* ctx) {
@@ -537,6 +546,12 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(contains(vars.text, "the maker: order 10 accepted: buy 10 at 99"));
         IM_CHECK(contains(vars.text, "The best bid is 99, for 10."));
         IM_CHECK(contains(vars.text, "the maker's 10"));  // the book says whose each order is
+        // In an answer, the market data's line says only where the books are: the feed's and the
+        // viewer's health are for watching the exchange.
+        IM_CHECK(contains(vars.text, "the books as of update 1"));
+        IM_CHECK(!contains(vars.text, "a replay"));
+        IM_CHECK(!contains(vars.text, "updates received"));
+        IM_CHECK(!contains(vars.text, "viewer paints"));
 
         ctx->ItemClick(forward.c_str());
         ctx->ItemClick(forward.c_str());
@@ -548,7 +563,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(contains(vars.text, "best ask 101 for 10 (first in line: the maker's 11)"));
         IM_CHECK(contains(vars.text, "Press > to see what happens."));
         IM_CHECK(!contains(vars.text, "It trades 4 at 101"));  // the explanation waits for the step
-        IM_CHECK(contains(vars.text, "the books are as of update 2"));
+        IM_CHECK(contains(vars.text, "the books as of update 2"));
         IM_CHECK(read_context(vars)["background"]["answer"]["asking"] == true);
         IM_CHECK(read_context(vars)["background"]["answer"]["step"] == 3);
 
@@ -564,13 +579,13 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(contains(vars.text, "the maker: order 11 filled 4 at 101, 6 left"));
         IM_CHECK(contains(vars.text, "This step trades 4 at 101 (an incoming buy crossing)."));
         IM_CHECK(!contains(vars.text, "FALSE"));
-        IM_CHECK(contains(vars.text, "the books are as of update 4"));
+        IM_CHECK(contains(vars.text, "the books as of update 4"));
         IM_CHECK(read_context(vars)["background"]["answer"]["asking"] == false);
 
         ctx->ItemClick(std::format("**/{}", fillscope::kAnswerBack).c_str());
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "step 3 of 3: the question"));
-        IM_CHECK(contains(vars.text, "the books are as of update 2"));
+        IM_CHECK(contains(vars.text, "the books as of update 2"));
         ctx->ItemClick(std::format("**/{}", fillscope::kAnswerStart).c_str());
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "Press > to begin."));
@@ -591,7 +606,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(yield_until(ctx, [&] { return contains(vars.text, "First question?"); }));
         ctx->ItemClick(std::format("**/{}", fillscope::kAnswerEnd).c_str());
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "the books are as of update 4"));
+        IM_CHECK(contains(vars.text, "the books as of update 4"));
 
         fillscope::test::write_maker_and_taker(answer, "Second question?", /*false_claim=*/true);
         // The pane at once; the bar once the context file says so (a change the user didn't make is
@@ -627,11 +642,14 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         std::filesystem::create_directories(built);
         std::ofstream{built / "course.json"} << R"({"title": "A course", "lessons": [
             {"title": "The first lesson", "scenario": "01-first.json", "read": "a chapter"},
-            {"title": "The second lesson", "scenario": "02-second.json"}]})";
+            {"title": "The second lesson", "scenario": "02-second.json"},
+            {"title": "A third lesson, whose title is far too long to fit in the drop-down at the top of the answer pane",
+             "scenario": "03-third.json"}]})";
         auto course = fillscope::read_course_file(built / "course.json");
         IM_CHECK(course.has_value());
         fillscope::test::write_maker_and_taker(fillscope::lesson_answer(built, course->lessons[0]), "Lesson one?");
         fillscope::test::write_maker_and_taker(fillscope::lesson_answer(built, course->lessons[1]), "Lesson two?");
+        fillscope::test::write_maker_and_taker(fillscope::lesson_answer(built, course->lessons[2]), "Lesson three?");
         const std::filesystem::path questions = dir / ".fillscope" / "answer.json";
         fillscope::test::write_maker_and_taker(questions, "My own question?");
         vars.app->watch_answer(questions);
@@ -658,6 +676,17 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK(read_context(vars)["background"]["answer"]["question"] == "Lesson one?");
         IM_CHECK(contains(vars.text, "Read: a chapter"));
+
+        // A title too long for the drop-down ends in "..." where it is cut, not mid-letter at the
+        // arrow. (The bar still gives it whole.)
+        ctx->ItemClick(std::format("**/{}", fillscope::kLessonChoice).c_str());
+        ctx->ItemClick("//$FOCUSED/3. A third lesson, whose title is far too long to fit in the drop-down at the top of the "
+                       "answer pane##choice3");
+        ctx->Yield(2);
+        IM_CHECK(read_context(vars)["background"]["answer"]["question"] == "Lesson three?");
+        IM_CHECK(contains(vars.text, "3. A third lesson"));
+        IM_CHECK(contains(vars.text, "..."));
+        IM_CHECK(!contains(vars.text, "3. A third lesson, whose title is far too long to fit in the drop-down at the top of the answer pane"));
 
         ctx->ItemClick(std::format("**/{}", fillscope::kLessonChoice).c_str());
         ctx->ItemClick("//$FOCUSED/Your latest question##choice0");

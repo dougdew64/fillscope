@@ -37,6 +37,29 @@
       "preLaunchTask": "build the course"
     },
     {
+      // The demo: lesson 6 of the course, a market maker, played in the viewer with real clicks at
+      // a pace to follow, and checked at every frame, as the tests run it headless (viewer_demo.cpp).
+      "name": "demo: a market maker",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/tests/viewer/viewer_demo",
+      "args": ["${workspaceFolder}/build/debug/fillscope-answer", "${workspaceFolder}/course", "--watch"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build"
+    },
+    {
+      // The same, recorded as a video for sharing (with ffmpeg): quicker, in a 1280 by 720 window,
+      // to build/debug/demo-a-market-maker.mp4.
+      "name": "demo: record a market maker",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/tests/viewer/viewer_demo",
+      "args": ["${workspaceFolder}/build/debug/fillscope-answer", "${workspaceFolder}/course", "--record",
+               "${workspaceFolder}/build/debug/demo-a-market-maker.mp4"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "build"
+    },
+    {
       // A snapshot every 5 seconds, where the book's exchange has a minute, so a viewer started late
       // catches up quickly; each run's requests recorded, replacing the last run's.
       "name": "exchange",
