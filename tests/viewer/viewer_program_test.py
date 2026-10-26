@@ -61,23 +61,38 @@ class Display:
     def __init__(self):
         self.xvfb = None
         self.env = None
+        self.runtime = None
         if shutil.which("Xvfb"):
             read, write = os.pipe()
             # -displayfd: Xvfb picks a free display number and writes it to the pipe once it is ready.
-            self.xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(write), "-screen", "0", "1920x1080x24", "-nolisten", "tcp"],
+            # A small screen, so the window is small and software OpenGL draws it quickly: a viewer
+            # that didn't pace itself would paint far more than 60 times a second, where on a large
+            # one each frame took long enough that it didn't.
+            self.xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(write), "-screen", "0", "800x600x24", "-nolisten", "tcp"],
                                          pass_fds=[write], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             os.close(write)
             with os.fdopen(read) as pipe:
                 number = pipe.readline().strip()
             if number:
-                env = {k: v for k, v in os.environ.items() if k != "WAYLAND_DISPLAY"}  # GLFW would prefer Wayland
+                # The Xvfb as the X display, and no Wayland reachable at all. On a Wayland desktop, GLFW
+                # tries Wayland first: with WAYLAND_DISPLAY unset, Wayland's library still finds the
+                # desktop's socket (wayland-0) in XDG_RUNTIME_DIR, and the window opened on the
+                # desktop; with WAYLAND_DISPLAY naming no socket, GLFW fails rather than turn to X11.
+                # So the runtime directory is an empty one of the test's own: Wayland finds nothing,
+                # and GLFW uses X11, the Xvfb (checked: the viewer's one display connection is to it).
+                env = {k: v for k, v in os.environ.items() if k != "WAYLAND_DISPLAY"}
                 env["DISPLAY"] = f":{number}"
+                self.runtime = tempfile.TemporaryDirectory()
+                os.chmod(self.runtime.name, 0o700)
+                env["XDG_RUNTIME_DIR"] = self.runtime.name
                 self.env = env
 
     def close(self):
         if self.xvfb is not None:
             self.xvfb.kill()
             self.xvfb.wait()
+        if self.runtime is not None:
+            self.runtime.cleanup()
 
 
 DISPLAY = None  # made in main, before the tests run
