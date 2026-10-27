@@ -26,7 +26,11 @@ struct ViewerActions {
     std::optional<PointTarget> point_at;      // point at this order or level
     std::optional<OrderRef> follow;           // follow this order
     std::optional<std::uint32_t> show_ticker; // show this ticker's book
-    std::optional<std::uint64_t> replay_to;   // in a replay: the books after this update
+    std::optional<std::uint64_t> replay_to;   // in a replay: the books after this update (and pause)
+    // In a replay: play it on by itself, pause it, or play it at this many updates a second.
+    bool replay_play = false;
+    bool replay_pause = false;
+    std::optional<double> replay_rate;
     std::optional<std::size_t> answer_to;     // in an answer: show this frame
     std::optional<std::size_t> choose;        // with a course: show this (0: your questions; a lesson, from 1)
     bool clear_point = false;
@@ -39,8 +43,8 @@ struct ViewerActions {
     bool go_live = false;
 
     [[nodiscard]] bool any() const noexcept {
-        return point_at || follow || show_ticker || replay_to || answer_to || choose || clear_point || clear_follow || pause ||
-               play || go_to || go_live;
+        return point_at || follow || show_ticker || replay_to || replay_play || replay_pause || replay_rate || answer_to || choose ||
+               clear_point || clear_follow || pause || play || go_to || go_live;
     }
 };
 
@@ -81,6 +85,16 @@ inline constexpr const char* kReplayBack = "<##replay_back";
 inline constexpr const char* kReplayForward = ">##replay_forward";
 inline constexpr const char* kReplayEnd = ">|##replay_end";
 inline constexpr const char* kReplaySlider = "##replay_position";
+// And on the line below: play and pause, the rates it plays at (updates a second), back and on to the nearest trade on the ticker shown, and, with
+// a session's truth, to the nearest of the slicer's. A rate's button is "<rate>/s###replay_rate<rate>":
+// its ID only "###replay_rate<rate>".
+inline constexpr const char* kReplayPlay = "play##replay_play";
+inline constexpr const char* kReplayPause = "pause##replay_pause";
+inline constexpr std::array<double, 3> kReplayRates{10.0, 100.0, 1000.0};
+inline constexpr const char* kReplayPrevTrade = "< trade##replay_prev_trade";
+inline constexpr const char* kReplayNextTrade = "trade >##replay_next_trade";
+inline constexpr const char* kReplayPrevSlicer = "< slicer##replay_prev_slicer";
+inline constexpr const char* kReplayNextSlicer = "slicer >##replay_next_slicer";
 // Live, the time-shifting controls: pause, play, to the oldest kept, back one, forward one, a slider
 // over what is kept, and back to live.
 inline constexpr const char* kShiftPause = "pause##shift_pause";

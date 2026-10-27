@@ -1210,6 +1210,86 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(contains(vars.text, "The slicer has no order on this ticker."));
     });
 
+    // A replay plays on by itself at the rate chosen, on the test's own clock: paused, it stays; a move
+    // of the user's own pauses it; at the end it stops, and play starts it again from the start; a new
+    // rate goes on from where it is. And the jumps go to the nearest trade either way, and with a
+    // session's truth, the nearest of the slicer's (support/session_fixture.h: on ticker 1, trades at
+    // 4, the slicer's, 7, the slicer's, and 9).
+    viewer_test(engine, "a_replay_plays_by_itself_and_jumps_to_trades", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        const auto t0 = std::chrono::steady_clock::time_point{} + std::chrono::hours{1};
+        const auto at = [&](int ms) { return t0 + std::chrono::milliseconds{ms}; };
+        vars.now = t0;
+        fillscope::Session session = fillscope::test::hand_session();
+        vars.app->open_session("/sessions/hand/market.dat", std::move(session.market_data), std::move(session.truth));
+        vars.app->show_ticker(1);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        const auto click = [&](const char* item) { ctx->ItemClick(std::format("**/{}", item).c_str()); };
+        IM_CHECK(marked(ctx, "**/###replay_rate100"));
+        click("###replay_rate10");
+        IM_CHECK(marked(ctx, "**/###replay_rate10"));
+        click(fillscope::kReplayPlay);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 0 of 13, playing at 10 updates a second"));
+        vars.now = at(500);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 5 of 13, playing"));
+        click(fillscope::kReplayPause);
+        vars.now = at(900);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 5 of 13\n"));  // paused: no further, and not playing
+        // Played on from 5; a step of the user's own pauses it.
+        click(fillscope::kReplayPlay);
+        vars.now = at(1200);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 8 of 13, playing"));
+        click(fillscope::kReplayForward);
+        vars.now = at(3000);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 9 of 13\n"));
+        // A new rate goes on from where it is: 10 a second from 9 to 10, then 100 a second from there.
+        click(fillscope::kReplayPlay);
+        vars.now = at(3100);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 10 of 13, playing at 10 updates a second"));
+        click("###replay_rate100");
+        vars.now = at(3120);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 12 of 13, playing at 100 updates a second"));
+        // To the end, where it stops; play again starts from the start.
+        vars.now = at(10000);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 13 of 13\n"));
+        IM_CHECK(ctx->ItemExists(std::format("**/{}", fillscope::kReplayPlay).c_str()));
+        click(fillscope::kReplayPlay);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 0 of 13, playing"));
+        click(fillscope::kReplayPause);
+
+        // The jumps, from the start: each trade in turn, and nothing past the last.
+        const auto jumps_to = [&](const char* item, int update) {
+            click(item);
+            ctx->Yield(2);
+            IM_CHECK(contains(vars.text, std::format("after update {} of 13", update)));
+        };
+        vars.app->replay_to(0);
+        jumps_to(fillscope::kReplayNextTrade, 4);
+        jumps_to(fillscope::kReplayNextTrade, 7);
+        jumps_to(fillscope::kReplayNextTrade, 9);
+        jumps_to(fillscope::kReplayNextTrade, 9);  // none after
+        jumps_to(fillscope::kReplayPrevTrade, 7);
+        vars.app->replay_to(0);
+        jumps_to(fillscope::kReplayNextSlicer, 4);
+        jumps_to(fillscope::kReplayNextSlicer, 7);
+        jumps_to(fillscope::kReplayNextSlicer, 7);  // 9 isn't the slicer's
+        jumps_to(fillscope::kReplayPrevSlicer, 4);
+        // The jumps follow the ticker shown: ticker 2's one trade, the slicer's.
+        click("2##ticker");
+        vars.app->replay_to(0);
+        jumps_to(fillscope::kReplayNextSlicer, 12);
+    });
+
     // A replay without a truth draws its trades, none coloured, and says why.
     viewer_test(engine, "a_replay_without_a_truth_says_it_has_none", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
@@ -1223,6 +1303,9 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(!contains(vars.text, "(slicer)"));
         IM_CHECK_EQ(std::string{ctx->ItemInfo("**/##trade4").DebugLabel}, std::string{"4: 10 at 105, none"});
         IM_CHECK_EQ(std::string{ctx->ItemInfo("**/##trade7").DebugLabel}, std::string{"7: 5 at 105, none"});
+        // The trades' jumps, but not the slicer's: there is no truth to say which are its.
+        IM_CHECK(ctx->ItemExists(std::format("**/{}", fillscope::kReplayNextTrade).c_str()));
+        IM_CHECK(!ctx->ItemExists(std::format("**/{}", fillscope::kReplayNextSlicer).c_str()));
     });
 
     // A long replay, going anywhere in it in any order, shows the books as if played from update 1:

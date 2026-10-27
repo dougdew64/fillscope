@@ -306,7 +306,8 @@ void draw_replay(const ViewerView& view, ViewerActions& actions) {
     const Replay& replay = *view.state.replay;
     const std::uint64_t at = view.state.books.last_seq();
     const std::uint64_t last = replay.updates.size();
-    wrapped(std::format("replay of {} (recorded in {}): after update {} of {}", replay.file.string(), replay.recording, at, last));
+    wrapped(std::format("replay of {} (recorded in {}): after update {} of {}{}", replay.file.string(), replay.recording, at, last,
+                        replay.play.playing ? std::format(", playing at {} updates a second", replay.play.rate) : std::string{}));
     if (ImGui::SmallButton(kReplayStart)) {
         actions.replay_to = 0;
     }
@@ -331,6 +332,52 @@ void draw_replay(const ViewerView& view, ViewerActions& actions) {
     const std::uint64_t first = 0;
     if (ImGui::SliderScalar(kReplaySlider, ImGuiDataType_U64, &position, &first, &last) && position != at) {
         actions.replay_to = position;
+    }
+
+    // Playing, and the jumps: each jump's target is found when it is clicked, not every paint.
+    if (replay.play.playing) {
+        if (ImGui::SmallButton(kReplayPause)) {
+            actions.replay_pause = true;
+        }
+        tooltip([] { return std::string{"Pause: stay at the update shown"}; });
+    } else {
+        if (ImGui::SmallButton(kReplayPlay)) {
+            actions.replay_play = true;
+        }
+        tooltip([&] {
+            return at >= last ? std::string{"Play from the start"} : std::string{"Play on from the update shown, by itself"};
+        });
+    }
+    for (const double rate : kReplayRates) {
+        ImGui::SameLine();
+        // "###": the ID is what follows alone, since a "/" in it would read as a path to the tests.
+        const Label label{"{}/s###replay_rate{}", rate, rate};
+        const bool chosen = replay.play.rate == rate;
+        if (ImGui::Selectable(label.c_str(), chosen, ImGuiSelectableFlags_None, ImVec2{ImGui::CalcTextSize("1000/s").x, 0.0f})) {
+            actions.replay_rate = rate;
+        }
+        report_marked(label, chosen);
+        tooltip([&] { return std::format("Play at {} updates a second", rate); });
+    }
+    const std::uint32_t ticker = view.state.shown_ticker;
+    // A space before each group: the trades, and the slicer's.
+    const auto jump = [&](const char* label, Way way, const SessionTruth* slicer, std::string_view what) {
+        ImGui::SameLine(0.0f, way == Way::back ? ImGui::GetFontSize() : -1.0f);
+        if (ImGui::SmallButton(label)) {
+            if (const auto target = nearest_trade(replay.updates, ticker, at, way, slicer)) {
+                actions.replay_to = *target;
+            }
+        }
+        tooltip([&] {
+            return std::format("To the {} {} on ticker {}{}", way == Way::forward ? "next" : "previous", what, ticker,
+                               slicer ? ", as the recording's truth says" : "");
+        });
+    };
+    jump(kReplayPrevTrade, Way::back, nullptr, "trade");
+    jump(kReplayNextTrade, Way::forward, nullptr, "trade");
+    if (replay.truth) {
+        jump(kReplayPrevSlicer, Way::back, &*replay.truth, "trade of the slicer's");
+        jump(kReplayNextSlicer, Way::forward, &*replay.truth, "trade of the slicer's");
     }
 }
 

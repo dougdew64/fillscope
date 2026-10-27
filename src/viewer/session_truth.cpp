@@ -125,4 +125,33 @@ std::vector<TradeDot> trade_dots(std::span<const MarketUpdate> updates, const Se
     return dots;
 }
 
+std::optional<std::uint64_t> nearest_trade(std::span<const MarketUpdate> updates, std::uint32_t ticker, std::uint64_t at,
+                                           Way way, const SessionTruth* slicer) {
+    const auto wanted = [&](std::uint64_t seq) {
+        const MarketUpdate& update = updates[seq - 1];
+        if (update.type != UpdateType::trade || update.ticker != ticker) {
+            return false;
+        }
+        if (slicer == nullptr) {
+            return true;
+        }
+        const TradeTruth* trade = slicer->truth.trade_at(seq);
+        return trade != nullptr && (slicer->slicers.contains(trade->incoming_client) || slicer->slicers.contains(trade->resting_client));
+    };
+    if (way == Way::forward) {
+        for (std::uint64_t seq = at + 1; seq <= updates.size(); ++seq) {
+            if (wanted(seq)) {
+                return seq;
+            }
+        }
+    } else {
+        for (std::uint64_t seq = std::min<std::uint64_t>(at, updates.size() + 1); seq-- > 1;) {
+            if (wanted(seq)) {
+                return seq;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace fillscope

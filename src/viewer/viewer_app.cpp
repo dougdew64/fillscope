@@ -154,7 +154,49 @@ void ViewerApp::show(std::uint64_t seq) {
     }
 }
 
+void ViewerApp::play_replay(Clock::time_point now) {
+    if (!state_.replay) {
+        return;
+    }
+    if (state_.books.last_seq() >= state_.replay->updates.size()) {
+        replay_to(0);  // at the end: from the start again
+    }
+    ReplayPlay& play = state_.replay->play;
+    play.playing = true;
+    play.from = state_.books.last_seq();
+    play.since = now;
+}
+
+void ViewerApp::pause_replay() {
+    if (state_.replay) {
+        state_.replay->play.playing = false;
+    }
+}
+
+void ViewerApp::set_replay_rate(double rate, Clock::time_point now) {
+    if (!state_.replay || !(rate > 0)) {
+        return;
+    }
+    ReplayPlay& play = state_.replay->play;
+    play.rate = rate;
+    play.from = state_.books.last_seq();  // on from here, at the new rate
+    play.since = now;
+}
+
 void ViewerApp::advance(Clock::time_point now) {
+    if (state_.replay && state_.replay->play.playing) {
+        ReplayPlay& play = state_.replay->play;
+        const std::uint64_t last = state_.replay->updates.size();
+        const double elapsed = std::chrono::duration<double>(now - play.since).count();
+        std::uint64_t target = play.from + static_cast<std::uint64_t>(std::max(elapsed, 0.0) * play.rate);
+        if (target >= last) {
+            target = last;
+            play.playing = false;
+        }
+        if (target != state_.books.last_seq()) {
+            replay_to(target);
+        }
+    }
     if (!state_.time_shift) {
         return;
     }
@@ -302,7 +344,17 @@ ViewerActions ViewerApp::paint(Clock::time_point now) {
         advance(now);  // how far behind, as of now, in this paint's context
     }
     if (actions.replay_to) {
+        pause_replay();  // a move of the user's own takes over from playing
         replay_to(*actions.replay_to);
+    }
+    if (actions.replay_pause) {
+        pause_replay();
+    }
+    if (actions.replay_rate) {
+        set_replay_rate(*actions.replay_rate, now);
+    }
+    if (actions.replay_play) {
+        play_replay(now);
     }
     if (actions.choose) {
         choose(*actions.choose);

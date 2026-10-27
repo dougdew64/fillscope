@@ -224,8 +224,9 @@ the slower program adds the tier to its name.
   while running, recovered from a snapshot, and a datagram that can't be decoded), a replay's
   controls, with the replay address following the books, and answers (stepped through, a step's
   question before its explanation, a new one replacing the last, a false claim marked, a stale one
-  refused), and a session's trades panel, stepped update by update, each trade's dot checked
-  against the truth and the book's clients named. (The
+  refused), a session's trades panel, stepped update by update, each trade's dot checked
+  against the truth and the book's clients named, and a replay played on the test's own clock and
+  its jumps to trades. (The
   followed row's colour itself isn't observable; its id button reports the mark.) Text is checked
   through Dear ImGui's logging, since plain text items have no ID for the Test Engine to find; rows
   and buttons are found by their IDs.
@@ -316,8 +317,11 @@ exchange's recording and the logs go to `data/sessions/live`.
 into `data/sessions/latest`, replacing the last, and shows it. `viewer --session DIR` shows a session recorded by
 `tools/sessions/record_session.py` (*Record a session*, below) as a replay, with its truth: the
 book names each order's client, and the trades panel beside it colours the slicer's trades
-(ARCHITECTURE.md, §4, *A session, and its truth*). `--at N` opens a replay or a session at update
-N, and `--ticker T` with ticker T shown; the slicer's orders are on tickers 1, 2 and 3.
+(ARCHITECTURE.md, §4, *A session, and its truth*). Below a replay's slider, `play` moves it on by
+itself at 10, 100 or 1,000 updates a second (`pause`, or any step of your own, stops it), `< trade`
+and `trade >` go to the ticker's previous and next trade, and in a session `< slicer` and
+`slicer >` to the slicer's. `--at N` opens a replay or a session at update N, and `--ticker T` with
+ticker T shown; the slicer's orders are on tickers 1, 2 and 3.
 
 `--exit-after SECONDS` closes the viewer after that long; Ctrl-C and SIGTERM close it the same way,
 so its last context file says it has stopped. With `--exit-after`, `--screenshot FILE` writes the

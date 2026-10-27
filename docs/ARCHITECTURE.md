@@ -530,6 +530,16 @@ Applying the file's updates 1 to N rebuilds that state. Live, there is no replay
 file says why and how to record a run. `--at N` opens a replay at update N, and `--ticker T` with
 ticker T's book shown.
 
+**Playing a replay, and jumping to its trades.** Below the slider, `play` moves the replay on by
+itself, 10, 100 or 1,000 updates a second (a replay has no times of its own, so its pace is
+chosen): each paint, `ViewerApp::advance` shows the update it has reached, the update it started from
+plus the rate times the time since, so a slow paint skips updates rather than falling behind. Any
+move of the user's own (a step, the slider, a dot, a jump) pauses it; it stops at the end, and play
+there starts it from the start; a new rate goes on from the update shown. `< trade` and `trade >` go
+to the nearest trade on the ticker shown, before or after the update shown, and in a session,
+`< slicer` and `slicer >` to the nearest of the slicer's, as its truth says (`nearest_trade`, in
+`session_truth.h`), so a slice can be followed piece by piece, stopping on each to look at the book.
+
 **A session, and its truth** (`session_truth.h`). With `--session DIR`, the viewer shows a recorded
 session (§1, *A recorded session*) as a replay, with its truth: who really sent each order and each
 side of each trade (§3, *A replay's truth*), and from `session.json`, what each client was. It is

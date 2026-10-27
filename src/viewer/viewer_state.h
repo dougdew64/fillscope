@@ -18,6 +18,14 @@
 
 namespace fillscope {
 
+// A replay playing: moving on by itself, `rate` updates a second, from update `from` at `since`.
+struct ReplayPlay {
+    double rate = 100.0;
+    bool playing = false;
+    std::uint64_t from = 0;
+    std::chrono::steady_clock::time_point since{};
+};
+
 // A replay's market data (feed/market_data_file.h): the books are built from its updates 1 to N, so
 // they are exactly the exchange's after update N of the recorded run, and N can be anything.
 struct Replay {
@@ -31,6 +39,7 @@ struct Replay {
     BookBuilder books;
     // A recorded session's truth, when the replay is one's (viewer --session): who sent what.
     std::optional<SessionTruth> truth;
+    ReplayPlay play;
 
     // A replay of `updates`, numbered 1, 2, 3, ... (read_market_data_file checks), with its run held.
     [[nodiscard]] static Replay of(std::filesystem::path file, std::string recording, std::vector<MarketUpdate> updates);

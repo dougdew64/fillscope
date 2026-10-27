@@ -81,6 +81,28 @@ TEST_F(SessionTruthTest, EachTradeIsMarkedFromTheTruth) {
     }
 }
 
+// The nearest trade on a ticker either way, and the nearest of the slicer's: on ticker 1, trades at
+// 4 (the slicer took), 7 (its resting order was met) and 9 (not the slicer's); ticker 2's at 12.
+TEST_F(SessionTruthTest, TheNearestTradeEitherWayIsFound) {
+    const Session session = test::hand_session();
+    const std::vector<MarketUpdate>& u = session.market_data.updates;
+    using W = Way;
+    EXPECT_EQ(nearest_trade(u, 1, 0, W::forward), 4u);
+    EXPECT_EQ(nearest_trade(u, 1, 4, W::forward), 7u) << "after, not at";
+    EXPECT_EQ(nearest_trade(u, 1, 7, W::forward), 9u);
+    EXPECT_EQ(nearest_trade(u, 1, 9, W::forward), std::nullopt);
+    EXPECT_EQ(nearest_trade(u, 1, 13, W::back), 9u);
+    EXPECT_EQ(nearest_trade(u, 1, 9, W::back), 7u) << "before, not at";
+    EXPECT_EQ(nearest_trade(u, 1, 4, W::back), std::nullopt);
+    EXPECT_EQ(nearest_trade(u, 1, 100, W::back), 9u) << "from past the end";
+    EXPECT_EQ(nearest_trade(u, 2, 0, W::forward), 12u);
+    const SessionTruth* slicer = &session.truth;
+    EXPECT_EQ(nearest_trade(u, 1, 0, W::forward, slicer), 4u);
+    EXPECT_EQ(nearest_trade(u, 1, 4, W::forward, slicer), 7u) << "its resting order met counts";
+    EXPECT_EQ(nearest_trade(u, 1, 7, W::forward, slicer), std::nullopt) << "9 isn't the slicer's";
+    EXPECT_EQ(nearest_trade(u, 1, 13, W::back, slicer), 7u);
+}
+
 TEST_F(SessionTruthTest, AClientIsNamedWithItsRole) {
     const SessionTruth truth = test::hand_session().truth;
     EXPECT_EQ(client_name(truth, 6), "6 (slicer)");

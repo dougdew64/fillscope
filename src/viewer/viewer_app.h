@@ -72,6 +72,12 @@ public:
     // replay's length), as a time-shifted moment is shown: forward a few updates by applying them,
     // otherwise rebuilt from the nearest checkpoint. What is pointed at and followed stays.
     void replay_to(std::uint64_t seq);
+    // In a replay: play it on by itself from the update shown (from the start, if at its end), at
+    // its rate; pause it; or change the rate, going on from the update shown. Playing stops at the
+    // end. advance() moves it on, once a paint.
+    void play_replay(Clock::time_point now);
+    void pause_replay();
+    void set_replay_rate(double rate, Clock::time_point now);
 
     // Shows answers: watches `file` for an answer (answer/answer.h), and shows each new one as it is
     // written. Nothing is shown until poll_answer() finds one.

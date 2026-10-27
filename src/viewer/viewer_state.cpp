@@ -20,7 +20,8 @@ Replay Replay::of(std::filesystem::path file, std::string recording, std::vector
                   .updates = std::move(updates),
                   .kept = std::move(kept),
                   .books = std::move(books),
-                  .truth = std::nullopt};
+                  .truth = std::nullopt,
+                  .play = {}};
 }
 
 std::span<const OrderEvent> shown_history(const ViewerState& state, std::uint32_t ticker, std::uint64_t order_id) {

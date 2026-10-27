@@ -62,4 +62,11 @@ struct TradeDot {
 [[nodiscard]] std::vector<TradeDot> trade_dots(std::span<const MarketUpdate> updates, const SessionTruth& truth,
                                                std::uint32_t ticker, std::uint64_t from, std::uint64_t to);
 
+// The trade on `ticker` among `updates` (numbered from 1) nearest update `at`, after it (`forward`)
+// or before it; only the slicer's, if `slicer` is given, as it says (the incoming order or the
+// resting one its client's). Nothing if there is none that way.
+enum class Way : std::uint8_t { back, forward };
+[[nodiscard]] std::optional<std::uint64_t> nearest_trade(std::span<const MarketUpdate> updates, std::uint32_t ticker,
+                                                         std::uint64_t at, Way way, const SessionTruth* slicer = nullptr);
+
 }  // namespace fillscope
