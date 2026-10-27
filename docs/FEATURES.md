@@ -62,10 +62,59 @@ pause, play behind live, step, and a live moment's address ([ARCHITECTURE.md](AR
       likely active on one side, widens or leans its quotes away from it, since that flow moves the
       price. Run in the deterministic loop of strategies the backlog describes under answers (15,
       *strategies in the loop*).
+    - **What a Fillscope client takes on** (discussed 2026-10-27, nothing decided). Of the book's
+      client's layers, the market data and the books are Fillscope's already (`src/feed/`, tested
+      against the exchange's own books, recovery included), which is the strongest reason for the
+      move: the maker sits on the code the viewer trusts. New: the order gateway, a TCP connection
+      with sequence numbers both ways, less forgiving than it looks, since the exchange binds a
+      client's id to the connection it first hears it on and drops a request out of sequence
+      without a word to the client (`exchange/order_server/order_server.h` in the back end), so a
+      gateway's mistake shows as orders that never happen, not as an error; it must count exactly,
+      and check the responses' numbers too. Then the features and the detector, one library the
+      viewer, the scorer and the maker link; and the strategy, order manager, risk check and
+      position, to the book's design.
+    - **Lessons from steps 21 to 24 for its design** (2026-10-27):
+      - *Don't decide while recovering.* The book's client calls its strategy on each of a
+        snapshot's orders as it rebuilds its books, so it decides on books half built, which failed
+        Fillscope's session test (PLAN.md, step 24). Fillscope's books say whether they are
+        recovering or live, so its strategy can wait.
+      - *Have a rule for a one-sided book.* The book's maker quotes only while both sides have
+        orders; once one empties, it stops on that ticker, which left the slicer's tickers
+        one-sided. Quoting around the last trade, or a reference price, are two such rules.
+      - *Moving a quote is slow in the book's order manager:* one order a side, its cancel
+        confirmed before the replacement is sent, so a side has no quote meanwhile, most of all
+        when a slicer is pushing the price. The exchange has no modify and no immediate-or-cancel:
+        moving a quote is a cancel and a new order.
+      - *Memory:* each of the book's clients takes about 1.5 GB (every book preallocated for a
+        million orders); Fillscope's books grow as needed, so its client can be far smaller, which
+        matters for sessions on CI's 16 GB.
+    - **Threading, not settled by following the book's design.** The book's client runs three
+      busy-spinning threads joined by lock-free queues; the layering agreed doesn't require that. A
+      single-threaded loop (wait on the sockets, then market data, features, strategy, orders, in
+      turn) is simpler, starves nothing, and is easier to test. Its cost is fairness: the book's
+      clients spin and react within microseconds, and a slower maker reaches the queue after them,
+      which would bias a comparison with them; for the maker compared with itself, with and without
+      the detector, it matters much less.
+    - **Who writes what, to be decided when it is planned** (charter, §4): a natural split is the
+      strategy and the detector the owner's, and the gateway with its protocol's tests, and the risk
+      and position plumbing, Claude's, unless the owner wants some of them.
     - **Its worth, measured exactly.** The same recorded day played twice, with the detector and
       without, compared: profit, fills that went against the strategy, inventory. Deterministic
       replay makes the difference the detector's alone, which most backtests can't claim. Each
       flag can be paused on and stepped through (time-shifting, built), and its moment rebuilt.
+      - *The catch, and the question to settle before the maker is designed* (2026-10-27): a
+        recording is a fixed list of requests. Replayed with the maker behaving differently, the
+        background's requests are replayed as they were: they don't react to it. Only the maker's
+        requests change, and the matcher gives exact results for that list: exact, but a
+        counterfactual in which the rest of the market is deaf to the maker. The alternative, two
+        live sessions with every client reacting, is realistic, but no two live runs are alike, so
+        it compares distributions over many sessions, not two exact runs. Exact replay needs the
+        maker to run in lockstep with the replayed matcher, an event at a time, easiest if the
+        strategy is a pure function from events to requests, with no clock and no thread deciding
+        anything; live sessions need nothing special, but many runs. Recommended (Claude): the
+        strategy written as a pure function of events either way, which keeps exact replay
+        possible, makes it testable as the slicer is, and costs live sessions nothing. Which
+        measurement the showcase claims is the owner's to decide.
     - **The demonstration:** a video of the whole loop: the slicer hidden in the background, the
       detector finding it, the strategy stepping aside, and the measured difference.
     - **Limits, said wherever results are shown.** A model trained on planted slicers learns them;
