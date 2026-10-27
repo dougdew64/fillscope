@@ -50,6 +50,22 @@ run_tests() {  # run_tests BUILD_DIR LOG: runs every test, keeping CTest's outpu
     # sed -n, not head: head stops reading after five lines, and with pipefail the SIGPIPE that
     # gives sort would fail the whole run.
     grep -E 'Test +#' "$log" | sed -E 's/.*Test +#[0-9]+: ([^ ]+) .* ([0-9.]+) sec/  \2s \1/' | sort -rn | sed -n 1,5p
+    # And those nearest their time limits, which the slowest don't show: a unit test with a limit of
+    # 2 s is in trouble at 1 s long before it is among the slowest. Each test's limit is CTest's own.
+    echo "nearest their limits:"
+    ctest --test-dir "$build_dir" --show-only=json-v1 | python3 -I -c '
+import json, re, sys
+limits = {t["name"]: next((p["value"] for p in t.get("properties", []) if p["name"] == "TIMEOUT"), None)
+          for t in json.load(sys.stdin)["tests"]}
+times = {}
+with open(sys.argv[1]) as log:
+    for line in log:
+        if found := re.search(r"Test +#\d+: (\S+) .* ([0-9.]+) sec", line):
+            times[found.group(1)] = float(found.group(2))
+near = sorted(((times[n] / limits[n], n) for n in times if limits.get(n)), reverse=True)
+for share, name in near[:5]:
+    print(f"  {share:4.0%} {name} ({times[name]:.2f}s of {limits[name]:g}s)")
+' "$log"
 }
 
 build "$root/build/debug"
