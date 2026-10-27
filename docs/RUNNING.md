@@ -302,7 +302,15 @@ replays the last recording (`exchange_replay requests.rec market.dat`) and opens
 move the books to any update of the run. From a terminal: `exchange_main --record FILE`, then
 `exchange_replay FILE MARKET_DATA`, then `viewer --replay MARKET_DATA`.
 
-**A session, and its truth.** `viewer --session DIR` shows a session recorded by
+**The whole market.** **viewer + the whole market** starts the viewer, live, and every kind of
+client the back end has, as a session runs them (`record_session.py --live`): the exchange, the
+book's market maker, liquidity taker and random client, and the slicer, working its three orders on
+tickers 1, 2 and 3. Live, nothing says whose a trade is: the slicer's are there, unmarked, as a
+detector would see them. Stopping debugging stops them all. They take 8.5 GB of memory; the
+exchange's recording and the logs go to `data/sessions/live`.
+
+**A session, and its truth.** In VS Code, **viewer (session)** records a session (about 40 seconds)
+into `data/sessions/latest`, replacing the last, and shows it. `viewer --session DIR` shows a session recorded by
 `tools/sessions/record_session.py` (*Record a session*, below) as a replay, with its truth: the
 book names each order's client, and the trades panel beside it colours the slicer's trades
 (ARCHITECTURE.md, §4, *A session, and its truth*). `--at N` opens a replay or a session at update

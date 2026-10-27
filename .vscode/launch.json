@@ -4,7 +4,8 @@
   // directory, where it writes its logs, and the exchange records its requests there
   // (requests.rec); "viewer (replay)" replays the last recording and shows it. The "lockstep"
   // compounds step the matcher through the last recording, one request per Continue, while the viewer
-  // follows (docs/DEBUGGER-LOCKSTEP.md).
+  // follows (docs/DEBUGGER-LOCKSTEP.md). "viewer + the whole market" runs every kind of client live;
+  // "viewer (session)" records a session and shows it with its truth.
   "version": "0.2.0",
   "configurations": [
     {
@@ -23,6 +24,18 @@
       "args": ["--replay", "${workspaceFolder}/build/debug/backend/Chapter12/market.dat"],
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "replay the last recording"
+    },
+    {
+      // A session freshly recorded (the "record a session" task), shown with its truth: who sent each
+      // order, and the slicer's trades in colour beside the book. The slicer's orders are on tickers
+      // 1, 2 and 3; it opens on ticker 1.
+      "name": "viewer (session)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/viewer",
+      "args": ["--session", "${workspaceFolder}/data/sessions/latest", "--ticker", "1"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "record a session"
     },
     {
       // Answers: the assistant's answer to a question, written by fillscope-answer to
@@ -142,6 +155,18 @@
       "cwd": "${workspaceFolder}/build/debug/backend/Chapter12"
     },
     {
+      // The whole market, live: the exchange, the book's market maker, liquidity taker and random
+      // client, and the slicer, as a session records them (record_session.py --live), until stopped.
+      // Its recording and logs go to data/sessions/live. Every program stops with it. 8.5 GB of memory.
+      "name": "the whole market (live)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/tools/sessions/record_session.py",
+      "args": ["${workspaceFolder}/data/sessions/live", "--live"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
       // Client 5 trades at random. It needs the exchange's order port open, which takes the exchange
       // about ten seconds.
       "name": "client (random)",
@@ -157,6 +182,14 @@
     {
       "name": "viewer + exchange + client",
       "configurations": ["viewer", "exchange", "client (random)"],
+      "preLaunchTask": "build",
+      "stopAll": true
+    },
+    {
+      // The viewer live on the whole market: the slicer's trades are there, but live, nothing says
+      // whose they are (record a session, and "viewer (session)", for that).
+      "name": "viewer + the whole market",
+      "configurations": ["viewer", "the whole market (live)"],
       "preLaunchTask": "build",
       "stopAll": true
     },

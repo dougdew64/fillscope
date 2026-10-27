@@ -24,6 +24,16 @@
       "problemMatcher": []
     },
     {
+      // A session of the book's clients and the slicer, recorded and replayed with its truth
+      // (tools/sessions/record_session.py) into data/sessions/latest, which git ignores, replacing
+      // the last: about 40 seconds, and 8.5 GB of memory while it records.
+      "label": "record a session",
+      "type": "shell",
+      "command": "rm -rf data/sessions/latest && python3 -I tools/sessions/record_session.py data/sessions/latest",
+      "dependsOn": "build",
+      "problemMatcher": []
+    },
+    {
       // The course's lessons, each played through the answer tool into build/debug/course/, for the
       // viewer to offer (viewer --course). Only the lessons changed since are played again.
       "label": "build the course",

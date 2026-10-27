@@ -5,7 +5,7 @@
 #
 #   python3 -I tools/sessions/record_session.py OUT_DIR [--exchange EXCHANGE_MAIN] [--trading TRADING_MAIN]
 #       [--replay EXCHANGE_REPLAY] [--order-port PORT] [--incremental GROUP:PORT] [--snapshot GROUP:PORT]
-#       [--at-least CLIENT:REQUESTS]... [--max-seconds SECONDS]
+#       [--at-least CLIENT:REQUESTS]... [--max-seconds SECONDS] [--live]
 #
 # OUT_DIR gets the exchange's recording (requests.rec), the replay's market data (market.dat), steps
 # (steps.bin) and truth (truth.bin), session.json, which says who ran with what settings and each
@@ -13,9 +13,14 @@
 # (docs/CHARTER.md, decision 5), so OUT_DIR may be in this repository only where git ignores it
 # (data/, or build/). The programs are the debug build's unless given; the endpoints are the book's
 # unless given. It records until the slicer has sent its every piece, and cancelled it (it cancels
-# each piece once accepted), and each --at-least client
-# has sent that many requests, then stops every program and replays; it fails, saying why, if that
-# takes more than --max-seconds (120 by default) or a program exits.
+# each piece once accepted), and each --at-least client has sent that many requests, then stops
+# every program and replays; it fails, saying why, if that takes more than --max-seconds (120 by
+# default) or a program exits.
+#
+# With --live, it starts the same market and leaves it running for a viewer to watch live, until it
+# is stopped (or a program exits: the random client sends its last order after about 7 minutes, and
+# the book's clients stop a minute after the market goes quiet); it replays nothing, and OUT_DIR
+# gets only the recording and the logs. Every program dies with it, however it is stopped.
 import argparse
 import ctypes
 import json
@@ -141,6 +146,7 @@ def parse_args():
     parser.add_argument("--snapshot")
     parser.add_argument("--at-least", action="append", default=[], metavar="CLIENT:REQUESTS")
     parser.add_argument("--max-seconds", type=float, default=120.0)
+    parser.add_argument("--live", action="store_true", help="leave the market running until stopped; replay nothing")
     args = parser.parse_args()
     args.wanted = {}
     for item in args.at_least:
@@ -227,6 +233,14 @@ def main():
         for client in clients:
             if client["strategy"] == "RANDOM":
                 start_client(client)
+        if args.live:
+            say(f"live: the exchange and clients {', '.join(str(c['client']) for c in clients)}, on "
+                f"{'the book' + chr(39) + 's endpoints' if not endpoints else 'the endpoints given'}, until stopped")
+            # Stopped by a signal, as a debugger stops it: out through the `finally` below.
+            signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+            while True:
+                check_running()
+                time.sleep(0.5)
         # The slicer writes its plans as it starts, before it connects to anything; read again each
         # time, since it may be read while being written, before the slicer could have sent anything.
         plan_file = out / f"slicer-{SLICER}.plan"
