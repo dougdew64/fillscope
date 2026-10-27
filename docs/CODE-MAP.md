@@ -45,7 +45,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The code map's check | `tools/code_map/` | this document's opening | |
 | The build, and the editor's configurations | `CMakeLists.txt`, `.vscode/`, `.gitignore`, `.gitmodules` | not yet; how to use them is in [RUNNING.md](RUNNING.md) | |
 | CI | `.github/` | §9 (in part) | |
-| The tests, by area | `tests/answer/`, `tests/feed/`, `tests/viewer/`, `tests/common/`, `tests/docs/`, `tests/support/`, `tests/vscode-debug-state/`, `tests/attribution/`, `tests/code_map/`, `tests/backend/backend_system_test.py`, `tests/*/CMakeLists.txt` | §9; §10, *The demos* (`tests/viewer/viewer_demo.cpp`) | 2026-10-26: how the demos are made: a program of their own, driven through the Test Engine, recorded by a flag |
+| The tests, by area | `tests/answer/`, `tests/feed/`, `tests/viewer/`, `tests/common/`, `tests/docs/`, `tests/support/`, `tests/vscode-debug-state/`, `tests/attribution/`, `tests/code_map/`, `tests/backend/backend_system_test.py`, `tests/backend/strategy_system_test.cpp`, `tests/*/CMakeLists.txt` | §9; §10, *The demos* (`tests/viewer/viewer_demo.cpp`) | 2026-10-26: how the demos are made: a program of their own, driven through the Test Engine, recorded by a flag |
 | The debugger tests | `tests/backend/replay_debugger_test.cpp`, `tests/backend/replay_lldb_driver.py` | §6, *What keeps both working*; [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md) | |
 | The test machinery: registration, selection, the checks of the tests | `tests/CMakeLists.txt`, `tests/scripts/*.py`, `tests/scripts/run-tests.sh` | §9, *Three times the tests run*, *Whether the tests can be trusted*, *Why a mutation check, and what it costs*; [RUNNING.md](RUNNING.md) | 2026-10-24: why there is a mutation check, why it costs so much here, and why a very large codebase couldn't run one this way; how a mutant begins life, finds its place, and is deleted; where the test programs are, what CTest is beside GoogleTest, what `RUN_ALL_TESTS` returns, and what `last-pass.json` records; 2026-10-25: whether the selection check decides which programs run |
 
@@ -62,8 +62,8 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The trading client program | `trading/trading_main.cpp` | §1, *Three programs*, *Why the first orders take about twelve seconds* (in part) | 2026-10-24: what the client is, and why it is a program apart from the viewer; why it waits before trading; how to stop it |
 | The client's market data consumer | `trading/market_data/` | not yet | |
 | The client's order gateway | `trading/order_gw/` | not yet | |
-| The client's trade engine, and its strategies | `trading/strategy/trade_engine.*`, `trading/strategy/feature_engine.h`, `trading/strategy/liquidity_taker.*`, `trading/strategy/market_maker.*` | not yet | |
-| The client's copy of the books | `trading/strategy/market_order*` | not yet | |
+| The client's trade engine, and its strategies | `trading/strategy/trade_engine.*`, `trading/strategy/feature_engine.h`, `trading/strategy/liquidity_taker.*`, `trading/strategy/market_maker.*` | §1, *The book's strategies* | |
+| The client's copy of the books | `trading/strategy/market_order*` | §1, *The book's strategies* (in part); the fork's fixes in the back end's README ([backend/README.md](../backend/README.md)) | |
 | The client's orders, risk and position | `trading/strategy/om_order.h`, `trading/strategy/order_manager.*`, `trading/strategy/risk_manager.*`, `trading/strategy/position_keeper.h` | not yet | |
 | The lock-free queue between threads | `common/lf_queue*` | §1, *How the exchange's threads hand each other work* | 2026-10-24: how it works, what happens when one is full, and what to do about it |
 | Memory pools | `common/mem_pool*`, `common/opt_mem_pool.h` | §1, *Why the first orders take about twelve seconds* (in part) | 2026-10-24: why starting takes seconds |

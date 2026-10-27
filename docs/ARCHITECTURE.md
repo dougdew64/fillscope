@@ -54,6 +54,32 @@ doesn't know it is there. Without a client, the exchange's books stay empty. Wit
 the market runs unseen. A replay (§3) needs no client: the recording plays back the requests the
 clients sent.
 
+**The book's strategies.** A trading client runs one of three: `RANDOM`, above; `MAKER`, a market
+maker; or `TAKER`, a liquidity taker (`trading/strategy/` in the fork). The other two take, on the
+command line, each ticker's clip (the size of every order), threshold, and risk limits, as
+`scripts/run_clients.sh` there shows. Each decides only when a market update arrives, from its own
+copy of the books, and keeps at most one order a side on each ticker: wanting a different price, it
+cancels its order and, once the cancel is confirmed, sends a new one, if the risk check allows.
+- **The market maker,** after any add, modify or cancel on a ticker with both sides quoted, quotes
+  a bid and an ask of its clip there. Its fair price is the best bid and ask, each weighted by the
+  quantity on the other side, so it leans toward the thinner side. It bids at the best bid if the
+  fair price is at least its threshold above it, and a tick lower if not; it asks at the best ask,
+  or a tick higher, the same way.
+- **The liquidity taker,** after a trade on a ticker with both sides quoted, divides the trade's
+  quantity by the best quantity on the side it took from. At its threshold or more, it trades its
+  clip the same way, at the best price opposite, and cancels anything it has on the other side: a
+  large trade is taken as a sign more will follow.
+
+`strategy_system_tests` (`tests/backend/strategy_system_test.cpp`) runs both against the real
+exchange, with the book's settings and the random client as the flow, and checks every order each
+sends against these rules, on the market as Fillscope's own books rebuild it. The recording, replayed,
+says where each request came in the market data, and a client's decisions come in order, each before
+the request it led to; so each request must be the rule's at some update since the one its last
+request was, and before its own. Building it found three defects in the client's copy of the books,
+fixed in the fork (its README lists them): the first order on an empty side didn't set that side's
+best price, a clear (how a client recovering from a snapshot starts) left the old best prices and
+its table of levels by price pointing at freed levels, and the book's tables started uninitialized.
+
 **How the exchange's threads hand each other work.** Each part of the exchange runs on a thread of
 its own: the order server reads the clients' requests, the matcher processes them, and the
 publisher sends the market data. Between each pair is a queue (`common/lf_queue.h`): a ring of
@@ -663,8 +689,10 @@ tests run the whole loop above with real clicks through the Dear ImGui Test Engi
 or GPU, including reading real multicast streams and moving through a replay (`viewer_ui_tests`).
 Lockstep on a replay is tested under GDB and LLDB (`replay_debugger_tests`). The back end's own
 tests are in the fork (`backend/Chapter12/tests/`): `lowlatency_tests`, the matching, the market
-data, recording and replay, the order server, the queue, its sockets; and
-`lowlatency_allocation_tests`, what must not allocate. The test machinery is tested too
+data, recording and replay, the order server, the queue, its sockets, the client's copy of the
+books; and `lowlatency_allocation_tests`, what must not allocate. The book's market maker and
+liquidity taker are checked against their rules on the real exchange (`strategy_system_tests`, §1,
+*The book's strategies*). The test machinery is tested too
 (`scripts_tests`, below).
 
 ### The pieces of a test run

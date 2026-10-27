@@ -1,5 +1,5 @@
 // Helpers shared by the tests: shell commands, ports of a test's own, sending to a multicast group,
-// and running a back-end program.
+// running a back-end program, and a directory of a test's own.
 #pragma once
 
 #include <arpa/inet.h>
@@ -148,6 +148,40 @@ public:
 private:
     pid_t pid_ = -1;
     bool started_ = false;
+};
+
+// Runs a program in `directory` to its end, its output discarded; its exit status, or -1.
+inline int run_to_exit(const std::vector<std::string>& argv, const std::filesystem::path& directory) {
+    std::vector<char*> args;
+    for (const auto& arg : argv) {
+        args.push_back(const_cast<char*>(arg.c_str()));
+    }
+    args.push_back(nullptr);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addchdir_np(&actions, directory.c_str());
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+    pid_t pid = -1;
+    const bool started = posix_spawn(&pid, args[0], &actions, nullptr, args.data(), environ) == 0;
+    posix_spawn_file_actions_destroy(&actions);
+    int status = 0;
+    return started && ::waitpid(pid, &status, 0) == pid && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+// A directory of the test's own in the temporary directory, `prefix-PID`, removed however the test
+// ends (but a test killed outright leaves it).
+struct TemporaryDirectory {
+    explicit TemporaryDirectory(std::string_view prefix)
+        : path{std::filesystem::temp_directory_path() / (std::string{prefix} + "-" + std::to_string(::getpid()))} {
+        std::filesystem::create_directories(path);
+    }
+    ~TemporaryDirectory() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
+    }
+    TemporaryDirectory(const TemporaryDirectory&) = delete;
+    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
+    const std::filesystem::path path;
 };
 
 }  // namespace fillscope::test

@@ -23,6 +23,19 @@ fillscope_test_program(backend_system_tests system
 # memory, so one test at a time may (feed_system_tests too).
 set_tests_properties(backend_system_tests PROPERTIES RESOURCE_LOCK exchange)
 
+# The book's market maker and liquidity taker against the real exchange, every order checked against
+# their rules (strategy_system_test.cpp). The system tier: it runs an exchange and three clients, on
+# ports of its own, and holds the exchange's lock.
+add_executable(strategy_system_tests strategy_system_test.cpp)
+target_link_libraries(strategy_system_tests PRIVATE fillscope_answer fillscope_feed GTest::gtest)
+target_include_directories(strategy_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+target_compile_options(strategy_system_tests PRIVATE ${FILLSCOPE_WARNINGS})
+fillscope_test_program(strategy_system_tests system
+  COMMAND $<TARGET_FILE:strategy_system_tests> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>
+          $<TARGET_FILE:exchange_replay>
+  RUNTIME_DEPS $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay>)
+set_tests_properties(strategy_system_tests PROPERTIES RESOURCE_LOCK exchange)
+
 # Debugger lockstep with the matcher, on a replay (replay_debugger_test.cpp): exchange_replay under GDB
 # and LLDB. Also exchange_replay with the anchor and everything it uses built at -O2, to check the
 # anchor survives optimization (docs/DEBUGGER-LOCKSTEP.md, rule 1); without the sanitizers, whose own

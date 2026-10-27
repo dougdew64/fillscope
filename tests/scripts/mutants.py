@@ -86,6 +86,11 @@ RECORDING = "backend/Chapter12/exchange/matcher/request_recording.cpp"
 CLIENT_REQUEST = "backend/Chapter12/exchange/order_server/client_request.h"
 ORDER_SERVER = "backend/Chapter12/exchange/order_server/order_server.h"
 ORDER_MANAGER = "backend/Chapter12/trading/strategy/order_manager.h"
+MARKET_MAKER = "backend/Chapter12/trading/strategy/market_maker.h"
+LIQUIDITY_TAKER = "backend/Chapter12/trading/strategy/liquidity_taker.h"
+FEATURE_ENGINE = "backend/Chapter12/trading/strategy/feature_engine.h"
+CLIENT_BOOK = "backend/Chapter12/trading/strategy/market_order_book.cpp"
+CLIENT_BOOK_HEADER = "backend/Chapter12/trading/strategy/market_order_book.h"
 MATCHING_ENGINE = "backend/Chapter12/exchange/matcher/matching_engine.h"
 REPLAY_MAIN = "backend/Chapter12/exchange/exchange_replay.cpp"
 REQUEST_ANCHOR = "backend/Chapter12/exchange/matcher/lockstep_anchor.cpp"
@@ -211,6 +216,41 @@ MUTANTS = [
     ("the system tier's timeout is one second", "tests/CMakeLists.txt",
      [("set(FILLSCOPE_TIMEOUT_system 120)", "set(FILLSCOPE_TIMEOUT_system 1)")],
      "backend_system_tests"),
+    # The book's market maker and liquidity taker, against the real exchange: every order each sends
+    # is checked against its rules (strategy_system_test.cpp).
+    ("the market maker's bid steps back when its fair price is far enough", MARKET_MAKER,
+     [("fair_price - bbo->bid_price_ >= threshold ? 0 : 1", "fair_price - bbo->bid_price_ >= threshold ? 1 : 0")],
+     "strategy_system_tests"),
+    ("the market maker's ask is a tick inside", MARKET_MAKER,
+     [("const auto ask_price = bbo->ask_price_ + (", "const auto ask_price = bbo->ask_price_ - (")],
+     "strategy_system_tests"),
+    ("the liquidity taker buys at the best bid", LIQUIDITY_TAKER,
+     [("order_manager_->moveOrders(market_update->ticker_id_, bbo->ask_price_, Price_INVALID, clip);",
+       "order_manager_->moveOrders(market_update->ticker_id_, bbo->bid_price_, Price_INVALID, clip);")],
+     "strategy_system_tests"),
+    ("the liquidity taker ignores its threshold", LIQUIDITY_TAKER,
+     [("        if (agg_qty_ratio >= threshold) {", "        if (agg_qty_ratio >= 0 * threshold) {")],
+     "strategy_system_tests"),
+    ("a trade is compared with the quantity on its own side", FEATURE_ENGINE,
+     [("(market_update->side_ == Side::BUY ? bbo->ask_qty_ : bbo->bid_qty_)",
+       "(market_update->side_ == Side::BUY ? bbo->bid_qty_ : bbo->ask_qty_)")],
+     "strategy_system_tests"),
+    # The client's book (market_order_book.h), fixed in the fork, caught by its own tests.
+    ("the first order on an empty side isn't its best", CLIENT_BOOK,
+     [("(!bids_by_price_ || market_update->price_ >= bids_by_price_->price_)",
+       "(bids_by_price_ && market_update->price_ >= bids_by_price_->price_)")],
+     "lowlatency:MarketOrderBook.TheFirstOrderOnAnEmptySideIsItsBest:MarketOrderBook.ASideEmptiedAndRefilledHasItsNewBest"),
+    ("a clear leaves the best prices standing", CLIENT_BOOK,
+     [("    const auto is_clear = market_update->type_ == Exchange::MarketUpdateType::CLEAR;",
+       "    const auto is_clear = false;")],
+     "lowlatency:MarketOrderBook.AClearLeavesNoBestAndASnapshotsOrdersSetIt"),
+    ("a clear leaves its freed levels found by price", CLIENT_BOOK,
+     [("        price_orders_at_price_.fill(nullptr);\n", "")],
+     "lowlatency:MarketOrderBook.APriceUsedBeforeAClearStartsANewLevelAfterIt"),
+    ("the client's book starts with whatever its memory held", CLIENT_BOOK_HEADER,
+     [("    OrderHashMap oid_to_order_{};", "    OrderHashMap oid_to_order_;"),
+      ("    OrdersAtPriceHashMap price_orders_at_price_{};", "    OrdersAtPriceHashMap price_orders_at_price_;")],
+     "lowlatency:MarketOrderBook.*"),
     # The back end's matching and market data, caught by its own tests (one CTest test runs them).
     ("a buy doesn't trade at the ask's price", BOOK,
      [("        if (LIKELY(price < ask_itr->price_)) {", "        if (LIKELY(price <= ask_itr->price_)) {")],

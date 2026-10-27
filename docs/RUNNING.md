@@ -103,8 +103,9 @@ the slower program adds the tier to its name.
 - **`lowlatency_tests` (GoogleTest, `system`, the whole program as one test):** the back end's own
   tests, in the fork (`backend/Chapter12/tests/`): the market data's layout on the wire, the
   matching (price-time priority, partial fills, sweeps, cancels), the incremental feed's sequence
-  numbers, a snapshot's content and its interval, recording and replaying requests, and the order
-  server refusing what the matcher can't process. One process for them all, about 3 s and 4.3 GB (about 20 s in the sanitizer build):
+  numbers, a snapshot's content and its interval, recording and replaying requests, the order
+  server refusing what the matcher can't process, and the trading client's copy of the books (its
+  best bid and ask, through a clear). One process for them all, about 3 s and 4.3 GB (about 20 s in the sanitizer build):
   the exchange's objects take gigabytes to make. The fork's own CI runs them too.
 - **`lowlatency_allocation_tests` (GoogleTest, `system`, the whole program as one test):** in the
   fork too: what must not allocate (a queue's write and read, a memory pool's allocate and release,
@@ -122,6 +123,14 @@ the slower program adds the tier to its name.
   (`--order-port`, `--snapshot`, `--incremental`) among them, and the client a bad
   `--warm-up-seconds`. Its client warms up for a second rather than the book's 10, and its first
   market update must arrive within 9 s, so a warm-up the client ignored fails it.
+- **`strategy_system_tests` (GoogleTest, `system`, the whole program as one test):** the book's
+  market maker and liquidity taker, with its own settings, run against the real exchange beside
+  the random client until each has sent enough (300 requests from the maker, 20 from the taker);
+  the exchange's recording, replayed with `--steps`, then says where each request came in the market
+  data, and every request of the two is checked against its strategy's rule on the market as
+  Fillscope's books rebuild it (ARCHITECTURE.md, §1, *The book's strategies*). About 30 s in either
+  build, the clients trading at their own pace. The exchange and the clients run on the test's own
+  ports.
 - **`replay_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** lockstep on a replay: `exchange_replay`, publishing a three-request recording on a
   group of the test's own, under GDB and LLDB, by breakpoint and by self-stop, at `-O0` and `-O2`;

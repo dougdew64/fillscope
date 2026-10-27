@@ -63,34 +63,7 @@ std::vector<std::string> with_endpoints(std::vector<std::string> args) {
 
 bool order_port_open() { return test::tcp_port_open(kOrderPort); }
 
-// A directory of the test's own, removed however the test ends.
-struct TemporaryDirectory {
-    TemporaryDirectory() { std::filesystem::create_directories(path); }
-    ~TemporaryDirectory() { std::filesystem::remove_all(path); }
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / std::format("fillscope-feed-{}", ::getpid());
-};
-
 using test::Program;
-
-// Runs a program in `directory` to its end; its exit status, or -1.
-int run_to_exit(const std::vector<std::string>& argv, const std::filesystem::path& directory) {
-    std::vector<char*> args;
-    for (const auto& arg : argv) {
-        args.push_back(const_cast<char*>(arg.c_str()));
-    }
-    args.push_back(nullptr);
-    posix_spawn_file_actions_t actions;
-    posix_spawn_file_actions_init(&actions);
-    posix_spawn_file_actions_addchdir_np(&actions, directory.c_str());
-    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
-    pid_t pid = -1;
-    const bool started = posix_spawn(&pid, args[0], &actions, nullptr, args.data(), environ) == 0;
-    posix_spawn_file_actions_destroy(&actions);
-    int status = 0;
-    return started && ::waitpid(pid, &status, 0) == pid && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-}
 
 // What arrived, in the order it arrived.
 struct Arrival {
@@ -125,7 +98,7 @@ std::vector<std::vector<MarketUpdate>> whole_snapshots(const std::vector<Arrival
 
 TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsALateReaderRecoversAndTheRecordingReplays) {
     ASSERT_FALSE(order_port_open()) << "something is already listening on this test's order port, " << kOrderPort;
-    const TemporaryDirectory temporary;
+    const test::TemporaryDirectory temporary{"fillscope-feed"};
     const std::filesystem::path& directory = temporary.path;
 
     auto incremental = FeedSocket::join(kIncremental);
@@ -181,7 +154,7 @@ TEST(FeedAgainstTheExchange, BooksEqualTheExchangesSnapshotsALateReaderRecoversA
     // The recording, replayed. The exchange was killed while running, so the recording may hold
     // requests whose updates were published after the test stopped listening: the replay may be
     // longer, and must match everything that arrived.
-    ASSERT_EQ(run_to_exit({g_replay, "requests.rec", "market.dat"}, directory), 0);
+    ASSERT_EQ(test::run_to_exit({g_replay, "requests.rec", "market.dat"}, directory), 0);
     const auto replayed = read_market_data_file(directory / "market.dat");
     ASSERT_TRUE(replayed) << replayed.error();
 

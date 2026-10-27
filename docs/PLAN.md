@@ -479,6 +479,17 @@ in, and tested like the rest of the fork; what is found is fixed in the fork.
 its rules, given the market data it received: the maker quoting at the best prices, a tick back
 when its fair price is within its threshold; the taker sending its clip when a trade passes its
 threshold.
+**Status:** done (2026-10-26). `strategy_system_tests` (`tests/backend/strategy_system_test.cpp`)
+runs the market maker (client 1) and the liquidity taker (client 3), with the book's own settings,
+beside the random client, and checks each request of theirs against their rules, on the market as
+Fillscope's books rebuild it from the recording's replay ([ARCHITECTURE.md](ARCHITECTURE.md), §1,
+*The book's strategies*). A run checks about 160 of the maker's new orders, on all eight tickers,
+and 140 cancels, and about 45 of the taker's new orders and 30 cancels; it takes about 30 s, in
+either build, the clients trading at their own pace. Found and fixed in the fork, each with a test
+that failed first: the client's copy of the books didn't set an empty side's best price from its
+first order, a clear left the old best prices and its table of levels by price pointing at freed
+levels, and its tables started uninitialized. Checked by 9 mutants: five wrong rules in the
+strategies, caught by the system test, and each of the book's fixes undone, caught by its tests.
 
 ### 22. The ground truth
 Replaying a recording also writes who sent what: each order id with its client, and each trade with
