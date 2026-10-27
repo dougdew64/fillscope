@@ -479,7 +479,7 @@ in, and tested like the rest of the fork; what is found is fixed in the fork.
 its rules, given the market data it received: the maker quoting at the best prices, a tick back
 when its fair price is within its threshold; the taker sending its clip when a trade passes its
 threshold.
-**Status:** done (2026-10-26). `strategy_system_tests` (`tests/backend/strategy_system_test.cpp`)
+**Status:** done (2026-10-26). `session_system_tests` (`tests/backend/session_system_test.cpp`)
 runs the market maker (client 1) and the liquidity taker (client 3), with the book's own settings,
 beside the random client, and checks each request of theirs against their rules, on the market as
 Fillscope's books rebuild it from the recording's replay ([ARCHITECTURE.md](ARCHITECTURE.md), §1,
@@ -502,7 +502,7 @@ the format is in [ARCHITECTURE.md](ARCHITECTURE.md).
 responses; `read_truth_file` (`src/truth/truth.h`, a library the feed doesn't link) reads it
 ([ARCHITECTURE.md](ARCHITECTURE.md), §3, *A replay's truth*). Each trade has both its sides: the
 incoming order's client and the resting one's, since a slicer's piece may rest and be met as well
-as take. `strategy_system_tests` checks the truth of its session of the maker, the taker and the
+as take. `session_system_tests` checks the truth of its session of the maker, the taker and the
 random client (about 770 orders and 340 trades, every client on a side of some) against the
 recording's requests, worked out without the responses the truth came from. Checked too by the
 fork's tests (the truth of a replay; a request meeting two resting orders, each trade with its own
@@ -522,7 +522,7 @@ book's clients ([ARCHITECTURE.md](ARCHITECTURE.md), §1, *The planted slicer*, *
 Its gaps are counted in market updates on its ticker, since the data has no time and the viewer's
 axis is the update number. The kinds are options that combine (`--gap-jitter`, `--size-spread`), and
 one slicer client works an order of each kind, one per ticker: six clients took 11.7 GB, against
-8.5 GB for four, with CI's runner at 16 GB. `strategy_system_tests` records the session and checks
+8.5 GB for four, with CI's runner at 16 GB. `session_system_tests` records the session and checks
 each order sent exactly as planned, piece by piece, and each piece its gap after the last, up to the
 updates it was on its way, which don't add up; the truth marking exactly the slicer's trades (about
 150 of 550); and a second replay, byte for byte. The fork's tests check the slicer's plan, its

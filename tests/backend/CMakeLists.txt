@@ -6,7 +6,7 @@
 # about 3 s, but about 20 s in the sanitizer build.
 fillscope_test_program(lowlatency_tests system COMMAND $<TARGET_FILE:lowlatency_tests>)
 # Its matching engine and client's engine take 4.3 GB, 7.9 GB in the sanitizer build: with a session
-# of the exchange and its clients beside it (strategy_system_tests, 8.5 GB measured), CI's 16 GB would
+# of the exchange and its clients beside it (session_system_tests, 8.5 GB measured), CI's 16 GB would
 # run out, so it holds the lock those tests hold.
 set_tests_properties(lowlatency_tests PROPERTIES RESOURCE_LOCK exchange)
 
@@ -29,15 +29,15 @@ set_tests_properties(backend_system_tests PROPERTIES RESOURCE_LOCK exchange)
 
 # A session of every kind of client, recorded by tools/sessions/record_session.py: the book's market
 # maker and liquidity taker checked against their rules, the slicers against their plans, and the
-# replay's truth and the replay itself (strategy_system_test.cpp). The system tier: it runs an
+# replay's truth and the replay itself (session_system_test.cpp). The system tier: it runs an
 # exchange and four clients, on ports of its own, and holds the exchange's lock.
-add_executable(strategy_system_tests strategy_system_test.cpp)
-target_link_libraries(strategy_system_tests PRIVATE fillscope_answer fillscope_feed fillscope_truth GTest::gtest)
-target_include_directories(strategy_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
-target_compile_options(strategy_system_tests PRIVATE ${FILLSCOPE_WARNINGS})
+add_executable(session_system_tests session_system_test.cpp)
+target_link_libraries(session_system_tests PRIVATE fillscope_answer fillscope_feed fillscope_truth GTest::gtest)
+target_include_directories(session_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+target_compile_options(session_system_tests PRIVATE ${FILLSCOPE_WARNINGS})
 set(record_session ${PROJECT_SOURCE_DIR}/tools/sessions/record_session.py)
-fillscope_test_program(strategy_system_tests system
-  COMMAND $<TARGET_FILE:strategy_system_tests> ${Python3_EXECUTABLE} ${record_session} $<TARGET_FILE:exchange_main>
+fillscope_test_program(session_system_tests system
+  COMMAND $<TARGET_FILE:session_system_tests> ${Python3_EXECUTABLE} ${record_session} $<TARGET_FILE:exchange_main>
           $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay>
   RUNTIME_DEPS ${record_session} $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay>
                ${Python3_EXECUTABLE})
@@ -46,7 +46,7 @@ fillscope_test_program(strategy_system_tests system
 # test still shared its core with spinning threads, and the chip, held at its power limit, slowed
 # every core's clock: three sanitizer-build tests timed out in each of two runs with it, none in two
 # without (2026-10-27); kept to one core, one still did. Alone, it adds its own time to a run's.
-set_tests_properties(strategy_system_tests PROPERTIES RESOURCE_LOCK exchange RUN_SERIAL TRUE)
+set_tests_properties(session_system_tests PROPERTIES RESOURCE_LOCK exchange RUN_SERIAL TRUE)
 
 # Debugger lockstep with the matcher, on a replay (replay_debugger_test.cpp): exchange_replay under GDB
 # and LLDB. Also exchange_replay with the anchor and everything it uses built at -O2, to check the

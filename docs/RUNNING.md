@@ -126,7 +126,7 @@ the slower program adds the tier to its name.
   `--warm-up-seconds`, a slicer without its order or with one it can't slice, and the slicer's options
   given to another strategy. Its client warms up for a second rather than the book's 10, and its first
   market update must arrive within 9 s, so a warm-up the client ignored fails it.
-- **`strategy_system_tests` (GoogleTest, `system`, the whole program as one test):** a session of
+- **`session_system_tests` (GoogleTest, `system`, the whole program as one test):** a session of
   every kind of client, recorded by `tools/sessions/record_session.py` (*Record a session*, below)
   until the maker has sent 300 requests, the taker 20, and the slicer its three orders, then
   replayed. Every request of the maker's and the taker's is checked against its strategy's rule on
@@ -135,7 +135,10 @@ the slower program adds the tier to its name.
   recording's requests, and the slicer's trades as the truth marks them (§3, *A replay's truth*);
   and the recording replayed again, byte for byte. The session is recorded once for all of them;
   about 40 s in either build, the clients trading at their own pace. The exchange and the clients
-  run on the test's own ports.
+  run on the test's own ports, at the lowest priority, and CTest runs it with no other test beside
+  it: its programs spin, about 8 CPUs' worth, and beside it time-limited tests timed out
+  (why: TROUBLESHOOTING.md, case 2; its first section explains each of the five checks). Named
+  `strategy_system_tests` until 2026-10-27.
 - **`truth_tests` (GoogleTest, `unit`):** reading a replay's truth: a file built byte by byte from
   its layout read back, an order's client found by its ticker and id, a trade by its update, and
   every way a file is refused (cut short anywhere, bytes left over, an order named twice, trades

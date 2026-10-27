@@ -1,7 +1,7 @@
 // A recorded session made by hand for the viewer's tests (viewer/session_truth.h): its market data,
 // its truth and its session.json, as tools/sessions/record_session.py and the back end's replay
 // would write them, from updates and a truth given here. The truth must be what the back end would
-// have said of those updates; strategy_system_tests checks it does, on a real session.
+// have said of those updates; session_system_tests checks it does, on a real session.
 #pragma once
 
 #include "feed/market_update.h"

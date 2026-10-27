@@ -13,8 +13,9 @@ from here. [CODE-MAP.md](CODE-MAP.md) lists every part of the code, where it is 
 and what the owner has asked about it, so what is not yet explained shows.
 
 Facts owned elsewhere are linked, not repeated: the debugger's rules in
-[DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md), commands and tests in [RUNNING.md](RUNNING.md), why
-things were decided in [DECISIONS.md](DECISIONS.md), the back end's own changes and known issues in
+[DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md), commands and tests in [RUNNING.md](RUNNING.md), how
+problems with the tests and the system were tracked down in [TROUBLESHOOTING.md](TROUBLESHOOTING.md),
+why things were decided in [DECISIONS.md](DECISIONS.md), the back end's own changes and known issues in
 its README (`backend/README.md`).
 
 Today the viewer shows the live order books of the back end, a fork of the trading system in
@@ -88,8 +89,9 @@ cancels its order and, once the cancel is confirmed, sends a new one, if the ris
   clip the same way, at the best price opposite, and cancels anything it has on the other side: a
   large trade is taken as a sign more will follow.
 
-`strategy_system_tests` (`tests/backend/strategy_system_test.cpp`) runs both against the real
-exchange, with the book's settings and the random client as the flow, and checks every order each
+`session_system_tests` (`tests/backend/session_system_test.cpp`; named `strategy_system_tests`
+until 2026-10-27, when it had grown from checking these strategies to checking a whole session)
+runs both against the real exchange, with the book's settings and the random client as the flow, and checks every order each
 sends against these rules, on the market as Fillscope's own books rebuild it. The recording, replayed,
 says where each request came in the market data, and a client's decisions come in order, each before
 the request it led to; so each request must be the rule's at some update since the one its last
@@ -147,7 +149,7 @@ which the book's client stops for want of market data, as a session's market mak
 data, never committed (the [charter](CHARTER.md), decision 5), so the script writes only outside the
 repository or where git ignores it.
 
-`strategy_system_tests` records one session and checks, besides the maker's and the taker's rules
+`session_system_tests` records one session and checks, besides the maker's and the taker's rules
 and the truth (§3, *A replay's truth*): that each order was sent exactly as planned, its pieces'
 sizes in order and no more; that each piece came its gap after the one before; that the truth marks
 exactly the slicer's trades, about 150 of 550, as the recording says, worked out without the truth; and that
@@ -357,7 +359,7 @@ format is in the back end's `exchange/matcher/replay.h`. `read_truth_file` reads
 that finds an order's client by its ticker and id, and a trade by its update. It is a library of
 its own, `fillscope_truth`, which nothing in `src/feed/` links: what Fillscope works out from the
 market data can't come from the truth by mistake. It is read only to show what really happened in a
-replay and, once there is a detector, to score it. `strategy_system_tests` checks the truth of a
+replay and, once there is a detector, to score it. `session_system_tests` checks the truth of a
 session of every kind of client against the recording's requests, worked out without the responses
 the truth came from: the matcher numbers each ticker's orders 1, 2, 3, ... in the order it accepts
 them, and it accepts every new order; a request's updates are those its step says it made; and a
@@ -801,7 +803,10 @@ between edits, little else); be trusted when they pass, which means each must be
 give the same answer however many runs, debugger sessions and exchanges share the machine. Most of
 the tests are written by an AI, and the charter trusts AI output only through checks independent
 of the AI ([AI-USE.md](AI-USE.md)), so the tests are themselves checked, mechanically. Commands,
-tiers and timings are in [RUNNING.md](RUNNING.md); this chapter is how and why it works.
+tiers and timings are in [RUNNING.md](RUNNING.md); this chapter is how and why it works. How the
+problems the tests have met were tracked down, step by step, with the experiments and commands that
+narrowed each one, is in [TROUBLESHOOTING.md](TROUBLESHOOTING.md): a test that fails now and then,
+CI past its time limit, windows where none should be, the machine out of memory.
 
 ### What is tested, and where
 Each area's tests are in the matching `tests/` directory. The feed's unit tests check decoding, the
@@ -815,7 +820,7 @@ Lockstep on a replay is tested under GDB and LLDB (`replay_debugger_tests`). The
 tests are in the fork (`backend/Chapter12/tests/`): `lowlatency_tests`, the matching, the market
 data, recording and replay, the order server, the queue, its sockets, the client's copy of the
 books; and `lowlatency_allocation_tests`, what must not allocate. The book's market maker and
-liquidity taker are checked against their rules on the real exchange (`strategy_system_tests`, §1,
+liquidity taker are checked against their rules on the real exchange (`session_system_tests`, §1,
 *The book's strategies*), and the same session's truth against its requests (§3, *A replay's
 truth*); reading a truth file has unit tests (`truth_tests`). The test machinery is tested too
 (`scripts_tests`, below).

@@ -36,7 +36,7 @@ VIEWER_PROGRAM = {"viewer_program_tests"}
 ALL = {"common_tests", "docs_tests",
        "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
        "lowlatency_allocation_tests", "feed_tests", "time_shift_tests", "kept_file_tests",
-       "feed_system_tests", "replay_debugger_tests", "strategy_system_tests", "truth_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP | ANSWER | DEMO | VIEWER_PROGRAM
+       "feed_system_tests", "replay_debugger_tests", "session_system_tests", "truth_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP | ANSWER | DEMO | VIEWER_PROGRAM
 # The programs iterate.py runs every time, affected or not.
 ALWAYS = {"docs_tests", "attribution_report_check", "code_map_check"}
 
@@ -61,7 +61,7 @@ CASES = [
     # Fd, so everything that links them is affected, and the helpers' own tests.
     ("src/common/fd.h", CPP_PROBE,
      {"common_tests", "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "feed_tests", "kept_file_tests", "feed_system_tests",
-      "strategy_system_tests"}
+      "session_system_tests"}
      | ANSWER
      | DEMO | VIEWER_PROGRAM),
     # The viewer's core is linked by the viewer, its test programs and its demos, and by nothing else.
@@ -71,18 +71,18 @@ CASES = [
     # A replay's truth: read by its own tests, the system test that checks a session's, and the
     # viewer, which shows a session's (and its tests and demos).
     ("src/truth/truth.cpp", CPP_PROBE,
-     {"truth_tests", "strategy_system_tests", "viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
+     {"truth_tests", "session_system_tests", "viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
     # The simulated exchange: the tests of what is kept, and the UI test of a long replay.
     ("tests/feed/simulated_exchange.h", CPP_PROBE, {"time_shift_tests", "kept_file_tests", "viewer_ui_tests"}),
     # The books: Fillscope's reading of the market data, which the viewer (its log's events among
     # it), the answer tool and the system tests link.
     ("src/feed/book_builder.cpp", CPP_PROBE,
      {"feed_tests", "time_shift_tests", "kept_file_tests", "feed_system_tests", "viewer_tests", "viewer_log_tests",
-      "viewer_ui_tests", "strategy_system_tests"}
+      "viewer_ui_tests", "session_system_tests"}
      | ANSWER | DEMO | VIEWER_PROGRAM),
     ("tests/support/test_support.h", CPP_PROBE,
      {"feed_tests", "feed_system_tests", "viewer_ui_tests", "replay_debugger_tests", "answer_system_tests",
-      "course_system_tests", "strategy_system_tests", "truth_tests", "viewer_tests"} | DEMO),
+      "course_system_tests", "session_system_tests", "truth_tests", "viewer_tests"} | DEMO),
     ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
     ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
     ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
@@ -92,7 +92,7 @@ CASES = [
     # Reaches its programs only as a run-time file: the replay binary they start.
     ("backend/Chapter12/exchange/exchange_replay.cpp", CPP_PROBE,
      {"feed_system_tests", "replay_debugger_tests", "answer_system_tests", "course_system_tests", "viewer_demo",
-      "strategy_system_tests"}),
+      "session_system_tests"}),
     ("tools/vscode-debug-state/tsconfig.json", JS_PROBE, EXTENSION),
     ("tools/attribution/attribution.py", TEXT_PROBE, ATTRIBUTION),
     ("tools/code_map/code_map.py", TEXT_PROBE, CODE_MAP),
@@ -100,19 +100,19 @@ CASES = [
     # makes a matching engine), and the system test starts its programs.
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",
-      "replay_debugger_tests", "answer_system_tests", "course_system_tests", "strategy_system_tests"} | DEMO | VIEWER_PROGRAM),
+      "replay_debugger_tests", "answer_system_tests", "course_system_tests", "session_system_tests"} | DEMO | VIEWER_PROGRAM),
     # A strategy of the client's: in its own tests' program (the client's book is tested there), and
     # in trading_main, which every test that runs a client starts: not the lesson's demo, which plays
     # an answer, with no client.
     ("backend/Chapter12/trading/strategy/market_maker.h", CPP_PROBE,
-     {"lowlatency_tests", "backend_system_tests", "feed_system_tests", "strategy_system_tests", "viewer_live_demo",
+     {"lowlatency_tests", "backend_system_tests", "feed_system_tests", "session_system_tests", "viewer_live_demo",
       "viewer_time_shift_demo"} | VIEWER_PROGRAM),
     # The slicer: in the fork's tests' program, and in trading_main, as the other strategies are.
     ("backend/Chapter12/trading/strategy/slicer.cpp", CPP_PROBE,
-     {"lowlatency_tests", "backend_system_tests", "feed_system_tests", "strategy_system_tests", "viewer_live_demo",
+     {"lowlatency_tests", "backend_system_tests", "feed_system_tests", "session_system_tests", "viewer_live_demo",
       "viewer_time_shift_demo"} | VIEWER_PROGRAM),
     # The script that records a session: run only by the test of one.
-    ("tools/sessions/record_session.py", TEXT_PROBE, {"strategy_system_tests"}),
+    ("tools/sessions/record_session.py", TEXT_PROBE, {"session_system_tests"}),
     # The allocation tests are a program of their own, so a change to them affects only it.
     ("backend/Chapter12/tests/allocation_test.cpp", CPP_PROBE, {"lowlatency_allocation_tests"}),
     # A build file counts only through what it decides: what is built, and how CTest runs each
@@ -154,7 +154,7 @@ MUTANT_CASES = [
     ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",
-      "replay_debugger_tests", "answer_system_tests", "course_system_tests", "strategy_system_tests"} | DEMO | VIEWER_PROGRAM),
+      "replay_debugger_tests", "answer_system_tests", "course_system_tests", "session_system_tests"} | DEMO | VIEWER_PROGRAM),
     # A test changed: every mutant its program's tests may catch runs again.
     ("backend/Chapter12/tests/lf_queue_test.cpp", CPP_PROBE, {"lowlatency_tests"}),
     # The check's own code: every mutant. (scripts_tests, whose run-time files it is, changes too.)

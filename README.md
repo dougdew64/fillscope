@@ -65,7 +65,8 @@ Nasdaq's public ITCH samples, downloaded locally.
 [docs/AI-USE.md](docs/AI-USE.md) (how AI is used here, and what checks it) ·
 [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md) (who wrote each file's lines) ·
 [docs/DEBUGGER-LOCKSTEP.md](docs/DEBUGGER-LOCKSTEP.md) (stepping the engine while the animation
-follows) · [CLAUDE.md](CLAUDE.md) (how the AI assistant
+follows) · [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) (how problems with the tests and the
+system were tracked down, and the tools) · [CLAUDE.md](CLAUDE.md) (how the AI assistant
 works in this repository).
 
 ## License

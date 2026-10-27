@@ -26,7 +26,7 @@
 // at the rule's price for some moment, with the clip, and each cancel is of an order at a price the
 // rule no longer wanted.
 //
-//   strategy_system_tests PYTHON RECORD_SESSION EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY
+//   session_system_tests PYTHON RECORD_SESSION EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY
 #include "answer/wire.h"
 #include "feed/book_builder.h"
 #include "feed/feed_socket.h"
@@ -264,7 +264,7 @@ struct SlicedOrder {
 // A session of every kind of client against the real exchange, recorded and replayed once for all
 // the tests: the market data, what each request did, the truth, and who ran with what settings.
 struct Session {
-    test::TemporaryDirectory directory{"fillscope-strategies"};
+    test::TemporaryDirectory directory{"fillscope-session"};
     std::vector<MarketUpdate> updates;
     StepsFile steps;
     std::optional<Truth> truth;
@@ -576,7 +576,7 @@ TEST_F(RecordedSession, ASessionReplaysTheSameEveryTime) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     if (argc != 6) {
-        std::fprintf(stderr, "usage: strategy_system_tests PYTHON RECORD_SESSION EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY\n");
+        std::fprintf(stderr, "usage: session_system_tests PYTHON RECORD_SESSION EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY\n");
         return 2;
     }
     fillscope::g_python = argv[1];
@@ -589,7 +589,7 @@ int main(int argc, char** argv) {
     // priority, and CTest runs it with no other test beside it (tests/backend/CMakeLists.txt says
     // why). What this test checks doesn't depend on how fast they run.
     if (::setpriority(PRIO_PROCESS, 0, 19) != 0) {
-        std::perror("strategy_system_tests: setpriority");
+        std::perror("session_system_tests: setpriority");
         return 2;
     }
     return RUN_ALL_TESTS();
