@@ -195,6 +195,13 @@ the slower program adds the tier to its name.
   step against the demo's own books. About 10 seconds. **demo: time-shifting** shows it in a
   window; **demo: record time-shifting** records its 32 seconds to
   `build/debug/demo-time-shifting.mp4`.
+- **`viewer_slicing_demo` (the Test Engine's own, `system`):** the slicing demo, headless: a
+  session recorded, then the slicer's trades played on ticker 1 until six of its pieces have
+  traded, the three before walked back through with `< slicer`, and tickers 2 and 3 played the
+  same way, checked at each stop against the demo's own books and the recording's truth. About a
+  minute, alone (as the session test runs: its session's programs spin). **demo: slicing** shows it
+  in a window; **demo: record slicing** records its minute and a half to
+  `build/debug/demo-slicing.mp4`, at 1920 by 1080.
 - **`feed_tests` (GoogleTest, `unit`):** Fillscope's reading of the market data: decoding (the
   back end's own test bytes among others), a book, keeping the books in step and every way recovery
   starts and ends, each order's history, a replay's market data file, and receiving real multicast

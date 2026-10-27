@@ -567,6 +567,14 @@ of slicer, the panel showing its trades among the background's, a slice stopped 
 followed in the book.
 **Done when:** it runs in the tests, checked against books of its own as the other demos are, and
 records itself.
+**Status:** done (2026-10-27; the owner watched its recording): `viewer_demo --slicing`, the test `viewer_slicing_demo`, and the
+launches **demo: slicing** and **demo: record slicing** ([ARCHITECTURE.md](ARCHITECTURE.md), §10,
+*The demos*). It records a session, then plays the slicer's trades on ticker 1 until six of its
+pieces have traded, walks back through the three before with `< slicer`, each piece's dot pointed
+at, and plays tickers 2 and 3 the same way; at each stop it checks the viewer's books against its
+own, built from the session's market data, the trades the panel counts, and each of the slicer's
+dots against the truth. Recorded at 1920 by 1080: at the other demos' 1280 by 720 the panel's
+words filled it, and its chart never showed.
 
 After step 25 the plan pauses, while the owner reads and watches slicing in the viewer. Then come
 the detector's interface (the owner's), the scorer (Claude's: the detector's check), the detector

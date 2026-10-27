@@ -30,7 +30,7 @@ CODE_MAP = {"code_map_tests", "code_map_check"}
 ANSWER = {"answer_tests", "answer_system_tests", "course_system_tests"}
 # Answers' demo: the viewer's drawing and loop compiled in, its core linked, and the answer tool
 # run, which runs exchange_replay.
-DEMO = {"viewer_demo", "viewer_live_demo", "viewer_time_shift_demo"}
+DEMO = {"viewer_demo", "viewer_live_demo", "viewer_time_shift_demo", "viewer_slicing_demo"}
 # The viewer program itself, run by its own test: its window and loop, its core, and the exchange.
 VIEWER_PROGRAM = {"viewer_program_tests"}
 ALL = {"common_tests", "docs_tests",
@@ -92,7 +92,7 @@ CASES = [
     # Reaches its programs only as a run-time file: the replay binary they start.
     ("backend/Chapter12/exchange/exchange_replay.cpp", CPP_PROBE,
      {"feed_system_tests", "replay_debugger_tests", "answer_system_tests", "course_system_tests", "viewer_demo",
-      "session_system_tests"}),
+      "session_system_tests", "viewer_slicing_demo"}),
     ("tools/vscode-debug-state/tsconfig.json", JS_PROBE, EXTENSION),
     ("tools/attribution/attribution.py", TEXT_PROBE, ATTRIBUTION),
     ("tools/code_map/code_map.py", TEXT_PROBE, CODE_MAP),
@@ -106,13 +106,13 @@ CASES = [
     # an answer, with no client.
     ("backend/Chapter12/trading/strategy/market_maker.h", CPP_PROBE,
      {"lowlatency_tests", "backend_system_tests", "feed_system_tests", "session_system_tests", "viewer_live_demo",
-      "viewer_time_shift_demo"} | VIEWER_PROGRAM),
+      "viewer_time_shift_demo", "viewer_slicing_demo"} | VIEWER_PROGRAM),
     # The slicer: in the fork's tests' program, and in trading_main, as the other strategies are.
     ("backend/Chapter12/trading/strategy/slicer.cpp", CPP_PROBE,
      {"lowlatency_tests", "backend_system_tests", "feed_system_tests", "session_system_tests", "viewer_live_demo",
-      "viewer_time_shift_demo"} | VIEWER_PROGRAM),
+      "viewer_time_shift_demo", "viewer_slicing_demo"} | VIEWER_PROGRAM),
     # The script that records a session: run only by the test of one.
-    ("tools/sessions/record_session.py", TEXT_PROBE, {"session_system_tests"}),
+    ("tools/sessions/record_session.py", TEXT_PROBE, {"session_system_tests", "viewer_slicing_demo"}),
     # The allocation tests are a program of their own, so a change to them affects only it.
     ("backend/Chapter12/tests/allocation_test.cpp", CPP_PROBE, {"lowlatency_allocation_tests"}),
     # A build file counts only through what it decides: what is built, and how CTest runs each

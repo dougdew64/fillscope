@@ -22,9 +22,22 @@
 // that order hadn't arrived (the bar: never seen), and forward one to see it arrive; plays on from
 // there, behind live; and returns to live. Checked as the live demo is, at the update shown.
 //
+// The fourth, --slicing: slicing, seen from the truth (docs/PLAN.md, steps 21 to 25). A session is
+// recorded first, as the session test records one (tools/sessions/record_session.py): the book's
+// clients, and the slicer working an order of each kind, one a ticker. The viewer shows it with its
+// truth (viewer --session). On ticker 1, where the slicer buys in equal pieces at regular gaps, it
+// plays at 100 updates a second until six of the slicer's pieces have traded there, and pauses; then
+// walks back through the three pieces before with `< slicer`, each piece's dot pointed at, so its
+// tooltip says who traded; then plays tickers 2 (the gaps jittered) and 3 (the sizes spread) the
+// same way.
+// At each stop it checks the viewer's books against its own, built from the session's market data,
+// the trades the panel counts, each of the slicer's dots against the truth, and each jump against
+// the slicer's trades as the demo finds them.
+//
 //   viewer_demo FILLSCOPE_ANSWER COURSE_DIR [--watch | --record FILE.mp4]
 //   viewer_demo --live EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]
 //   viewer_demo --time-shift EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]
+//   viewer_demo --slicing PYTHON RECORD_SESSION EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY [--watch | --record FILE.mp4]
 //
 // In the tests, headless (the Test Engine's null backend) and at full speed. With --watch, in a
 // window, at a pace a person can follow: the mouse moves to each control before it clicks, and each
@@ -41,6 +54,7 @@
 #include "feed/kept_file.h"
 #include "support/test_support.h"
 #include "viewer/answer_state.h"
+#include "viewer/session_truth.h"
 #include "viewer/viewer_app.h"
 #include "viewer/viewer_view.h"
 #include "viewer/window_size.h"
@@ -55,6 +69,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -74,6 +89,10 @@ constexpr std::string_view kLessonScenario = "06-market-maker.json";
 // so its text is larger in the video, and the pace quicker: a viewer in a hurry pauses the video to
 // read a frame in full.
 constexpr fillscope::WindowSize kRecordingSize{.width = 1280, .height = 720};
+// The slicing demo's, as wide but larger: its point is the trades panel beside the book, and at 1280
+// by 720 the panel's words filled it, the chart below them never in view (seen in its first
+// recording's frames).
+constexpr fillscope::WindowSize kSlicingRecordingSize{.width = 1920, .height = 1080};
 
 std::filesystem::path scratch_root() {
     return std::filesystem::temp_directory_path() / std::format("fillscope-viewer-demo-{}", ::getpid());
@@ -105,6 +124,13 @@ struct Live {
     bool held = false;  // the viewer takes in nothing meanwhile: what is checked or clicked stays put
     std::chrono::steady_clock::time_point start;        // when the 30 seconds began
 };
+// The slicing demo's session, recorded before the Test Engine starts, and read on its own.
+struct Slicing {
+    std::optional<fillscope::Session> session;
+    std::filesystem::path directory;
+};
+Slicing g_slicing;
+bool g_slicing_mode = false;     // --slicing
 bool g_live_mode = false;        // --live or --time-shift: on the real exchange
 bool g_time_shift_mode = false;  // --time-shift
 Live g_live;
@@ -134,7 +160,12 @@ struct DemoVars {
 // here), and the course beside it, nothing chosen. Live, as plain `viewer` starts it.
 void set_up(ImGuiTestContext*, DemoVars& vars) {
     vars.app = std::make_unique<fillscope::ViewerApp>(scratch_root() / "context.json");
-    if (!g_live_mode) {
+    if (g_slicing_mode) {
+        // As `viewer --session DIR --ticker 1` starts it.
+        fillscope::Session copy = *g_slicing.session;
+        vars.app->open_session(g_slicing.directory / "market.dat", std::move(copy.market_data), std::move(copy.truth));
+        vars.app->show_ticker(1);
+    } else if (!g_live_mode) {
         vars.app->watch_answer(scratch_root() / ".fillscope" / "answer.json");
         vars.app->open_course(g_demo.course, g_demo.built);
     } else {
@@ -598,10 +629,8 @@ void point_live(ImGuiTestContext* ctx, float seconds, float fraction, float unti
 
 // Live: the mouse aside and, when a video is wanted, its recording begun; then the client started,
 // told to warm up for a second, so trading begins about two seconds in. The demo's time starts here.
-void begin_live(ImGuiTestContext* ctx) {
-    ctx->SetRef(fillscope::kViewerWindow);
-    ctx->Yield(2);
-    mouse_aside_live(ctx);
+// When a video is wanted, its recording begun: the viewer's window, all of it.
+void begin_recording(ImGuiTestContext* ctx) {
     if (g_demo.record) {
         ImGuiCaptureArgs* args = ctx->CaptureArgs;
         ImStrncpy(args->InOutputFile, g_demo.record->c_str(), sizeof(args->InOutputFile));
@@ -611,6 +640,13 @@ void begin_live(ImGuiTestContext* ctx) {
         args->InSizeAlign = 1;
         IM_CHECK(ctx->CaptureBeginVideo());
     }
+}
+
+void begin_live(ImGuiTestContext* ctx) {
+    ctx->SetRef(fillscope::kViewerWindow);
+    ctx->Yield(2);
+    mouse_aside_live(ctx);
+    begin_recording(ctx);
     g_live.start = std::chrono::steady_clock::now();
     g_live.client.emplace(with_endpoints({g_live.trading_main, "5", "RANDOM", "--warm-up-seconds", "1"}),
                           scratch_root());
@@ -786,6 +822,211 @@ void play_time_shift(ImGuiTestContext* ctx) {
     end_live(ctx, kTimeShiftLength);
 }
 
+// One of the slicer's trades: its update, whether its piece came in and took (or its resting order
+// was met), and the piece, the slicer's order in it. A piece can trade several times, at updates
+// close together, as it meets several resting orders.
+struct SlicerTrade {
+    std::uint64_t update = 0;
+    bool took = false;
+    std::uint64_t piece = 0;
+};
+
+// The slicer's trades on `ticker`, found here from the session's market data and truth, not the
+// viewer's, in order.
+std::vector<SlicerTrade> slicer_trades(std::uint32_t ticker) {
+    const fillscope::Session& session = *g_slicing.session;
+    std::vector<SlicerTrade> trades;
+    for (const fillscope::MarketUpdate& update : session.market_data.updates) {
+        if (update.type != fillscope::UpdateType::trade || update.ticker != ticker) {
+            continue;
+        }
+        const fillscope::TradeTruth* trade = session.truth.truth.trade_at(update.seq);
+        if (trade == nullptr) {
+            continue;
+        }
+        if (session.truth.slicers.contains(trade->incoming_client)) {
+            trades.push_back({.update = update.seq, .took = true, .piece = trade->incoming_order_id});
+        } else if (session.truth.slicers.contains(trade->resting_client)) {
+            trades.push_back({.update = update.seq, .took = false, .piece = trade->resting_order_id});
+        }
+    }
+    return trades;
+}
+
+// The slicing demo, at a stop: the viewer's books against the demo's own, built from the session's
+// market data, 1 to the viewer's update; the shown book's rows drawn, as the live demo checks them;
+// the trades the panel counts; and each of the slicer's dots drawn as the truth says it should be.
+void check_slicing(ImGuiTestContext* ctx) {
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    ctx->Yield(2);
+    const fillscope::BookBuilder& books = vars.app->state().books;
+    const std::vector<fillscope::MarketUpdate>& updates = g_slicing.session->market_data.updates;
+    const std::uint64_t at = books.last_seq();
+    IM_CHECK_RETV(at <= updates.size(), void());
+    fillscope::BookBuilder own;
+    for (std::uint64_t seq = 1; seq <= at; ++seq) {
+        own.on_incremental(updates[seq - 1]);
+    }
+    IM_CHECK(at == 0 || own.status() == fillscope::BookBuilder::Status::live);  // before any update: waiting for one
+    for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
+        IM_CHECK(books.book(ticker).orders() == own.book(ticker).orders());
+    }
+    const std::uint32_t ticker = vars.app->state().shown_ticker;
+    const std::vector<DrawnRow> rows = as_rows(rows_of(books.book(ticker)));
+    const std::vector<DrawnRow> drawn = drawn_rows(vars.text);
+    IM_CHECK(rows.empty() || !drawn.empty());
+    IM_CHECK(drawn.size() <= rows.size() && std::equal(drawn.begin(), drawn.end(), rows.begin()));
+    // The panel's window, and the trades in it, counted here.
+    const std::uint64_t window = std::min<std::uint64_t>(fillscope::kTradesWindow, updates.size());
+    const std::uint64_t from = at > window ? at - window + 1 : 1;
+    std::size_t trades = 0;
+    for (std::uint64_t seq = from; seq <= at; ++seq) {
+        trades += updates[seq - 1].type == fillscope::UpdateType::trade && updates[seq - 1].ticker == ticker;
+    }
+    if (at > 0) {
+        IM_CHECK(contains(vars.text, std::format("Trades on ticker {}, updates {} to {}: {}.", ticker, from, at, trades)));
+    }
+    for (const SlicerTrade& slicer : slicer_trades(ticker)) {
+        if (slicer.update < from || slicer.update > at) {
+            continue;
+        }
+        const fillscope::MarketUpdate& trade = updates[slicer.update - 1];
+        IM_CHECK_EQ(std::string{ctx->ItemInfo(std::format("**/##trade{}", slicer.update).c_str()).DebugLabel},
+                    std::format("{}: {} at {}, {}", slicer.update, trade.qty, trade.price, slicer.took ? "took" : "met"));
+    }
+}
+
+// Moves the mouse aside, just right of the replay's last control, off the books and the panel.
+void mouse_aside_slicing(ImGuiTestContext* ctx) {
+    const ImRect last = ctx->ItemInfo(std::format("**/{}", fillscope::kReplayNextSlicer).c_str()).RectFull;
+    ctx->MouseMoveToPos(ImVec2{last.Max.x + last.GetWidth() * 2.0f, last.GetCenter().y});
+}
+
+void click_slicing(ImGuiTestContext* ctx, const std::string& item) {
+    ctx->ItemClick(std::format("**/{}", item).c_str());
+    mouse_aside_slicing(ctx);
+    ctx->Yield(2);
+}
+
+// Plays the shown ticker from the start until `pieces` of the slicer's pieces have traded there, and
+// pauses; the update it stopped at, or nothing if it never got there.
+std::optional<std::uint64_t> play_until_pieces(ImGuiTestContext* ctx, std::size_t pieces) {
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    std::optional<std::uint64_t> target;
+    std::size_t seen = 0;
+    std::uint64_t last_piece = 0;
+    for (const SlicerTrade& trade : slicer_trades(vars.app->state().shown_ticker)) {
+        if (trade.piece != last_piece && ++seen == pieces) {
+            target = trade.update;
+            break;
+        }
+        last_piece = trade.piece;
+    }
+    IM_CHECK_RETV(target.has_value(), std::nullopt);
+    click_slicing(ctx, fillscope::kReplayStart);
+    click_slicing(ctx, fillscope::kReplayPlay);
+    IM_CHECK_RETV(vars.app->state().replay->play.playing, std::nullopt);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{60};
+    while (vars.app->state().books.last_seq() < *target) {
+        IM_CHECK_RETV(std::chrono::steady_clock::now() < deadline, std::nullopt);
+        ctx->Yield();
+    }
+    click_slicing(ctx, fillscope::kReplayPause);
+    IM_CHECK_RETV(!vars.app->state().replay->play.playing, std::nullopt);
+    check_slicing(ctx);
+    return vars.app->state().books.last_seq();
+}
+
+// The slicing demo.
+void play_slicing(ImGuiTestContext* ctx) {
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    ctx->SetRef(fillscope::kViewerWindow);
+    ctx->Yield(2);
+    mouse_aside_slicing(ctx);
+    begin_recording(ctx);
+    check_slicing(ctx);
+    linger(ctx, 4.0f);  // the book and the panel, before the first update; what the slicer does here
+
+    // Ticker 1: played until six of the slicer's pieces have traded, then back through the three
+    // before, each stopped on at its last trade (its dot drawn over the piece's others), the dot
+    // pointed at so its tooltip says who traded. `< slicer` goes back a trade at a time, so a piece
+    // that traded more than once takes more than one click.
+    const auto stopped = play_until_pieces(ctx, 6);
+    IM_CHECK_RETV(stopped.has_value(), void());
+    linger(ctx, 3.0f);
+    const std::vector<SlicerTrade> trades = slicer_trades(1);
+    const auto trade_at = [&](std::uint64_t update) {
+        return std::ranges::find_if(trades, [&](const SlicerTrade& t) { return t.update == update; });
+    };
+    std::uint64_t piece = trade_at(*stopped) != trades.end() ? trade_at(*stopped)->piece : 0;
+    for (int walked = 0; walked < 3; ++walked) {
+        // The last trade of the piece before, as found here.
+        const auto before = std::ranges::find_if(trades.rbegin(), trades.rend(), [&](const SlicerTrade& t) {
+            return t.update < vars.app->state().books.last_seq() && t.piece != piece;
+        });
+        IM_CHECK_RETV(before != trades.rend(), void());
+        {
+            const QuickClicks quick{ctx};
+            while (vars.app->state().books.last_seq() > before->update) {
+                const std::uint64_t was = vars.app->state().books.last_seq();
+                click_slicing(ctx, fillscope::kReplayPrevSlicer);
+                IM_CHECK_RETV(vars.app->state().books.last_seq() < was, void());
+            }
+        }
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), before->update);
+        piece = before->piece;
+        check_slicing(ctx);
+        // The mouse to the dot's centre, its tooltip shown: of this trade, or of a dot drawn over it
+        // there (at the recording's size the panel is narrow, and dots overlap), so the hover isn't
+        // demanded. What each dot shows is checked above, from its report.
+        ctx->MouseMoveToPos(ctx->ItemInfo(std::format("**/##trade{}", before->update).c_str()).RectFull.GetCenter());
+        linger(ctx, 3.0f);
+        mouse_aside_slicing(ctx);
+    }
+
+    // Tickers 2 and 3, the other kinds: played the same way, until the slicer has traded six times.
+    for (const std::uint32_t ticker : {2u, 3u}) {
+        click_slicing(ctx, fillscope::ticker_label(ticker).c_str());
+        IM_CHECK(vars.app->state().shown_ticker == ticker);
+        linger(ctx, 2.0f);
+        IM_CHECK_RETV(play_until_pieces(ctx, 6).has_value(), void());  // six of its pieces there
+        linger(ctx, 3.0f);
+    }
+    if (g_demo.record) {
+        IM_CHECK(ctx->CaptureEndVideo());
+    }
+}
+
+// Records the slicing demo's session, as the session test does, on the demo's own ports, at the
+// lowest priority, and reads it back.
+bool prepare_slicing(const std::string& python, const std::string& record_session, const std::string& exchange_main,
+                     const std::string& trading_main, const std::string& exchange_replay) {
+    g_slicing.directory = scratch_root() / "session";
+    std::filesystem::create_directories(g_slicing.directory);
+    if (fillscope::test::tcp_port_open(kOrderPort)) {
+        std::fprintf(stderr, "viewer_demo: something already listens on the demo's order port, %u\n", kOrderPort);
+        return false;
+    }
+    using fillscope::test::shell_quote;
+    const auto result = fillscope::test::run_command(std::format(
+        "nice -n 19 {} -I {} {} --exchange {} --trading {} --replay {} --order-port {} --incremental {}:{} --snapshot {}:{} 2>&1",
+        shell_quote(python), shell_quote(std::filesystem::absolute(record_session).string()), shell_quote(g_slicing.directory.string()),
+        shell_quote(std::filesystem::absolute(exchange_main).string()), shell_quote(std::filesystem::absolute(trading_main).string()),
+        shell_quote(std::filesystem::absolute(exchange_replay).string()), kOrderPort, kIncremental.group, kIncremental.port,
+        kSnapshot.group, kSnapshot.port));
+    if (result.status != 0) {
+        std::fprintf(stderr, "viewer_demo: recording the session failed: %s\n", result.output.c_str());
+        return false;
+    }
+    auto session = fillscope::read_session(g_slicing.directory);
+    if (!session) {
+        std::fprintf(stderr, "viewer_demo: %s\n", session.error().c_str());
+        return false;
+    }
+    g_slicing.session = std::move(*session);
+    return true;
+}
+
 // Starts the exchange, once its port is open, and joins its streams for the viewer and for the demo.
 bool prepare_live(const std::string& exchange_main, const std::string& trading_main) {
     g_live.exchange_main = std::filesystem::absolute(exchange_main);
@@ -857,6 +1098,19 @@ bool prepare(const std::string& answer_tool, const std::filesystem::path& course
 
 int main(int argc, char** argv) {
     // --live or --time-shift first, then the two programs' paths, as the lesson's two are given.
+    // --slicing first, then its five paths: the Python, the script and exchange_replay are set aside
+    // here, and the rest read as the others are, exchange_main's and trading_main's the two paths.
+    g_slicing_mode = argc >= 7 && std::string_view{argv[1]} == "--slicing";
+    std::array<std::string, 3> slicing_tools;  // the Python, record_session.py, exchange_replay
+    std::vector<char*> rebuilt;
+    if (g_slicing_mode) {
+        slicing_tools = {argv[2], argv[3], argv[6]};
+        rebuilt = {argv[0], argv[4], argv[5]};
+        rebuilt.insert(rebuilt.end(), argv + 7, argv + argc);
+        rebuilt.push_back(nullptr);
+        argc = static_cast<int>(rebuilt.size()) - 1;
+        argv = rebuilt.data();
+    }
     g_time_shift_mode = argc > 1 && std::string_view{argv[1]} == "--time-shift";
     g_live_mode = g_time_shift_mode || (argc > 1 && std::string_view{argv[1]} == "--live");
     if (g_live_mode) {
@@ -868,7 +1122,9 @@ int main(int argc, char** argv) {
     if (argc != 3 && !watch) {
         std::fprintf(stderr, "usage: viewer_demo FILLSCOPE_ANSWER COURSE_DIR [--watch | --record FILE.mp4]\n"
                              "       viewer_demo --live EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]\n"
-                             "       viewer_demo --time-shift EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]\n");
+                             "       viewer_demo --time-shift EXCHANGE_MAIN TRADING_MAIN [--watch | --record FILE.mp4]\n"
+                             "       viewer_demo --slicing PYTHON RECORD_SESSION EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY "
+                             "[--watch | --record FILE.mp4]\n");
         return 2;
     }
     std::string ffmpeg;
@@ -897,7 +1153,10 @@ int main(int argc, char** argv) {
         std::filesystem::remove(*g_demo.record);
     }
     std::filesystem::remove_all(scratch_root());
-    if (!(g_live_mode ? prepare_live(argv[1], argv[2]) : prepare(argv[1], argv[2]))) {
+    const bool prepared = g_slicing_mode ? prepare_slicing(slicing_tools[0], slicing_tools[1], argv[1], argv[2], slicing_tools[2])
+                          : g_live_mode    ? prepare_live(argv[1], argv[2])
+                                           : prepare(argv[1], argv[2]);
+    if (!prepared) {
         return 1;
     }
 
@@ -910,7 +1169,7 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "viewer_demo: can't initialize GLFW (is there a display?)\n");
             return 1;
         }
-        size = record ? kRecordingSize : fillscope::primary_window_size();
+        size = record ? (g_slicing_mode ? kSlicingRecordingSize : kRecordingSize) : fillscope::primary_window_size();
         // Recorded, a framebuffer of the window's own size, whatever the display's scale: the
         // capture reads the framebuffer in the window's coordinates, so on a display at scale 2 it
         // would otherwise record a quarter of the window, magnified. (On such a display the window
@@ -924,7 +1183,8 @@ int main(int argc, char** argv) {
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     fillscope::apply_viewer_look();
-    const char* title = g_time_shift_mode ? "Fillscope demo: time-shifting"
+    const char* title = g_slicing_mode      ? "Fillscope demo: slicing"
+                        : g_time_shift_mode ? "Fillscope demo: time-shifting"
                         : g_live_mode       ? "Fillscope demo: live trading"
                                             : "Fillscope demo: a market maker";
     if (!app->InitCreateWindow(app, title, ImVec2(static_cast<float>(size.width), static_cast<float>(size.height)))) {
@@ -958,12 +1218,13 @@ int main(int argc, char** argv) {
     test_io.ConfigMouseDrawCursor = watch;
 
     ImGuiTestEngine_Start(engine, ImGui::GetCurrentContext());
-    ImGuiTest* test = IM_REGISTER_TEST(engine, "demo", g_time_shift_mode ? "time_shifting"
+    ImGuiTest* test = IM_REGISTER_TEST(engine, "demo", g_slicing_mode      ? "slicing"
+                                                       : g_time_shift_mode ? "time_shifting"
                                                        : g_live_mode     ? "live_trading"
                                                                          : "a_market_maker_provides_liquidity");
     test->SetVarsDataType<DemoVars>(set_up);
     test->GuiFunc = viewer_frame;
-    test->TestFunc = g_time_shift_mode ? play_time_shift : g_live_mode ? play_live : play_the_lesson;
+    test->TestFunc = g_slicing_mode ? play_slicing : g_time_shift_mode ? play_time_shift : g_live_mode ? play_live : play_the_lesson;
     ImGuiTestEngine_QueueTests(engine, ImGuiTestGroup_Tests, "all", ImGuiTestRunFlags_RunFromCommandLine);
 
     while (!ImGuiTestEngine_IsTestQueueEmpty(engine)) {

@@ -46,11 +46,24 @@ fillscope_test_program(viewer_time_shift_demo system
   RUNTIME_DEPS $<TARGET_FILE:viewer_demo> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>)
 set_tests_properties(viewer_time_shift_demo PROPERTIES RESOURCE_LOCK exchange)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+# The slicing demo (viewer_demo --slicing): a session recorded (tools/sessions/record_session.py), then
+# shown with its truth, the slicer's trades played and followed on each of its tickers, checked against
+# the demo's own books and the truth; `--watch` shows it (the "demo: slicing" launch). The system tier,
+# holding the exchange's lock, and alone, as the session test is: its session's programs spin
+# (docs/TROUBLESHOOTING.md, case 2).
+fillscope_test_program(viewer_slicing_demo system
+  COMMAND $<TARGET_FILE:viewer_demo> --slicing ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/sessions/record_session.py
+          $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay>
+  RUNTIME_DEPS $<TARGET_FILE:viewer_demo> ${PROJECT_SOURCE_DIR}/tools/sessions/record_session.py $<TARGET_FILE:exchange_main>
+               $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay> ${Python3_EXECUTABLE})
+set_tests_properties(viewer_slicing_demo PROPERTIES RESOURCE_LOCK exchange RUN_SERIAL TRUE)
+
 # The viewer program itself (viewer_program_test.py): its window, paint loop, report lines, and every
 # way it ends, on the real exchange and a client. The one test of src/viewer/main.cpp, which the UI
 # tests and the demos don't run. The system tier, holding the exchange's lock. It opens the window on
 # an Xvfb of its own, never the desktop's; without Xvfb it exits 77, reported as skipped.
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
 fillscope_test_program(viewer_program_tests system
   COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/viewer_program_test.py
           $<TARGET_FILE:viewer> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main> $<TARGET_FILE:fillscope-books>

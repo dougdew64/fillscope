@@ -1224,7 +1224,7 @@ alike.
 
 ### The demos
 Each feature is to be shown by a scripted demo that is part of the tests (charter §2, priority 3).
-`viewer_demo` (`tests/viewer/viewer_demo.cpp`) holds two.
+`viewer_demo` (`tests/viewer/viewer_demo.cpp`) holds four.
 
 **Answers' demo** plays lesson 6, the market maker, as a person would: the viewer started as **viewer (answers)** starts it, nothing chosen; the
 drop-down opened, and the lesson chosen from it; then `>` pressed to the end. After each step that
@@ -1270,6 +1270,27 @@ the pauses of a person's hand the Test Engine's watchable speeds add to each, an
 pace keeps each step on screen. It found that the time-shifting controls could move as the mouse
 reached for them, as a line above them wrapped or unwrapped with the market; they are now pinned
 to the pane's bottom (§4, *Time-shifting*).
+
+**The slicing demo** (`--slicing`, the test `viewer_slicing_demo`) shows slicing as the truth
+says it happened (§1, *The planted slicer*; §4, *A session, and its truth*). It first records a
+session, as the session test does (`record_session.py`, on ports of its own, at the lowest
+priority), and reads it back on its own; the viewer opens it as **viewer (session)** does, on
+ticker 1, where the slicer buys in equal pieces at regular gaps. It plays at 100 updates a second
+until six of the slicer's pieces have traded there, and pauses; then walks back through the three
+pieces before with `< slicer`, stopping on each piece's last trade with the mouse on its dot, so
+the tooltip says who traded; then plays tickers 2 (the gaps jittered) and 3 (the sizes spread) the
+same way. A piece is the slicer's order in a trade, as the truth says, and can trade more than
+once, at updates close together, as it meets several resting orders; `< slicer` goes back a trade
+at a time, so a piece that traded more than once takes more than one click. At each stop it
+checks the viewer's books against its own, built from the session's market data; the shown book's
+drawn rows, as the live demo does; the number of trades the panel says it draws, counted on its
+own; each of the slicer's dots in view, from its report, against the truth; and each walk back
+landing on the piece the demo found. Two things were found in its first recordings: a dot can lie
+under another (a piece's trades close together, and at the recording's size the panel narrow), so
+the mouse goes to the dot's centre without demanding the Test Engine call it a hover; and at the
+other demos' 1280 by 720 the panel's words filled it and its chart never showed, so it is
+recorded at 1920 by 1080. In the tests it runs alone, as the session test does
+([TROUBLESHOOTING.md](TROUBLESHOOTING.md), case 2), in about a minute.
 
 **How a demo is built.** `viewer_demo` is a program of its own, built from the demo's file and
 the viewer's own drawing code (`viewer_view.cpp`, `viewer_app.cpp`: the same sources the viewer
