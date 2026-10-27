@@ -82,6 +82,7 @@ BUILDER = "src/feed/book_builder.cpp"
 FEED_SOCKET = "src/feed/feed_socket.cpp"
 VIEWER_OPTIONS = "src/viewer/viewer_options.cpp"
 REPLAY = "backend/Chapter12/exchange/matcher/replay.cpp"
+TRUTH = "src/truth/truth.cpp"
 RECORDING = "backend/Chapter12/exchange/matcher/request_recording.cpp"
 CLIENT_REQUEST = "backend/Chapter12/exchange/order_server/client_request.h"
 ORDER_SERVER = "backend/Chapter12/exchange/order_server/order_server.h"
@@ -596,6 +597,50 @@ MUTANTS = [
     ("the steps file is written short of a request's step", REPLAY,
      [("    if (requests.size() != steps.size()) {", "    if (false) {")],
      "lowlatency:Replay.TheStepsFileIsAHeaderThenEachRequestAndWhatItDid"),
+    # The truth (who sent each order and each side of each trade): a wrong one would show a client's
+    # trades as another's, and score a detector against what didn't happen.
+    ("the truth swaps a trade's incoming and resting orders", REPLAY,
+     [("        const auto &incoming = *fills[2 * trades];\n        const auto &resting = *fills[2 * trades + 1];",
+       "        const auto &incoming = *fills[2 * trades + 1];\n        const auto &resting = *fills[2 * trades];")],
+     "strategy_system_tests"),
+    ("the truth names an order by its client's id for it", REPLAY,
+     [("          truth.orders.push_back({response.ticker_id_, response.market_order_id_, response.client_id_});",
+       "          truth.orders.push_back({response.ticker_id_, response.client_order_id_, response.client_id_});")],
+     "strategy_system_tests"),
+    ("the truth gives every trade a request's first fills", REPLAY,
+     [("        const auto &incoming = *fills[2 * trades];\n        const auto &resting = *fills[2 * trades + 1];",
+       "        const auto &incoming = *fills[0];\n        const auto &resting = *fills[1];")],
+     "lowlatency:Replay.EachTradeIsItsOwnFills"),
+    ("the truth takes fills left over", REPLAY,
+     [("      if (fills.size() != 2 * trades) {", "      if (false) {")],
+     "lowlatency:Replay.EachTradeIsItsOwnFills"),
+    ("the truth takes a trade that isn't its fills'", REPLAY,
+     [("        if (incoming.exec_qty_ != update.qty_ || resting.exec_qty_ != update.qty_ ||",
+       "        if (incoming.exec_qty_ != update.qty_ ||")],
+     "lowlatency:Replay.EachTradeIsItsOwnFills"),
+    ("the truth file leaves out an order's client", REPLAY,
+     [("      write(order.client);\n", "")],
+     "lowlatency:Replay.TheTruthFileIsAHeaderThenTheOrdersThenTheTrades"),
+    ("a truth file's missing orders are read", TRUTH,
+     [("    if (body.left() / kOrderSize < order_count) {", "    if (false) {")],
+     "TruthFile.SaysWhyItCantBeRead"),
+    ("a truth file's bytes after its trades are ignored", TRUTH,
+     [("    if (body.left() != 0) {", "    if (false) {")],
+     "TruthFile.SaysWhyItCantBeRead"),
+    ("a truth file's trade may repeat an update", TRUTH,
+     [("        if (trades[i].update <= trades[i - 1].update) {", "        if (trades[i].update < trades[i - 1].update) {")],
+     "TruthFile.SaysWhyItCantBeRead"),
+    ("a truth file may name an order twice", TRUTH,
+     [("twice != sorted.end()) {", "twice != sorted.end() && false) {")],
+     "TruthFile.SaysWhyItCantBeRead"),
+    ("an order's client is found by its id on any ticker", TRUTH,
+     [("    if (found == by_id_.end() || order_key(*found) != std::tuple{ticker, order_id}) {",
+       "    if (found == by_id_.end() || found->order_id != order_id) {")],
+     "TruthFile.AnOrdersClientIsFoundByItsTickerAndId"),
+    ("a trade is found at any update before it", TRUTH,
+     [("    return found != trades_.end() && found->update == update ? &*found : nullptr;",
+       "    return found != trades_.end() ? &*found : nullptr;")],
+     "TruthFile.ATradeIsFoundByItsUpdate"),
     # The answer tool: each a way a false explanation would be shown, or a scenario played as
     # something it doesn't say.
     ("a scenario reuses a client's order id", ANSWER_SCENARIO,

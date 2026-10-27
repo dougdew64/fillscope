@@ -154,6 +154,7 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 |---|---|---|
 | `backend/` | The trading system Fillscope observes: a fork of the one in Ghosh's book, a git submodule ([PLAN.md](PLAN.md)) | its own build file; programs `exchange_main`, `trading_main`, `exchange_replay` |
 | `src/feed/` | The exchange's market data as Fillscope reads it: decoding, receiving, and the books it describes | library `fillscope_feed` |
+| `src/truth/` | A replay's truth: which client sent each order, and each side of each trade (§3, *A replay's truth*) | library `fillscope_truth` |
 | `src/viewer/` | The viewer: its core (no Dear ImGui) and its drawing | library `fillscope_viewer_core`, program `viewer` |
 | `course/` | The course's lessons, each an answer's scenario, and its manifest (§10) | played into the build's `course/` by the target `course` |
 | `src/answer/` | The answer tool: an answer's scenario played through the back end's replay, its claims checked, and the answer written for the viewer (§10) | library `fillscope_answer`, program `fillscope-answer` |
@@ -164,7 +165,7 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 | `tests/` | One directory per area, mirroring the above | test programs per area, each in one cost tier |
 
 Dependencies point one way: the viewer and the answer tool depend on the feed, and all three use
-`src/common/`. Nothing in Fillscope links the back end: it is read only through its files, its market
+`src/common/`; the truth depends on nothing, and the feed never on it. Nothing in Fillscope links the back end: it is read only through its files, its market
 data among them. The answer tool runs one of its programs, `exchange_replay`, and the tests run
 them all.
 
@@ -265,6 +266,26 @@ and the responses the matcher sent to clients for it: accepted, filled (each sid
 told), canceled, cancel rejected. The format is in the back end's `exchange/matcher/replay.h`;
 the back end's tests check the running matcher's own updates and responses are the same. It is
 what an answer steps through, a request at a time ([FEATURES.md](FEATURES.md), item 15).
+
+**A replay's truth** (`src/truth/truth.h`): the market data never says who sent an order, which is
+why a trader's orders have to be inferred from it ([FEATURES.md](FEATURES.md), item 13), not read off.
+A replay knows, since each request names its client, so `exchange_replay --truth FILE` writes it
+down: every order the matcher accepted, by its ticker and the market order id it was given, with
+its client; and every trade, by its update's number, with the client and order id of the incoming
+order, which took liquidity, and of the resting one it met. The replay takes it from the matcher's
+responses: an order's acceptance says its client and its id, and a trade's two fills, the incoming
+order's then the resting one's, sent just before the trade's update, say who was on each side. The
+format is in the back end's `exchange/matcher/replay.h`. `read_truth_file` reads it, into a `Truth`
+that finds an order's client by its ticker and id, and a trade by its update. It is a library of
+its own, `fillscope_truth`, which nothing in `src/feed/` links: what Fillscope works out from the
+market data can't come from the truth by mistake. It is read only to show what really happened in a
+replay and, once there is a detector, to score it. `strategy_system_tests` checks the truth of a
+session of every kind of client against the recording's requests, worked out without the responses
+the truth came from: the matcher numbers each ticker's orders 1, 2, 3, ... in the order it accepts
+them, and it accepts every new order; a request's updates are those its step says it made; and a
+trade is followed at once by its resting order's update, a cancel if the trade filled it, a modify
+if not. In a session of about 30 s, that is about 770 orders and 340 trades, every kind of client on
+a side of some.
 
 **Lockstep on a replay** ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)): after each request,
 `exchange_replay` calls the back end's lockstep anchor, `fillscope_request_anchor(request_number,
@@ -692,7 +713,8 @@ tests are in the fork (`backend/Chapter12/tests/`): `lowlatency_tests`, the matc
 data, recording and replay, the order server, the queue, its sockets, the client's copy of the
 books; and `lowlatency_allocation_tests`, what must not allocate. The book's market maker and
 liquidity taker are checked against their rules on the real exchange (`strategy_system_tests`, §1,
-*The book's strategies*). The test machinery is tested too
+*The book's strategies*), and the same session's truth against its requests (§3, *A replay's
+truth*); reading a truth file has unit tests (`truth_tests`). The test machinery is tested too
 (`scripts_tests`, below).
 
 ### The pieces of a test run

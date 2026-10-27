@@ -128,9 +128,15 @@ the slower program adds the tier to its name.
   the random client until each has sent enough (300 requests from the maker, 20 from the taker);
   the exchange's recording, replayed with `--steps`, then says where each request came in the market
   data, and every request of the two is checked against its strategy's rule on the market as
-  Fillscope's books rebuild it (ARCHITECTURE.md, §1, *The book's strategies*). About 30 s in either
-  build, the clients trading at their own pace. The exchange and the clients run on the test's own
-  ports.
+  Fillscope's books rebuild it (ARCHITECTURE.md, §1, *The book's strategies*). The same replay
+  writes the session's truth (`--truth`), and every order and every trade in it is checked against
+  the recording's requests (ARCHITECTURE.md, §3, *A replay's truth*). About 30 s in either build,
+  the clients trading at their own pace; the session is recorded once for both checks. The exchange
+  and the clients run on the test's own ports.
+- **`truth_tests` (GoogleTest, `unit`):** reading a replay's truth: a file built byte by byte from
+  its layout read back, an order's client found by its ticker and id, a trade by its update, and
+  every way a file is refused (cut short anywhere, bytes left over, an order named twice, trades
+  out of order).
 - **`replay_debugger_tests` (GoogleTest, `debugger`; each test skipped if GDB or LLDB isn't
   installed):** lockstep on a replay: `exchange_replay`, publishing a three-request recording on a
   group of the test's own, under GDB and LLDB, by breakpoint and by self-stop, at `-O0` and `-O2`;

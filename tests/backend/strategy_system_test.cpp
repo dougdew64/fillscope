@@ -1,6 +1,7 @@
 // The book's market maker and liquidity taker (backend/, trading/strategy/ there), run against the
 // real exchange beside its random client, and every order each sends checked against its rules,
-// given the market data it had received.
+// given the market data it had received; and the replay's truth, who sent each order and each side
+// of each trade, checked against the recording's requests.
 //
 // The exchange records every request in the order its matcher took them; replayed, the recording
 // gives the market data and, for each request, where in the market data it came. A client decides
@@ -30,6 +31,7 @@
 #include "feed/market_data_file.h"
 #include "feed/market_update.h"
 #include "support/test_support.h"
+#include "truth/truth.h"
 
 #include <gtest/gtest.h>
 
@@ -286,7 +288,16 @@ void check_client(std::uint32_t client, Rule rule, const std::array<TickerSettin
 constexpr std::size_t kMakerRequestsWanted = 300;
 constexpr std::size_t kTakerRequestsWanted = 20;
 
-TEST(Strategies, EveryOrderTheMarketMakerAndTheLiquidityTakerSendFollowsTheirRules) {
+// A session of every kind of client against the real exchange, recorded and replayed once for all
+// the tests: the market data, what each request did, and the truth.
+struct Session {
+    std::vector<MarketUpdate> updates;
+    StepsFile steps;
+    std::optional<Truth> truth;
+};
+
+// (A function with GoogleTest's ASSERTs returns nothing, so it fills in `session`.)
+void record(Session& session) {
     const test::TemporaryDirectory temporary{"fillscope-strategies"};
     const std::filesystem::path& directory = temporary.path;
     ASSERT_FALSE(test::tcp_port_open(kOrderPort)) << "something is already listening on this test's order port, " << kOrderPort;
@@ -318,17 +329,45 @@ TEST(Strategies, EveryOrderTheMarketMakerAndTheLiquidityTakerSendFollowsTheirRul
         }
     }  // all killed: the recording holds every request the matcher took
 
-    ASSERT_EQ(test::run_to_exit({g_replay, "requests.rec", "market.dat", "--steps", "steps.bin"}, directory), 0);
-    const auto market = read_market_data_file(directory / "market.dat");
+    ASSERT_EQ(test::run_to_exit({g_replay, "requests.rec", "market.dat", "--steps", "steps.bin", "--truth", "truth.bin"}, directory),
+              0);
+    auto market = read_market_data_file(directory / "market.dat");
     ASSERT_TRUE(market) << market.error();
-    const auto steps = read_steps_file(directory / "steps.bin");
+    auto steps = read_steps_file(directory / "steps.bin");
     ASSERT_TRUE(steps) << steps.error();
-    const std::vector<Moment> moments = moments_of(market->updates);
+    auto truth = read_truth_file(directory / "truth.bin");
+    ASSERT_TRUE(truth) << truth.error();
+    session.updates = std::move(market->updates);
+    session.steps = std::move(*steps);
+    session.truth = std::move(*truth);
+}
 
+class RecordedSession : public ::testing::Test {
+protected:
+    static void SetUpTestSuite() {
+        session_ = new Session;
+        record(*session_);
+        if (::testing::Test::HasFailure()) {
+            delete session_;
+            session_ = nullptr;
+        }
+    }
+    static void TearDownTestSuite() {
+        delete session_;
+        session_ = nullptr;
+    }
+    void SetUp() override { ASSERT_NE(session_, nullptr) << "the session wasn't recorded"; }
+
+    static Session* session_;
+};
+Session* RecordedSession::session_ = nullptr;
+
+TEST_F(RecordedSession, EveryOrderTheMarketMakerAndTheLiquidityTakerSendFollowsTheirRules) {
+    const std::vector<Moment> moments = moments_of(session_->updates);
     Checked maker;
     Checked taker;
-    check_client(kMaker, maker_wants, kMakerSettings, moments, *steps, maker);
-    check_client(kTaker, taker_wants, kTakerSettings, moments, *steps, taker);
+    check_client(kMaker, maker_wants, kMakerSettings, moments, session_->steps, maker);
+    check_client(kTaker, taker_wants, kTakerSettings, moments, session_->steps, taker);
     // Not vacuous: each strategy traded, the maker on several tickers, moving its quotes.
     EXPECT_GE(maker.new_orders, 100u);
     EXPECT_GE(maker.cancels, 50u);
@@ -338,6 +377,68 @@ TEST(Strategies, EveryOrderTheMarketMakerAndTheLiquidityTakerSendFollowsTheirRul
     std::printf("checked: the maker's %zu new orders on %zu tickers and %zu cancels (%zu fills); the taker's %zu new orders "
                 "and %zu cancels (%zu fills)\n",
                 maker.new_orders, maker.tickers.size(), maker.cancels, maker.fills, taker.new_orders, taker.cancels, taker.fills);
+}
+
+// The truth against the recording's requests, worked out here without the matcher's responses, from
+// which the replay wrote it: the matcher numbers each ticker's orders from 1 in the order it accepts
+// them, and accepts every new order; a request's own updates are those its step says it made; and a
+// trade is followed by its resting order's update, its cancel if the trade filled it, its modify if
+// not (exchange/matcher/me_order_book.cpp there, match()).
+TEST_F(RecordedSession, EveryOrderAndEveryTradeHasItsClientInTheTruth) {
+    const Truth& truth = *session_->truth;
+    EXPECT_EQ(truth.recording(), "requests.rec");
+    std::map<std::uint32_t, std::uint64_t> last_id;                          // by ticker
+    std::map<std::pair<std::uint32_t, std::uint64_t>, std::uint32_t> sent;  // by ticker and order id: its client
+    std::size_t orders = 0;
+    std::size_t trades = 0;
+    std::map<std::uint32_t, std::size_t> traded;  // by client: the trades it was on either side of
+    const std::vector<MarketUpdate>& updates = session_->updates;
+    for (const ReplayStep& step : session_->steps.steps) {
+        const Request request = decode(step.request);
+        std::optional<std::uint64_t> new_id;
+        if (request.type == kNew) {
+            new_id = ++last_id[request.ticker];
+            sent[{request.ticker, *new_id}] = request.client;
+            ASSERT_LT(orders, truth.orders().size()) << "the truth has fewer orders than the recording";
+            EXPECT_EQ(truth.orders()[orders], (OrderTruth{.ticker = request.ticker, .order_id = *new_id, .client = request.client}))
+                << "order " << orders + 1;
+            ++orders;
+        }
+        const std::uint64_t end = step.first_update + step.update_count;
+        for (std::uint64_t seq = step.first_update; seq < end; ++seq) {
+            const MarketUpdate& update = updates.at(seq - 1);
+            if (update.type == UpdateType::add) {
+                EXPECT_EQ(truth.client_of(update.ticker, update.order_id), request.client) << "the order added at update " << seq;
+            } else if (update.type == UpdateType::trade) {
+                ++trades;
+                const TradeTruth* trade = truth.trade_at(seq);
+                ASSERT_NE(trade, nullptr) << "the trade at update " << seq << " isn't in the truth";
+                ASSERT_TRUE(new_id) << "the trade at update " << seq << " was made by a cancel";
+                EXPECT_EQ(trade->incoming_client, request.client) << "update " << seq;
+                EXPECT_EQ(trade->incoming_order_id, *new_id) << "update " << seq;
+                ASSERT_LT(seq + 1, end) << "the trade at update " << seq << " is its request's last update";
+                const MarketUpdate& resting = updates.at(seq);
+                ASSERT_TRUE(resting.type == UpdateType::cancel || resting.type == UpdateType::modify) << "update " << seq + 1;
+                ASSERT_EQ(resting.ticker, update.ticker) << "update " << seq + 1;
+                EXPECT_EQ(trade->resting_order_id, resting.order_id) << "update " << seq;
+                ASSERT_TRUE(sent.contains({resting.ticker, resting.order_id})) << "update " << seq + 1;
+                EXPECT_EQ(trade->resting_client, sent.at({resting.ticker, resting.order_id})) << "update " << seq;
+                ++traded[trade->incoming_client];
+                if (trade->resting_client != trade->incoming_client) {
+                    ++traded[trade->resting_client];
+                }
+            }
+        }
+    }
+    EXPECT_EQ(truth.orders().size(), orders) << "the truth has orders the recording doesn't";
+    EXPECT_EQ(truth.trades().size(), trades) << "the truth has trades the market data doesn't";
+    // Not vacuous: every kind of client traded.
+    for (const std::uint32_t client : {kMaker, kTaker, kRandom}) {
+        EXPECT_GE(traded[client], 1u) << "client " << client << " never traded";
+    }
+    std::printf("checked the truth: %zu orders and %zu trades (on either side: the maker %zu, the taker %zu, the random "
+                "client %zu)\n",
+                orders, trades, traded[kMaker], traded[kTaker], traded[kRandom]);
 }
 
 }  // namespace

@@ -28,6 +28,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | Keeping the books in step, and recovery | `src/feed/book_builder.*` | §3, *Keeping the books in step* | 2026-10-24: why the exchange sends snapshots as well as changes |
 | Receiving a stream | `src/feed/feed_socket.*` | §3, *Receiving* | |
 | A replay's market data file | `src/feed/market_data_file.*` | §3, *Replaying*; §4, *A replay* | |
+| A replay's truth: who sent each order and each side of each trade | `src/truth/*` | §3, *A replay's truth* | |
 | Keeping what arrives, to show the books after any update | `src/feed/time_shift.*` | §3, *Keeping what arrives* | |
 | A live moment's address: the kept file, and `fillscope-books` | `src/feed/kept_file.*`, `src/feed/books_text.*`, `src/feed/books_main.cpp` | §3, *A live moment's address* | |
 | The viewer program: start, options, stop signals, its window | `src/viewer/main.cpp`, `src/viewer/viewer_options.*`, `src/viewer/stop_signals.*`, `src/viewer/window_size.h` | §4, *The loop* (in part); the options in [RUNNING.md](RUNNING.md) | 2026-10-24: what the viewer is, beside the exchange and the client; how to stop it |
@@ -45,7 +46,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The code map's check | `tools/code_map/` | this document's opening | |
 | The build, and the editor's configurations | `CMakeLists.txt`, `.vscode/`, `.gitignore`, `.gitmodules` | not yet; how to use them is in [RUNNING.md](RUNNING.md) | |
 | CI | `.github/` | §9 (in part) | |
-| The tests, by area | `tests/answer/`, `tests/feed/`, `tests/viewer/`, `tests/common/`, `tests/docs/`, `tests/support/`, `tests/vscode-debug-state/`, `tests/attribution/`, `tests/code_map/`, `tests/backend/backend_system_test.py`, `tests/backend/strategy_system_test.cpp`, `tests/*/CMakeLists.txt` | §9; §10, *The demos* (`tests/viewer/viewer_demo.cpp`) | 2026-10-26: how the demos are made: a program of their own, driven through the Test Engine, recorded by a flag |
+| The tests, by area | `tests/answer/`, `tests/feed/`, `tests/viewer/`, `tests/common/`, `tests/docs/`, `tests/support/`, `tests/vscode-debug-state/`, `tests/attribution/`, `tests/code_map/`, `tests/backend/backend_system_test.py`, `tests/backend/strategy_system_test.cpp`, `tests/truth/`, `tests/*/CMakeLists.txt` | §9; §10, *The demos* (`tests/viewer/viewer_demo.cpp`) | 2026-10-26: how the demos are made: a program of their own, driven through the Test Engine, recorded by a flag |
 | The debugger tests | `tests/backend/replay_debugger_test.cpp`, `tests/backend/replay_lldb_driver.py` | §6, *What keeps both working*; [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md) | |
 | The test machinery: registration, selection, the checks of the tests | `tests/CMakeLists.txt`, `tests/scripts/*.py`, `tests/scripts/run-tests.sh` | §9, *Three times the tests run*, *Whether the tests can be trusted*, *Why a mutation check, and what it costs*; [RUNNING.md](RUNNING.md) | 2026-10-24: why there is a mutation check, why it costs so much here, and why a very large codebase couldn't run one this way; how a mutant begins life, finds its place, and is deleted; where the test programs are, what CTest is beside GoogleTest, what `RUN_ALL_TESTS` returns, and what `last-pass.json` records; 2026-10-25: whether the selection check decides which programs run |
 

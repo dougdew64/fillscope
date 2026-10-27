@@ -498,6 +498,15 @@ client in the market data; the truth is a separate file, read only to show and s
 **Done when:** for a recorded session with every kind of client, every order and every trade in
 the replay's market data has its client in the truth, checked against the recording's requests;
 the format is in [ARCHITECTURE.md](ARCHITECTURE.md).
+**Status:** done (2026-10-27). `exchange_replay --truth FILE` writes it, from the matcher's
+responses; `read_truth_file` (`src/truth/truth.h`, a library the feed doesn't link) reads it
+([ARCHITECTURE.md](ARCHITECTURE.md), §3, *A replay's truth*). Each trade has both its sides: the
+incoming order's client and the resting one's, since a slicer's piece may rest and be met as well
+as take. `strategy_system_tests` checks the truth of its session of the maker, the taker and the
+random client (about 770 orders and 340 trades, every client on a side of some) against the
+recording's requests, worked out without the responses the truth came from. Checked too by the
+fork's tests (the truth of a replay; a request meeting two resting orders, each trade with its own
+fills; fills that don't pair refused; the file's bytes), `truth_tests` (the reader), and 12 mutants.
 
 ### 23. The planted slicer
 A new strategy in the fork's trading client: given a large order (side, total, piece size, gap), it

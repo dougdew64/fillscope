@@ -59,6 +59,12 @@ add_library(fillscope_feed STATIC
 target_include_directories(fillscope_feed PUBLIC src)
 target_compile_options(fillscope_feed PRIVATE ${FILLSCOPE_WARNINGS})
 
+# src/truth: a replay's truth, who sent each order and each side of each trade; read only to show and
+# score what happened, never by the feed.
+add_library(fillscope_truth STATIC src/truth/truth.cpp)
+target_include_directories(fillscope_truth PUBLIC src)
+target_compile_options(fillscope_truth PRIVATE ${FILLSCOPE_WARNINGS})
+
 # src/viewer: the Dear ImGui viewer.
 # The helpers the viewer and the answer tool share: the file a reader never sees half of.
 add_library(fillscope_common STATIC src/common/atomic_file.cpp)

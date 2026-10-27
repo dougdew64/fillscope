@@ -24,10 +24,11 @@ fillscope_test_program(backend_system_tests system
 set_tests_properties(backend_system_tests PROPERTIES RESOURCE_LOCK exchange)
 
 # The book's market maker and liquidity taker against the real exchange, every order checked against
-# their rules (strategy_system_test.cpp). The system tier: it runs an exchange and three clients, on
+# their rules, and the replay's truth of the session checked against its requests
+# (strategy_system_test.cpp). The system tier: it runs an exchange and three clients, on
 # ports of its own, and holds the exchange's lock.
 add_executable(strategy_system_tests strategy_system_test.cpp)
-target_link_libraries(strategy_system_tests PRIVATE fillscope_answer fillscope_feed GTest::gtest)
+target_link_libraries(strategy_system_tests PRIVATE fillscope_answer fillscope_feed fillscope_truth GTest::gtest)
 target_include_directories(strategy_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 target_compile_options(strategy_system_tests PRIVATE ${FILLSCOPE_WARNINGS})
 fillscope_test_program(strategy_system_tests system
