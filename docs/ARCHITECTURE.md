@@ -54,6 +54,24 @@ doesn't know it is there. Without a client, the exchange's books stay empty. Wit
 the market runs unseen. A replay (§3) needs no client: the recording plays back the requests the
 clients sent.
 
+**A client, inside.** Each client is a process of its own, `trading_main CLIENT_ID STRATEGY`, as
+`scripts/run_clients.sh` in the fork starts them, and it sees only what any client sees: the public
+market data and the responses to its own orders. It runs three threads, which hand each other work
+through the same lock-free queues the exchange uses (*How the exchange's threads hand each other
+work*, below): the market data consumer joins the exchange's streams and queues each update; the order
+gateway holds the client's TCP connection to the order server, sending its requests and receiving
+its responses; and the trade engine, the only one that decides, takes each update, applies it to
+the client's copy of the books, updates the features, and only then calls the strategy
+(`trading/strategy/trade_engine.cpp`). The features (`feature_engine.h`) are what the strategies
+trade on: the fair price, and how large the last aggressive trade was against the best quantity it
+met. The strategies only read them, through getters, and compute none. Trading firms' systems are
+split the same way, signals computed in one layer, an update at a time in the trading path, and
+the strategies acting on them in another, so one signal serves several strategies and can be
+tested and replayed without them. Fillscope's slicing detector is to be such a feature, read by a
+market maker of Fillscope's own: a client of the exchange that speaks its protocols and links
+nothing of the back end, as a firm's client and an exchange share only the exchange's published
+protocols ([FEATURES.md](FEATURES.md), items 13 and 18).
+
 **The book's strategies.** A trading client runs one of three: `RANDOM`, above; `MAKER`, a market
 maker; or `TAKER`, a liquidity taker (`trading/strategy/` in the fork). The other two take, on the
 command line, each ticker's clip (the size of every order), threshold, and risk limits, as

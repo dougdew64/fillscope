@@ -63,7 +63,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The trading client program | `trading/trading_main.cpp` | §1, *Three programs*, *Why the first orders take about twelve seconds* (in part) | 2026-10-24: what the client is, and why it is a program apart from the viewer; why it waits before trading; how to stop it |
 | The client's market data consumer | `trading/market_data/` | not yet | |
 | The client's order gateway | `trading/order_gw/` | not yet | |
-| The client's trade engine, and its strategies | `trading/strategy/trade_engine.*`, `trading/strategy/feature_engine.h`, `trading/strategy/liquidity_taker.*`, `trading/strategy/market_maker.*` | §1, *The book's strategies* | |
+| The client's trade engine, and its strategies | `trading/strategy/trade_engine.*`, `trading/strategy/feature_engine.h`, `trading/strategy/liquidity_taker.*`, `trading/strategy/market_maker.*` | §1, *A client, inside*; *The book's strategies* | 2026-10-27: where a slicing detector sits in a real system (beside the strategy, as a feature); whether each client is a process of its own; whether the market maker that uses it could be Fillscope's own client (it is to be) |
 | The client's copy of the books | `trading/strategy/market_order*` | §1, *The book's strategies* (in part); the fork's fixes in the back end's README ([backend/README.md](../backend/README.md)) | |
 | The client's orders, risk and position | `trading/strategy/om_order.h`, `trading/strategy/order_manager.*`, `trading/strategy/risk_manager.*`, `trading/strategy/position_keeper.h` | not yet | |
 | The lock-free queue between threads | `common/lf_queue*` | §1, *How the exchange's threads hand each other work* | 2026-10-24: how it works, what happens when one is full, and what to do about it |

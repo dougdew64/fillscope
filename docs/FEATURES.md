@@ -44,7 +44,21 @@ pause, play behind live, step, and a live moment's address ([ARCHITECTURE.md](AR
     - **Inference online, in C++,** from that file, in microseconds a trade, with no machine-learning
       runtime in the trading path (trees or a linear model are a few dozen lines to evaluate).
       Checked independently of the training: the C++ scores equal Python's on the same table.
-    - **The strategy, the owner's:** a market maker that reads the score, and when a slicer is
+    - **The detector is a feature** (13, *Where the detector runs*): fed each market update before
+      the strategy is, as the book's `FeatureEngine` is, and read by the strategy, never computed by
+      it. So training and the strategy share it: the features computed over recordings for training
+      are the ones the strategy reads live.
+    - **The strategy, the owner's, a Fillscope program (the owner, 2026-10-27):** a client of the
+      exchange that speaks its protocols and links nothing of the back end, as a firm's client
+      shares only the exchange's published protocols, never its code. It reads the market data over
+      multicast, as Fillscope's feed does already, and sends its orders over TCP: each request an
+      8-byte sequence number then the 30-byte request, each response an 8-byte sequence number then
+      the 42-byte response (`exchange/order_server/client_request.h` and `client_response.h` in the
+      back end). Its design is the book's client's: its books, then its features (the detector among
+      them), then the strategy, then the order manager (one order a side, cancelled before it is
+      replaced), the risk check and the position; each part written for it, to the same design. The
+      book's market maker, taker and random client, and the planted slicer (13), stay in the fork,
+      as the rest of the market. The strategy itself is a market maker that reads the score, and when a slicer is
       likely active on one side, widens or leans its quotes away from it, since that flow moves the
       price. Run in the deterministic loop of strategies the backlog describes under answers (15,
       *strategies in the loop*).
@@ -162,7 +176,23 @@ The stages of the roadmap, each a change to the fork.
       the recording, so only a replay is scored; live, the viewer shows the detector's flags and
       says there is no truth to score them against. A guess is shown as a guess, never as a fact about who placed an order (charter
       §2, priority 1).
-    - **The display,** a panel of the viewer, beside the book: the detector runs in the viewer as
+    - **Where the detector runs (the owner, 2026-10-27): it is a feature, in the sense of the
+      book's `FeatureEngine`** (`trading/strategy/feature_engine.h` in the back end). There, on each
+      market update, the trade engine updates the features first (the fair price, the size of an
+      aggressive trade against the best quantity), then calls the strategy, which only reads them.
+      Trading firms' systems separate them the same way: signals computed in one layer, in the
+      trading path, an update at a time and in microseconds; the strategies that act on them in
+      another. So the detector takes one market update at a time, keeps its own state, uses only
+      what is known at that moment, and gives a score; it decides nothing. A market-making strategy
+      reads the score to protect itself (18); the scorer runs the detector over a replay and
+      compares its flags with the truth; the viewer runs it as each update arrives and shows its
+      flags. All three run the same code on the same updates. The same kind of detector also runs,
+      in firms and exchanges, outside any strategy: in research, over recordings, as the scorer
+      does here; and in surveillance, flagging patterns for review. Here, the viewer is the
+      research and monitoring tool, and the strategy side is the detector's home in a real system.
+      The detector's code is Fillscope's, and so is the strategy that reads it (18, *The
+      strategy*): nothing crosses between the repositories.
+    - **The display,** a panel of the viewer, beside the book: the viewer runs the detector as
       each update arrives. Each order a dot, update number across and price up, gray at first; in
       the first version, the trades flagged as a slice take a color, and with the later patterns
       the orders the detector groups take one color per inferred trader, joined by lines. Then the
