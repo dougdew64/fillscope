@@ -790,6 +790,19 @@ Several tools stack up, each handing over to the next:
   checked once afterwards, adds the one thing a local run can't, exactly the committed tree in a
   clean environment.
 
+### Tests that write files
+Here the temporary directory is in memory; in CI, it is on the runner's disk, in ext4 beneath the
+container's overlay, shared with every test running at the time. There, a test that rewrites one
+file over and over, truncating it each time, waits for each version to reach the disk: ext4 starts
+writing a file that was truncated and rewritten as soon as it is closed (its guard for programs
+that replace a file that way, `auto_da_alloc`), and truncating it again waits for that write. On an
+idle disk the wait is nothing; on CI, with the back end's tests writing their logs, each took 10 to
+100 ms, which took two unit tests past their 2 s, each writing a file a hundred times or more, cut
+short a different way each time: `KeptFile.ReadWhileBeingWritten...` in four runs of CI, and
+`TruthFile.SaysWhyItCantBeRead` in one. Measured here on an ext4 file system with other programs writing to it, the first
+took 675 to 885 ms, against 278 ms on an idle one; written to a new file each time, it takes 278 ms
+either way. So a test that writes many versions of a file writes each to a file of its own.
+
 ### Tests that use the network
 A market data stream is only a multicast group and a port, and a TCP order port is only a number,
 so two programs using the same ones meet: a test once listening on the book's own stream passed on

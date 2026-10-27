@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -16,9 +17,14 @@ namespace {
 
 class TruthFile : public ::testing::Test {
 protected:
-    void write(const std::string& bytes) const {
-        std::ofstream out{path_, std::ios::binary | std::ios::trunc};
+    // Writes a new file each time and returns its path: rewriting one file, truncated, would wait
+    // for the write before it to reach the disk, as ext4 does, which on CI's busy disk took a test
+    // past its time (kept_file_test.cpp says more).
+    std::filesystem::path write(const std::string& bytes) {
+        const std::filesystem::path path = dir_.path / std::format("truth-{}.dat", ++written_);
+        std::ofstream out{path, std::ios::binary};
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        return path;
     }
 
     // The file's bytes: the header naming "a.rec", the orders' count and orders (ticker, id,
@@ -55,12 +61,11 @@ protected:
         {.update = 9, .incoming_client = 1, .incoming_order_id = 7, .resting_client = 5, .resting_order_id = 1}};
 
     const test::TemporaryDirectory dir_{"fillscope-truth"};
-    const std::filesystem::path path_ = dir_.path / "truth.dat";
+    int written_ = 0;
 };
 
 TEST_F(TruthFile, ReadsBackEachOrderAndTradeInTheFilesOrder) {
-    write(bytes_of(orders_, trades_));
-    const auto truth = read_truth_file(path_);
+    const auto truth = read_truth_file(write(bytes_of(orders_, trades_)));
     ASSERT_TRUE(truth) << truth.error();
     EXPECT_EQ(truth->recording(), "a.rec");
     EXPECT_EQ(truth->orders(), orders_);
@@ -99,8 +104,7 @@ TEST_F(TruthFile, ItsBytesAreWhatItReadsFrom) {
 
 TEST_F(TruthFile, SaysWhyItCantBeRead) {
     const auto error = [&](const std::string& bytes) {
-        write(bytes);
-        const auto truth = read_truth_file(path_);
+        const auto truth = read_truth_file(write(bytes));
         return truth ? std::string{"(read)"} : truth.error();
     };
     EXPECT_NE(read_truth_file(dir_.path / "missing.dat").error().find("can't open"), std::string::npos);
