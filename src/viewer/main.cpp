@@ -2,7 +2,7 @@
 // replay's market data file, draws them with Dear ImGui, and publishes what the user points at and
 // follows for the assistant working beside it.
 //
-//   viewer [--exit-after SECONDS] [--incremental GROUP:PORT] [--snapshot GROUP:PORT] [--replay FILE]
+//   viewer [--exit-after SECONDS] [--incremental GROUP:PORT] [--snapshot GROUP:PORT] [--replay FILE] [--session DIR]
 //          [--context-file PATH]
 //
 // It prints one line per second, "viewer: t=… paints=… updates=… books as of update …", so a script
@@ -211,6 +211,7 @@ int main(int argc, char** argv) {
     // program that doesn't share it, say); then there is nothing to show, so the viewer says why and
     // stops, as it does for a replay it can't read.
     std::optional<fillscope::MarketDataFile> replay;
+    std::optional<fillscope::Session> session;
     std::optional<fillscope::FeedSocket> incremental;
     std::optional<fillscope::FeedSocket> snapshot;
     if (options->answer) {
@@ -224,6 +225,15 @@ int main(int argc, char** argv) {
         }
         note(std::format("replay: {}, {} updates, recorded in {}", options->replay->string(), read->updates.size(), read->recording));
         replay = std::move(*read);
+    } else if (options->session) {
+        auto read = fillscope::read_session(*options->session);
+        if (!read) {
+            say(read.error());
+            return end_with(1, "the session can't be read");
+        }
+        note(std::format("session: {}, {} updates, {} trades in its truth", options->session->string(),
+                         read->market_data.updates.size(), read->truth.truth.trades().size()));
+        session = std::move(*read);
     } else {
         for (const auto& [stream, socket] :
              {std::pair{&options->incremental, &incremental}, std::pair{&options->snapshot, &snapshot}}) {
@@ -295,6 +305,15 @@ int main(int argc, char** argv) {
     }
     if (replay) {
         app.open_replay(*options->replay, std::move(*replay));
+    }
+    if (session) {
+        app.open_session(*options->session / "market.dat", std::move(session->market_data), std::move(session->truth));
+    }
+    if (options->at) {
+        app.replay_to(*options->at);
+    }
+    if (options->ticker) {
+        app.show_ticker(*options->ticker);
     }
     if (options->answer) {
         app.watch_answer(*options->answer);

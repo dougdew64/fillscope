@@ -101,6 +101,11 @@ inline constexpr const char* kAnswerStart = "|<##answer_start";
 inline constexpr const char* kAnswerBack = "<##answer_back";
 inline constexpr const char* kAnswerForward = ">##answer_forward";
 inline constexpr const char* kAnswerEnd = ">|##answer_end";
+// The trades panel, beside the book: each trade a dot, its update across and its price up. A dot's
+// item is "##trade<update>"; the UI tests read what it shows from its report (trade_report).
+inline constexpr const char* kTradesPanel = "trades";
+// How many updates the panel spans, ending at the one shown.
+inline constexpr std::uint64_t kTradesWindow = 1200;
 // The choice of what the pane shows, with a course: your latest question, or a lesson.
 inline constexpr const char* kLessonChoice = "##lesson";
 
@@ -127,6 +132,10 @@ private:
 [[nodiscard]] Label level_label(const LevelRef& level);  // "<price>##level<buy|sell>": point at the level
 [[nodiscard]] Label order_label(const Order& order);     // "<side>##order<id>": point at the order (its row)
 [[nodiscard]] Label follow_label(const Order& order);    // "<id>##follow": follow the order
+
+// What a trade's dot reports of itself to the UI tests: "<update>: <qty> at <price>, <none|took|met>",
+// the last whether the slicer was in it, as the truth says.
+[[nodiscard]] Label trade_report(const TradeDot& dot);
 
 // How the book's items are marked: decided from the published context, like the bar, never from
 // the live selection. (Functions of their own, so tests can check the rule; they check the drawn

@@ -64,6 +64,10 @@ public:
     // Shows a replay instead of the live exchange: the books start empty, before its first update.
     // `file` is where it was read from.
     void open_replay(const std::filesystem::path& file, MarketDataFile market_data);
+    // Shows ticker `ticker`'s book, as its button does.
+    void show_ticker(std::uint32_t ticker) { state_.shown_ticker = ticker; }
+    // Shows a recorded session's replay (session_truth.h), as open_replay does, with its truth.
+    void open_session(const std::filesystem::path& file, MarketDataFile market_data, SessionTruth truth);
     // In a replay, makes the books exactly the recorded run's after update `seq` (clamped to the
     // replay's length), as a time-shifted moment is shown: forward a few updates by applying them,
     // otherwise rebuilt from the nearest checkpoint. What is pointed at and followed stays.

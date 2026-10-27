@@ -125,9 +125,9 @@ add_custom_target(course DEPENDS ${course_answers})
 add_library(fillscope_viewer_core STATIC
   src/viewer/context.cpp src/viewer/context_publisher.cpp src/viewer/viewer_options.cpp
   src/viewer/stop_signals.cpp src/viewer/answer_state.cpp src/viewer/viewer_log.cpp src/viewer/crash_log.cpp
-  src/viewer/log_events.cpp src/viewer/kept_files.cpp src/viewer/viewer_state.cpp)
+  src/viewer/log_events.cpp src/viewer/kept_files.cpp src/viewer/viewer_state.cpp src/viewer/session_truth.cpp)
 target_include_directories(fillscope_viewer_core PUBLIC src)
-target_link_libraries(fillscope_viewer_core PUBLIC fillscope_answer fillscope_common fillscope_feed nlohmann_json::nlohmann_json)
+target_link_libraries(fillscope_viewer_core PUBLIC fillscope_answer fillscope_common fillscope_feed fillscope_truth nlohmann_json::nlohmann_json)
 target_compile_options(fillscope_viewer_core PRIVATE ${FILLSCOPE_WARNINGS})
 
 # The parts that draw with Dear ImGui are compiled into each program that uses them (the viewer, and

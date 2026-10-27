@@ -38,6 +38,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | Publishing the context | `src/viewer/context_publisher.*` | §4, *Publishing* | 2026-10-25: where the context bar is defined |
 | The viewer's kept files, and cleaning up after itself | `src/viewer/kept_files.*` | §3, *The viewer cleans up after itself* | |
 | The viewer's log, and a crash recorded in it | `src/viewer/viewer_log.*`, `src/viewer/crash_log.*`, `src/viewer/log_events.*` | §4, *The viewer's log* | |
+| A recorded session's truth, and the trades panel that shows it | `src/viewer/session_truth.*` | §4, *A session, and its truth* | |
 | Answers: a scenario played through the real matcher, its claims checked, and the viewer playing it | `src/answer/`, `src/viewer/answer_state.*` | §10 | 2026-10-25: whether an answer goes through the running exchange and the network to the viewer |
 | The course: lessons, each an answer's scenario, stored and tested | `course/` | §10, *The course* | |
 | Shared helpers: a descriptor's owner, number parsing, a file replaced atomically | `src/common/` | §2 (in part); §4, *Publishing* | |

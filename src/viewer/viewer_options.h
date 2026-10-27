@@ -4,6 +4,7 @@
 #include "feed/feed_socket.h"
 
 #include <expected>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -21,6 +22,13 @@ struct ViewerOptions {
     Stream snapshot = kExchangeSnapshot;
     // A replay's market data file to show instead of the live exchange (exchange_replay's output).
     std::optional<std::filesystem::path> replay;
+    // A recorded session's directory (tools/sessions/record_session.py): its replay shown with its
+    // truth, who really sent each order (viewer/session_truth.h).
+    std::optional<std::filesystem::path> session;
+    // With --replay or --session: the update to open it at (0, before the first, by default).
+    std::optional<std::uint64_t> at;
+    // The ticker whose book is shown at first (0 by default).
+    std::optional<std::uint32_t> ticker;
     // An answer file to watch, showing each answer written to it (the answer tool's output,
     // .fillscope/answer.json by default there), instead of the live exchange.
     std::optional<std::filesystem::path> answer;
@@ -40,6 +48,6 @@ struct ViewerOptions {
 
 inline constexpr std::string_view kViewerUsage =
     "usage: viewer [--exit-after SECONDS] [--incremental GROUP:PORT] [--snapshot GROUP:PORT] [--replay FILE] "
-    "[--answer FILE [--answer-frame N] [--course DIR]] [--screenshot FILE] [--context-file PATH]";
+    "[--session DIR] [--at UPDATE] [--ticker T] [--answer FILE [--answer-frame N] [--course DIR]] [--screenshot FILE] [--context-file PATH]";
 
 }  // namespace fillscope

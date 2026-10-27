@@ -12,7 +12,8 @@
 # slicer's plan, and every program's log. A session is market data, which is never committed
 # (docs/CHARTER.md, decision 5), so OUT_DIR may be in this repository only where git ignores it
 # (data/, or build/). The programs are the debug build's unless given; the endpoints are the book's
-# unless given. It records until every slicer has sent its whole order, and each --at-least client
+# unless given. It records until the slicer has sent its every piece, and cancelled it (it cancels
+# each piece once accepted), and each --at-least client
 # has sent that many requests, then stops every program and replays; it fails, saying why, if that
 # takes more than --max-seconds (120 by default) or a program exits.
 import argparse
@@ -45,17 +46,21 @@ TAKER_SETTINGS = [(300, 0.8, 350, 300, -300), (60, 0.7, 350, 300, -300), (350, 0
 # pieces at regular gaps; the gaps jittered; the sizes spread. One client rather than three, as one
 # firm's execution algorithm works several orders: each client is a trade engine with a book for
 # every ticker, about 1.5 GB, and a session of six clients took 11.7 GB, measured, against 8.5 GB
-# for four, which leaves CI's 16 GB room for the tests running beside it. Each piece is about the market maker's clip on its ticker, and each gap 12 of that
-# ticker's updates, about a second and a half (each ticker has about 8 a second), so each order is
-# sent in about 30 s, in 20 pieces.
+# for four, which leaves CI's 16 GB room for the tests running beside it.
+# Each piece is half the market maker's clip on its ticker: the maker quotes only while both sides
+# have orders, and pieces of its whole clip took its whole quote, leaving the slicer's tickers
+# one-sided after 29 to 59% of their updates, against 1 to 10% elsewhere; at half, 12 to 34% (one
+# session each, measured). A piece that finds the other side empty fills nothing, and is cancelled.
+# Each gap is 12 of the ticker's updates, about a second and a half (each ticker has about 8 a
+# second), so each order is sent in about 30 s, in 20 pieces.
 SLICER = 6
 SLICES = [
     {"kind": "equal pieces, regular gaps",
-     "ticker": 1, "side": "BUY", "total": 1200, "piece": 60, "gap": 12, "gap_jitter": 0, "size_spread": 0},
+     "ticker": 1, "side": "BUY", "total": 600, "piece": 30, "gap": 12, "gap_jitter": 0, "size_spread": 0},
     {"kind": "jittered gaps",
-     "ticker": 2, "side": "SELL", "total": 3000, "piece": 150, "gap": 12, "gap_jitter": 6, "size_spread": 0},
+     "ticker": 2, "side": "SELL", "total": 1500, "piece": 75, "gap": 12, "gap_jitter": 6, "size_spread": 0},
     {"kind": "spread sizes",
-     "ticker": 3, "side": "BUY", "total": 4000, "piece": 200, "gap": 12, "gap_jitter": 0, "size_spread": 100},
+     "ticker": 3, "side": "BUY", "total": 2000, "piece": 100, "gap": 12, "gap_jitter": 0, "size_spread": 50},
 ]
 
 RECORDING_HEADER = 8  # "LLREQ001"
@@ -197,9 +202,31 @@ def main():
             if time.monotonic() > deadline:
                 fail(f"the exchange didn't open its order port, {order_port}")
             time.sleep(0.1)
-        for client in clients:
+        # The market's first update is the random client's first order. The others decide only on
+        # market data, so they start first, and it only once each is listening: a client whose market
+        # data starts late recovers from a snapshot, which on a busy machine two did in each of three
+        # sessions (measured), and its strategy is called on each of the snapshot's orders as its book
+        # is rebuilt, deciding on a book half built, and the slicer counts them as updates.
+        def start_client(client):
             start([trading, str(client["client"]), *client["args"], "--warm-up-seconds", WARM_UP, *endpoints],
                   f"client-{client['client']}")
+
+        for client in clients:
+            if client["strategy"] != "RANDOM":
+                start_client(client)
+        for client in clients:
+            if client["strategy"] != "RANDOM":
+                # Its market data consumer's first line, written (and flushed within 10 ms) once its
+                # thread runs, after it has joined the stream.
+                consumer_log = out / f"trading_market_data_consumer_{client['client']}.log"
+                while not consumer_log.exists() or consumer_log.stat().st_size == 0:
+                    check_running()
+                    if time.monotonic() > deadline:
+                        fail(f"client {client['client']} never started listening to the market data")
+                    time.sleep(0.05)
+        for client in clients:
+            if client["strategy"] == "RANDOM":
+                start_client(client)
         # The slicer writes its plans as it starts, before it connects to anything; read again each
         # time, since it may be read while being written, before the slicer could have sent anything.
         plan_file = out / f"slicer-{SLICER}.plan"
@@ -207,7 +234,8 @@ def main():
             plans = read_plans(plan_file) if plan_file.exists() else {}
             pieces = sum(len(plan) for plan in plans.values()) if len(plans) == len(SLICES) else None
             counts = requests_by_client(out / "requests.rec")
-            wanted = {**args.wanted, SLICER: max(args.wanted.get(SLICER, 0), pieces or 1)}
+            # Two requests a piece: the slicer cancels each piece once it is accepted.
+            wanted = {**args.wanted, SLICER: max(args.wanted.get(SLICER, 0), 2 * (pieces or 1))}
             if pieces is not None and all(counts.get(client, 0) >= count for client, count in wanted.items()):
                 break
             check_running()

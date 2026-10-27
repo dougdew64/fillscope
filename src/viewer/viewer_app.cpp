@@ -186,6 +186,11 @@ void ViewerApp::open_replay(const std::filesystem::path& file, MarketDataFile ma
     state_.replay = Replay::of(std::filesystem::absolute(file), std::move(market_data.recording), std::move(market_data.updates));
 }
 
+void ViewerApp::open_session(const std::filesystem::path& file, MarketDataFile market_data, SessionTruth truth) {
+    open_replay(file, std::move(market_data));
+    state_.replay->truth = std::move(truth);
+}
+
 void ViewerApp::replay_to(std::uint64_t seq) {
     if (!state_.replay) {
         return;

@@ -110,8 +110,13 @@ J` draws each gap from GAP ± J, and `--size-spread S` each piece's size from PI
 `--slice` before it. Each plan is drawn before it starts, from a generator seeded with `--slice-seed`
 (the client's id by default) plus the order's place, so a run's pieces and gaps are known and the
 same every time; `--slice-plan FILE` writes them, a line a piece: its ticker, quantity and gap. Each piece is priced to take liquidity, a buy at the best ask and a sell at the best
-bid, or at the last piece's price if that side is empty; whatever doesn't fill rests there and is
-never cancelled, so a slicer's order can be met resting as well as take. It sends its pieces itself,
+bid, or at the last piece's price if that side is empty; and each is cancelled as soon as the
+exchange accepts it, as an immediate-or-cancel order would be, which this exchange doesn't have.
+The matcher has done all the piece could do before the cancel reaches it, so whatever it found is
+taken and the rest withdrawn; a piece that found the other side empty fills nothing. A piece's rest
+once stayed, and stood above the market the slicer had pushed, where the others' orders met it
+rather than rested: the market stopped, the slicer's later pieces resting and being met, which the
+trades panel showed (§4, *A session, and its truth*). It sends its pieces itself,
 each order's numbered 1, 2, 3, ..., rather than through the order manager, which keeps one order a side, and
 checks no risk: it is to send exactly its order. The fork's tests check its plan, its options and,
 through the client's own books, what it sends at each update.
@@ -123,14 +128,22 @@ order of each kind, each on a ticker of its own: it buys in equal pieces at regu
 1, sells with its gaps jittered on ticker 2, and buys in pieces of spread sizes on ticker 3. One
 client rather than one for each kind: each client is a trade engine with a book for every ticker,
 about 1.5 GB, and a session of six clients took 11.7 GB (measured), against 8.5 GB for four, which
-leaves CI's 16 GB room for the tests beside it. Each ticker sees about 8 updates a second, and each
-order's gap is 12 of them, so each goes in about 20 pieces over about 30 s. The script records
+leaves CI's 16 GB room for the tests beside it. Each piece is half the market maker's clip on its ticker:
+the maker quotes only while both sides have orders, and pieces of its whole clip took its whole
+quote, leaving the slicer's tickers one-sided after 29 to 59% of their updates, against 1 to 10%
+elsewhere; at half, 12 to 34% (one session each, measured), and 12 to 15 of each order's 20 pieces
+found something to take. Each ticker sees about 8 updates a second, and each order's gap is 12 of
+them, so each goes in about 20 pieces over about 30 s. The script records
 until the slicer has sent all three orders, stops every program and replays the recording with its
 steps and its truth, and writes `session.json`: each client, its settings or its orders, each
-order's plan, and whether a client recovered from a snapshot. The exchange sends a snapshot every second rather than every minute: a
-client whose market data starts late, or loses a datagram, waits for one, deciding nothing, and the
-book's client stops after a minute with no market data, as a session's market maker once did (why
-it had none that minute wasn't found; with a snapshot a second, no wait is that long). A session is market
+order's plan, and whether a client recovered from a snapshot. The market's first update is the random client's first order, so the
+script starts it only once the other clients are listening: on a busy machine, clients started
+together joined late, two in each of three sessions (measured), and a client that misses the start
+recovers from a snapshot, its strategy called on each of the snapshot's orders as its book is
+rebuilt, deciding on a book half built, and the slicer counting them as updates. Started in turn,
+none did, in three sessions under the same load. The exchange also sends a snapshot every second
+rather than every minute, so a client that does recover waits a second, not up to a minute, after
+which the book's client stops for want of market data, as a session's market maker once did. A session is market
 data, never committed (the [charter](CHARTER.md), decision 5), so the script writes only outside the
 repository or where git ignores it.
 
@@ -512,7 +525,27 @@ moment before it given that update, and stay there, stuck, as a replay played th
 books are then exactly the recorded run's after update N, so a point
 or follow carries a replay address: the market data file, the recording it came from, and N.
 Applying the file's updates 1 to N rebuilds that state. Live, there is no replay address, and the
-file says why and how to record a run.
+file says why and how to record a run. `--at N` opens a replay at update N, and `--ticker T` with
+ticker T's book shown.
+
+**A session, and its truth** (`session_truth.h`). With `--session DIR`, the viewer shows a recorded
+session (§1, *A recorded session*) as a replay, with its truth: who really sent each order and each
+side of each trade (§3, *A replay's truth*), and from `session.json`, what each client was. It is
+refused if the truth isn't its market data's: replayed from another recording, or with a trade
+the market data hasn't, or without one it has. The truth is shown in two places, and nowhere else:
+- **The book** names each order's client in a column, "6 (slicer)", as an answer's book names the
+  scenario's traders.
+- **The trades panel**, beside the book, draws each trade on the ticker shown as a dot, its update
+  across and its price up, its area its quantity, over the 1,200 updates up to the one shown (or the
+  whole replay, if shorter), so stepping adds the dots as the trades happen. The slicer's are orange,
+  filled where its piece came in and took, a ring where its resting order was met; everyone else's
+  grey. Hovering a dot says which clients traded; clicking it goes to its update. The panel says
+  that the colours are the recording's truth, which the market data doesn't say, and what the
+  slicer's order on the ticker is. In a replay without a truth, the dots are drawn with no colours
+  and it says there is none; live, it says the market data never names a client.
+What the panel draws is `trade_dots`, a function of the market data and the truth, which the unit
+tests check; the UI tests step a session made by hand update by update, checking each dot drawn
+against what its truth says.
 
 ### Publishing, and why the bar can't lie
 `ContextPublisher::update` is called every paint:

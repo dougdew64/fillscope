@@ -4,6 +4,7 @@
 #include <imgui_internal.h>  // IMGUI_TEST_ENGINE_ITEM_INFO, ImGuiItemStatusFlags
 
 #include <algorithm>
+#include <cmath>
 #include <concepts>
 #include <cstddef>
 #include <string>
@@ -20,6 +21,8 @@ constexpr ImVec4 kFollowedRowColor{0.45f, 0.38f, 0.10f, 0.65f};
 constexpr ImVec4 kBidColor{0.45f, 0.85f, 0.45f, 1.0f};
 constexpr ImVec4 kAskColor{0.95f, 0.50f, 0.45f, 1.0f};
 constexpr ImVec4 kContextBarColor{0.16f, 0.22f, 0.30f, 1.0f};  // a muted slate blue behind the context bar
+constexpr ImVec4 kSlicerColor{1.0f, 0.62f, 0.12f, 1.0f};        // the slicer's trades, as the truth says
+constexpr ImVec4 kTradeColor{0.62f, 0.62f, 0.62f, 0.85f};       // everyone else's
 
 // Draws text that is already formatted. TextUnformatted takes the characters as they are, with no
 // printf-style % processing, so a '%' in the text can't be misread as a format directive.
@@ -586,9 +589,11 @@ void draw_book(const ViewerView& view, ViewerActions& actions) {
     const float height = view.published && view.published->follow ? ImGui::GetContentRegionAvail().y * 0.6f
                                                                   : ImGui::GetContentRegionAvail().y;
     // In an answer, a column says whose each order is, which the answer's replay knows (and the
-    // market data doesn't).
+    // market data doesn't); in a recorded session's replay, the session's truth does.
     const LoadedAnswer* answer = view.state.answer && view.state.answer->answer ? &*view.state.answer->answer : nullptr;
-    if (!ImGui::BeginTable(kBookTable, answer ? 7 : 6, flags, ImVec2{0.0f, height})) {
+    const SessionTruth* truth = view.state.replay && view.state.replay->truth ? &*view.state.replay->truth : nullptr;
+    const bool whose = answer != nullptr || truth != nullptr;
+    if (!ImGui::BeginTable(kBookTable, whose ? 7 : 6, flags, ImVec2{0.0f, height})) {
         return;
     }
     ImGui::TableSetupScrollFreeze(0, 1);  // the header row stays visible while scrolling
@@ -598,7 +603,7 @@ void draw_book(const ViewerView& view, ViewerActions& actions) {
     ImGui::TableSetupColumn("queue");
     ImGui::TableSetupColumn("order");
     ImGui::TableSetupColumn("qty");
-    if (answer) {
+    if (whose) {
         ImGui::TableSetupColumn("whose");
     }
     ImGui::TableHeadersRow();
@@ -660,9 +665,133 @@ void draw_book(const ViewerView& view, ViewerActions& actions) {
             ImGui::TableNextColumn();
             const auto owner = answer->owners.find(order.order_id);
             text(owner != answer->owners.end() ? owner->second : std::string{"unknown"});
+        } else if (truth) {
+            ImGui::TableNextColumn();
+            const auto client = truth->truth.client_of(ticker, order.order_id);
+            text(client ? client_name(*truth, *client) : std::string{"unknown"});
         }
     }
     ImGui::EndTable();
+}
+
+// Tells the UI tests, as report_marked does, what the trade's dot just drawn shows.
+void report_trade([[maybe_unused]] const TradeDot& dot) {
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    IMGUI_TEST_ENGINE_ITEM_INFO(ImGui::GetItemID(), trade_report(dot).c_str(), ImGui::GetItemStatusFlags());
+}
+
+// The trades on the shown ticker over the last kTradesWindow updates up to the one shown, each a dot:
+// its update across, its price up, its area as its quantity. In a recorded session's replay, the
+// slicer's are coloured, from the truth: filled where its piece came in and took, a ring where its
+// resting order was met. Hovering a dot says who traded; clicking it goes to its update.
+void draw_trades(const ViewerView& view, ViewerActions& actions) {
+    const std::uint32_t ticker = view.state.shown_ticker;
+    if (!view.state.replay) {
+        wrapped("Trades are drawn in a replay. Live, there is no truth to say who traded: the market data never names a "
+                "client.");
+        return;
+    }
+    const Replay& replay = *view.state.replay;
+    const SessionTruth* truth = replay.truth ? &*replay.truth : nullptr;
+    const std::uint64_t to = view.state.books.last_seq();
+    const std::uint64_t from = to >= kTradesWindow ? to - kTradesWindow + 1 : 1;  // the trades drawn: those of the window
+    static const SessionTruth kNoTruth{.directory = {}, .truth = Truth{"", {}, {}}, .roles = {}, .slicers = {}, .slices = {}};
+    const std::vector<TradeDot> dots = trade_dots(replay.updates, truth ? *truth : kNoTruth, ticker, from, to);
+    wrapped(to == 0 ? std::format("Trades on ticker {}: none yet, before the first update.", ticker)
+                    : std::format("Trades on ticker {}, updates {} to {}: {}.", ticker, from, to, dots.size()));
+    if (truth) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kSlicerColor);
+        wrapped("Orange: the slicer's, filled where its piece took, a ring where its resting order was met.");
+        ImGui::PopStyleColor();
+        wrapped("Grey: everyone else's. Who traded is the recording's truth, which the market data doesn't say.");
+        const auto slice = truth->slices.find(ticker);
+        wrapped(slice != truth->slices.end() ? std::format("Here the slicer {}.", slice->second)
+                                             : std::string{"The slicer has no order on this ticker."});
+    } else {
+        wrapped("No truth for this replay, so no colours: the market data doesn't say who traded (viewer --session DIR "
+                "shows a recorded session's).");
+    }
+    paragraph_break();
+
+    // The canvas: the price at its left, the updates along its bottom.
+    const float font = ImGui::GetFontSize();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 size{ImGui::GetContentRegionAvail().x, std::max(ImGui::GetContentRegionAvail().y - font * 1.5f, font * 6.0f)};
+    const float left = origin.x + font * 3.0f;
+    const float right = origin.x + size.x - font * 0.8f;
+    const float top = origin.y + font * 0.8f;
+    const float bottom = origin.y + size.y - font * 1.6f;
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRect({left, top}, {right, bottom}, ImGui::GetColorU32(ImGuiCol_Border));
+    std::int64_t low = 0;
+    std::int64_t high = 0;
+    std::uint32_t most = 1;
+    for (const TradeDot& dot : dots) {
+        low = &dot == &dots.front() ? dot.price : std::min(low, dot.price);
+        high = &dot == &dots.front() ? dot.price : std::max(high, dot.price);
+        most = std::max(most, dot.qty);
+    }
+    low -= 1;
+    high += 1;
+    // Across, kTradesWindow updates, or the whole replay if it is shorter, so a short one's trades
+    // aren't crowded at the right.
+    const std::uint64_t window = std::min<std::uint64_t>(kTradesWindow, std::max<std::uint64_t>(replay.updates.size(), 2));
+    const auto x_of = [&](std::uint64_t update) {
+        const double span = static_cast<double>(window - 1);
+        return right - static_cast<float>(static_cast<double>(to - update) / span) * (right - left);
+    };
+    const auto y_of = [&](std::int64_t price) {
+        return bottom - static_cast<float>(static_cast<double>(price - low) / static_cast<double>(high - low)) * (bottom - top);
+    };
+    const ImU32 label_color = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    if (!dots.empty()) {
+        draw->AddText({origin.x, top - font * 0.5f}, label_color, Label{"{}", high}.c_str());
+        draw->AddText({origin.x, bottom - font * 0.5f}, label_color, Label{"{}", low}.c_str());
+    }
+
+    // The first update drawn under its own place (early in a replay, not the left edge), and the one
+    // shown under the right edge.
+    if (to > 0) {
+        draw->AddText({x_of(from), bottom + font * 0.2f}, label_color, Label{"{}", from}.c_str());
+        const Label last{"{}", to};
+        draw->AddText({right - ImGui::CalcTextSize(last.c_str()).x, bottom + font * 0.2f}, label_color, last.c_str());
+    }
+    const ImU32 slicer = ImGui::GetColorU32(kSlicerColor);
+    const ImU32 other = ImGui::GetColorU32(kTradeColor);
+    // Everyone else's first, so the slicer's are drawn over them.
+    for (const bool slicers : {false, true}) {
+        for (const TradeDot& dot : dots) {
+            if ((dot.slicer != TradeDot::Slicer::none) != slicers) {
+                continue;
+            }
+            const float radius = font * (0.15f + 0.35f * std::sqrt(static_cast<float>(dot.qty) / static_cast<float>(most)));
+            const ImVec2 centre{x_of(dot.update), y_of(dot.price)};
+            if (dot.slicer == TradeDot::Slicer::met) {
+                draw->AddCircle(centre, radius, slicer, 0, font * 0.12f);
+            } else {
+                draw->AddCircleFilled(centre, radius, dot.slicer == TradeDot::Slicer::took ? slicer : other);
+            }
+            ImGui::SetCursorScreenPos({centre.x - radius, centre.y - radius});
+            if (ImGui::InvisibleButton(Label{"##trade{}", dot.update}.c_str(), {radius * 2.0f, radius * 2.0f})) {
+                actions.replay_to = dot.update;
+            }
+            report_trade(dot);
+            tooltip([&] {
+                std::string said = std::format("Update {}: a {} of {} at {}", dot.update, dot.side == Side::buy ? "buy" : "sell",
+                                               dot.qty, dot.price);
+                if (truth) {
+                    if (const TradeTruth* trade = truth->truth.trade_at(dot.update)) {
+                        said += std::format("; the incoming order client {}'s, the resting one client {}'s",
+                                            client_name(*truth, trade->incoming_client), client_name(*truth, trade->resting_client));
+                    }
+                }
+                return said + ". Click to go to it.";
+            });
+        }
+    }
+    // The canvas's room, taken by an item, as Dear ImGui needs after the cursor has been moved.
+    ImGui::SetCursorScreenPos(origin);
+    ImGui::Dummy(size);
 }
 
 // The followed order's history, as published.
@@ -748,6 +877,11 @@ Label order_label(const Order& order) { return Label{"{}##order{}", to_string(or
 
 Label follow_label(const Order& order) { return Label{"{}##follow", order.order_id}; }
 
+Label trade_report(const TradeDot& dot) {
+    return Label{"{}: {} at {}, {}", dot.update, dot.qty, dot.price,
+                 dot.slicer == TradeDot::Slicer::took ? "took" : dot.slicer == TradeDot::Slicer::met ? "met" : "none"};
+}
+
 void apply_viewer_look() {
     ImGui::GetIO().Fonts->AddFontDefaultVector();
     ImGui::GetStyle().FontScaleMain = 2.0f;
@@ -793,10 +927,22 @@ ViewerActions draw_viewer(const ViewerView& view) {
     divider();
     draw_tickers(view, actions);
     paragraph_break();
+    // The book, and beside it the trades (not in an answer, whose pane is beside the market).
+    if (!answering) {
+        const float region = ImGui::GetContentRegionAvail().y;
+        ImGui::BeginChild("book_and_history", {ImGui::GetContentRegionAvail().x * 0.58f, region});
+    }
     draw_book(view, actions);
     if (view.published && view.published->follow) {
         divider();
         draw_history(*view.published->follow);
+    }
+    if (!answering) {
+        ImGui::EndChild();
+        ImGui::SameLine();
+        ImGui::BeginChild(kTradesPanel, {0.0f, ImGui::GetContentRegionAvail().y}, ImGuiChildFlags_Borders);
+        draw_trades(view, actions);
+        ImGui::EndChild();
     }
     if (view.kept) {
         ImGui::EndChild();

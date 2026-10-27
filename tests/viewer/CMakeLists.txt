@@ -1,5 +1,6 @@
 # The viewer's core (selection, context, publishing, options), unit-tested without Dear ImGui.
-fillscope_gtest(viewer_tests unit SOURCES viewer_test.cpp kept_files_test.cpp LIBS fillscope_viewer_core)
+fillscope_gtest(viewer_tests unit SOURCES viewer_test.cpp kept_files_test.cpp session_truth_test.cpp LIBS fillscope_viewer_core)
+target_include_directories(viewer_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 
 # The viewer's log and its crash recording, each crash in a process of its own (death tests).
 fillscope_gtest(viewer_log_tests unit SOURCES viewer_log_test.cpp LIBS fillscope_viewer_core)

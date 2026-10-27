@@ -211,7 +211,8 @@ the slower program adds the tier to its name.
   context built from the books and the selection (an order's place in its queue, a level's orders,
   a followed order's events and gaps), its JSON and bar text, publishing (including failure and
   recovery), an answer (its frames, its claims checked again, whose each order is, and every way
-  one is refused), and the command line.
+  one is refused), a recorded session's truth (read, refused when it isn't its market data's, each
+  trade marked from it, each client named), and the command line.
 - **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** the viewer's whole loop, as
   `ViewerApp` runs it for the program, with real clicks: the book's order on screen, choosing a
   ticker, pointing at orders and levels, following an order as it fills, clearing, the bar and the
@@ -220,7 +221,8 @@ the slower program adds the tier to its name.
   while running, recovered from a snapshot, and a datagram that can't be decoded), a replay's
   controls, with the replay address following the books, and answers (stepped through, a step's
   question before its explanation, a new one replacing the last, a false claim marked, a stale one
-  refused). (The
+  refused), and a session's trades panel, stepped update by update, each trade's dot checked
+  against the truth and the book's clients named. (The
   followed row's colour itself isn't observable; its id button reports the mark.) Text is checked
   through Dear ImGui's logging, since plain text items have no ID for the Test Engine to find; rows
   and buttons are found by their IDs.
@@ -300,6 +302,12 @@ replays the last recording (`exchange_replay requests.rec market.dat`) and opens
 move the books to any update of the run. From a terminal: `exchange_main --record FILE`, then
 `exchange_replay FILE MARKET_DATA`, then `viewer --replay MARKET_DATA`.
 
+**A session, and its truth.** `viewer --session DIR` shows a session recorded by
+`tools/sessions/record_session.py` (*Record a session*, below) as a replay, with its truth: the
+book names each order's client, and the trades panel beside it colours the slicer's trades
+(ARCHITECTURE.md, §4, *A session, and its truth*). `--at N` opens a replay or a session at update
+N, and `--ticker T` with ticker T shown; the slicer's orders are on tickers 1, 2 and 3.
+
 `--exit-after SECONDS` closes the viewer after that long; Ctrl-C and SIGTERM close it the same way,
 so its last context file says it has stopped. With `--exit-after`, `--screenshot FILE` writes the
 window, as it was last drawn, to FILE (a PPM image) as the viewer exits. `--incremental GROUP:PORT` and `--snapshot GROUP:PORT`
@@ -332,7 +340,7 @@ segmentation fault is reported by AddressSanitizer instead, in the file beside t
 ## Record a session
 `python3 -I tools/sessions/record_session.py data/sessions/NAME` records about 40 seconds of the
 exchange with the book's clients and a slicer working an order of each kind, and replays it, into
-that directory: the recording, its market data, steps and truth, `session.json` saying who ran with
+that directory (`viewer --session data/sessions/NAME` shows it): the recording, its market data, steps and truth, `session.json` saying who ran with
 what settings and each order's plan, and every program's log, about 40 MB in all. It uses the debug
 build's programs and the book's ports, so nothing else may be using them (`--exchange`, `--trading`,
 `--replay` and the endpoints' options choose others). A session is market data, never committed, so

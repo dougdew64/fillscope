@@ -6,6 +6,7 @@
 #include "feed/market_update.h"
 #include "feed/time_shift.h"
 #include "viewer/answer_state.h"
+#include "viewer/session_truth.h"
 
 #include <chrono>
 #include <cstdint>
@@ -28,6 +29,8 @@ struct Replay {
     // before an update the books can't apply: a replay has no snapshots to recover with.
     TimeShiftBuffer kept;
     BookBuilder books;
+    // A recorded session's truth, when the replay is one's (viewer --session): who sent what.
+    std::optional<SessionTruth> truth;
 
     // A replay of `updates`, numbered 1, 2, 3, ... (read_market_data_file checks), with its run held.
     [[nodiscard]] static Replay of(std::filesystem::path file, std::string recording, std::vector<MarketUpdate> updates);

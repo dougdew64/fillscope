@@ -529,8 +529,8 @@ updates it was on its way, which don't add up; the truth marking exactly the sli
 options and what it sends at each update; `backend_system_tests` that the client refuses a slicer
 without its orders or with one it can't slice. Found on the way: a client whose market data starts
 late waits for a snapshot, deciding nothing, and the book's client stops after a minute without
-market data, as a session's market maker once did (why it had none wasn't found), so the session's
-exchange sends a snapshot every second; and `lowlatency_tests`, at 7.9 GB in the sanitizer build, now holds the exchange's lock, so
+market data, as a session's market maker once did (its market data had started late, found in step
+24), so the session's exchange sends a snapshot every second; and `lowlatency_tests`, at 7.9 GB in the sanitizer build, now holds the exchange's lock, so
 no session runs beside it. Checked by 15 mutants.
 
 ### 24. Slicing shown, from the truth
@@ -541,6 +541,21 @@ replay, so a slice can be stopped on and the book looked at around it. The viewe
 are the recording's truth; live, or in a replay without truth, there is none, and it says so.
 **Done when:** UI tests check the panel and the book against the truth, update by update; the owner
 has judged the display in screenshots and the running viewer.
+**Status:** built, and checked as the first half says (2026-10-27); for the owner to judge.
+`viewer --session DIR` shows a recorded session with its truth (`src/viewer/session_truth.h`;
+[ARCHITECTURE.md](ARCHITECTURE.md), §4, *A session, and its truth*); `--at` and `--ticker` open it
+where wanted. The panel's dots are each trade on the ticker shown, over the 1,200 updates up to the
+one shown, the slicer's orange (filled: its piece took; a ring: its resting order was met). Found
+in its first screenshots, and fixed: the slicer of step 23 left each piece's rest resting, which,
+above the market it had pushed, stopped it, the slicer's later pieces resting and being met; it
+now cancels each piece once accepted, as an immediate-or-cancel order would be. Its pieces are now
+half the market maker's clip, which took the maker's whole quote and left the slicer's tickers
+one-sided half the time. And the session's clients joined its market data late on a busy machine,
+recovering from snapshots and deciding on books half built, which failed the system test now and
+then; the random client, whose order is the first update, now starts once the others are
+listening. Checked by unit tests (the session read and refused, each trade marked, each client
+named), UI tests (a session made by hand stepped update by update, each dot against its truth, and
+a replay with no truth), and 9 mutants.
 
 ### 25. The slicing demo
 A demo, part of the tests like the others, recorded for sharing: a recorded session with each kind

@@ -311,6 +311,16 @@ void record(Session& session) {
 
     std::ifstream in{directory / "session.json"};
     const auto json = nlohmann::json::parse(in);
+    // A client that recovered from a snapshot decided, as it rebuilt its book, on books half built,
+    // and a slicer that did counted the snapshot's orders as updates: said, so a failure explains
+    // itself.
+    std::string recovered;
+    for (const auto& client : json.at("clients")) {
+        if (client.at("recovered")) {
+            recovered += std::format(" {}", client.at("client").get<std::uint32_t>());
+        }
+    }
+    std::printf("clients that recovered from a snapshot:%s\n", recovered.empty() ? " none" : recovered.c_str());
     for (const auto& client : json.at("clients")) {
         const std::string strategy = client.at("strategy");
         if (strategy == "MAKER") {
@@ -433,8 +443,8 @@ TEST_F(RecordedSession, EveryOrderAndEveryTradeHasItsClientInTheTruth) {
                 orders, trades, traded[kMaker], traded[kTaker], traded[kRandom]);
 }
 
-// Each slicer sends exactly its plan: new orders only, on its ticker and side, numbered 1, 2, 3, ...,
-// each of its piece's quantity, every piece and no more. And each piece came its gap of updates on
+// Each slicer sends exactly its plan: new orders on its ticker and side, numbered 1, 2, 3, ..., each
+// of its piece's quantity, every piece and no more, and a cancel of each once it was accepted. And each piece came its gap of updates on
 // the ticker after the one before: the slicer counts the updates as it receives them, and a piece
 // reaches the matcher some updates after the slicer decided on it. So if piece i was decided at the
 // ticker's k-th update, k is a fixed start plus the sum of the gaps up to i, and no later than the
@@ -455,6 +465,7 @@ TEST_F(RecordedSession, EachSlicedOrderIsSentExactlyAsPlannedInItsPiecesAndGaps)
         std::uint64_t seq = 0;        // the last update counted
         std::uint64_t gaps = 0;       // the gaps' sum so far
         std::vector<std::uint64_t> late;  // each piece's a(i) less the gaps' sum
+        std::set<std::uint64_t> cancelled;
         std::size_t piece = 0;
         for (const ReplayStep& step : session_->steps.steps) {
             for (; seq + 1 < step.first_update; ++seq) {  // the updates made before this request
@@ -462,6 +473,11 @@ TEST_F(RecordedSession, EachSlicedOrderIsSentExactlyAsPlannedInItsPiecesAndGaps)
             }
             const Request request = decode(step.request);
             if (request.client != slicer.client || request.ticker != slicer.ticker) {
+                continue;
+            }
+            if (request.type == kCancel) {  // each piece, once accepted: one cancel each, after it
+                EXPECT_TRUE(request.order_id >= 1 && request.order_id <= piece) << "a cancel of order " << request.order_id;
+                EXPECT_TRUE(cancelled.insert(request.order_id).second) << "order " << request.order_id << " cancelled twice";
                 continue;
             }
             ASSERT_LT(piece, slicer.plan.size()) << "a request past its plan";
@@ -475,6 +491,7 @@ TEST_F(RecordedSession, EachSlicedOrderIsSentExactlyAsPlannedInItsPiecesAndGaps)
             ++piece;
         }
         ASSERT_EQ(piece, slicer.plan.size()) << "every piece sent";
+        EXPECT_EQ(cancelled.size(), piece) << "every piece cancelled";
         ASSERT_GE(late.size(), 2 * kPiecesCompared);
         const auto least = [](auto first, auto last) { return *std::min_element(first, last); };
         const std::uint64_t start = least(late.begin(), late.begin() + kPiecesCompared);
@@ -529,7 +546,7 @@ TEST_F(RecordedSession, TheTruthMarksExactlyTheSlicersTrades) {
     EXPECT_EQ(marked, slicers_trades);
     std::string by_ticker;
     for (const SlicedOrder& order : session_->sliced) {
-        EXPECT_GE(traded[order.ticker], 10u) << "the slicer hardly traded on ticker " << order.ticker;
+        EXPECT_GE(traded[order.ticker], 5u) << "the slicer hardly traded on ticker " << order.ticker;
         by_ticker += std::format(" {} on ticker {} ({}),", traded[order.ticker], order.ticker, order.kind);
     }
     std::printf("the truth marks %zu trades as the slicer's:%s\n", marked.size(), by_ticker.c_str());

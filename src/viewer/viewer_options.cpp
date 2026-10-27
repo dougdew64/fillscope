@@ -1,6 +1,7 @@
 #include "viewer/viewer_options.h"
 
 #include "common/parse.h"
+#include "feed/book_builder.h"
 
 #include <arpa/inet.h>
 
@@ -39,7 +40,7 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string_view option{args[i]};
         if (option != "--exit-after" && option != "--incremental" && option != "--snapshot" && option != "--replay" &&
-            option != "--answer" && option != "--answer-frame" && option != "--course" && option != "--screenshot" &&
+            option != "--session" && option != "--at" && option != "--ticker" && option != "--answer" && option != "--answer-frame" && option != "--course" && option != "--screenshot" &&
             option != "--context-file") {
             return std::unexpected{std::format("unknown option '{}'", option)};
         }
@@ -59,6 +60,23 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
                 return std::unexpected{"--replay needs a file"};
             }
             options.replay = value;
+        } else if (option == "--session") {
+            if (value.empty()) {
+                return std::unexpected{"--session needs a directory"};
+            }
+            options.session = value;
+        } else if (option == "--at") {
+            const auto at = parse_number<std::uint64_t>(value);
+            if (!at) {
+                return std::unexpected{std::format("--at: {}", at.error())};
+            }
+            options.at = *at;
+        } else if (option == "--ticker") {
+            const auto ticker = parse_number<std::uint32_t>(value);
+            if (!ticker || *ticker >= BookBuilder::kTickers) {
+                return std::unexpected{std::format("--ticker: '{}' isn't a ticker, 0 to {}", value, BookBuilder::kTickers - 1)};
+            }
+            options.ticker = *ticker;
         } else if (option == "--answer") {
             if (value.empty()) {
                 return std::unexpected{"--answer needs a file"};
@@ -98,10 +116,18 @@ std::expected<ViewerOptions, std::string> parse_viewer_args(std::span<const char
             options.exit_after_seconds = *seconds;
         }
     }
+    if (options.session && (options.replay || options.answer || stream_given)) {
+        // A session is a replay of its own, so another replay, an answer or a stream given with it
+        // would be silently ignored.
+        return std::unexpected{"--session shows a session's own replay: give it without --replay, --answer, --incremental or --snapshot"};
+    }
     if (options.answer && (options.replay || stream_given)) {
         // An answer brings its own market data, so a replay or a stream given with it would be
         // silently ignored.
         return std::unexpected{"--answer shows an answer's own market data: give it without --replay, --incremental or --snapshot"};
+    }
+    if (options.at && !options.replay && !options.session) {
+        return std::unexpected{"--at chooses where a replay opens: give it with --replay or --session"};
     }
     if (options.course && !options.answer) {
         return std::unexpected{"--course offers lessons beside an answer file: give it with --answer"};

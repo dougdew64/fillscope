@@ -65,6 +65,8 @@ ANSWER_STATE = "src/viewer/answer_state.cpp"
 VIEWER_APP = "src/viewer/viewer_app.cpp"
 VIEWER_STATE = "src/viewer/viewer_state.cpp"
 VIEWER_STATE_HEADER = "src/viewer/viewer_state.h"
+SESSION_TRUTH = "src/viewer/session_truth.cpp"
+VIEWER_VIEW = "src/viewer/viewer_view.cpp"
 DOC_LINKS = "tests/docs/doc_links_test.cpp"
 DEBUG_STATE = "tools/vscode-debug-state/src/debug_state.js"
 EXTENSION = "tools/vscode-debug-state/src/extension.js"
@@ -278,6 +280,39 @@ MUTANTS = [
     ("a slicer takes two orders on one ticker", SLICER,
      [("      if (taken[orders[i].ticker_id]) {", "      if (false) {")],
      "lowlatency:SliceOptions.ManyOrdersAreRefusedSayingWhy"),
+    ("a slicer leaves its pieces resting", SLICER,
+     [("    trade_engine_->sendClientRequest(&cancel);\n", "    (void)cancel;\n")],
+     "lowlatency:SlicerTest.APieceIsCancelledAsSoonAsItIsAccepted"),
+    # Slicing shown from the truth: each a way the viewer would show a trade as someone else's, or
+    # one that hadn't happened yet.
+    ("a trade the slicer took is shown as met", SESSION_TRUTH,
+     [("                dot.slicer = TradeDot::Slicer::took;", "                dot.slicer = TradeDot::Slicer::met;")],
+     "SessionTruthTest.EachTradeIsMarkedFromTheTruth"),
+    ("another ticker's trades are shown", SESSION_TRUTH,
+     [("        if (update.type != UpdateType::trade || update.ticker != ticker) {", "        if (update.type != UpdateType::trade) {")],
+     "SessionTruthTest.EachTradeIsMarkedFromTheTruth"),
+    ("a session's slicer isn't coloured", SESSION_TRUTH,
+     [("                session.slicers.insert(id);\n", "")],
+     "SessionTruthTest.ReadsASessionsMarketDataTruthAndClients"),
+    ("a truth from another recording is taken", SESSION_TRUTH,
+     [("    if (truth.recording() != market_data.recording) {", "    if (false) {")],
+     "SessionTruthTest.ATruthThatIsntItsMarketDatasIsRefused"),
+    ("a truth missing a trade is taken", SESSION_TRUTH,
+     [("            if (truth.trade_at(update.seq) == nullptr) {", "            if (false) {"),
+      ("    if (truth.trades().size() != trades) {", "    if (false) {")],
+     "SessionTruthTest.ATruthThatIsntItsMarketDatasIsRefused"),
+    ("the panel shows trades still to come", VIEWER_VIEW,
+     [("    const std::uint64_t to = view.state.books.last_seq();\n    const std::uint64_t from = to >= kTradesWindow",
+       "    const std::uint64_t to = replay.updates.size();\n    const std::uint64_t from = to >= kTradesWindow")],
+     "ui:a_sessions_trades_are_drawn_from_its_truth_update_by_update"),
+    ("the book names each order's client from another ticker's", VIEWER_VIEW,
+     [("            const auto client = truth->truth.client_of(ticker, order.order_id);",
+       "            const auto client = truth->truth.client_of(0, order.order_id);")],
+     "ui:a_sessions_trades_are_drawn_from_its_truth_update_by_update"),
+    ("a session's trades aren't coloured", VIEWER_VIEW,
+     [("const std::vector<TradeDot> dots = trade_dots(replay.updates, truth ? *truth : kNoTruth, ticker, from, to);",
+       "const std::vector<TradeDot> dots = trade_dots(replay.updates, kNoTruth, ticker, from, to);")],
+     "ui:a_sessions_trades_are_drawn_from_its_truth_update_by_update"),
     ("a client that isn't a slicer takes the slicer's options", TRADING_MAIN_SOURCE,
      [("(slice.any && algo_type != AlgoType::SLICER)", "false")],
      "backend_system_tests"),

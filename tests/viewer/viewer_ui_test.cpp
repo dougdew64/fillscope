@@ -19,6 +19,7 @@
 #include "feed/market_update.h"
 #include "feed/simulated_exchange.h"
 #include "support/answer_fixture.h"
+#include "support/session_fixture.h"
 #include "support/test_support.h"
 #include "viewer/context.h"
 #include "viewer/viewer_app.h"
@@ -1143,6 +1144,74 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "updates received: 2 "));
         IM_CHECK(contains(vars.text, "at update 1 of 3, stuck: "));
+    });
+
+    // A recorded session's replay, stepped update by update: its trades panel draws each trade on the
+    // shown ticker up to the update shown, and the slicer's as the truth says (support/session_fixture.h
+    // gives it by hand: on ticker 1, update 4 the slicer took, 7 its resting order was met, 9 it
+    // wasn't in; ticker 2's trade at 12 is never drawn there). The book names each order's client.
+    viewer_test(engine, "a_sessions_trades_are_drawn_from_its_truth_update_by_update", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "Trades are drawn in a replay. Live, there is no truth to say who traded"));
+        fillscope::Session session = fillscope::test::hand_session();
+        vars.app->open_session("/sessions/hand/market.dat", std::move(session.market_data), std::move(session.truth));
+        ctx->ItemClick("**/1##ticker");
+        const std::vector<std::pair<std::uint64_t, std::string>> trades{
+            {4, "4: 10 at 105, took"}, {7, "7: 5 at 105, met"}, {9, "9: 4 at 106, none"}};
+        for (std::uint64_t at = 0; at <= 13; ++at) {
+            ctx->Yield(2);
+            IM_CHECK(contains(vars.text, std::format("after update {} of 13", at)));
+            for (const auto& [update, report] : trades) {
+                const std::string dot = std::format("**/##trade{}", update);
+                if (update <= at) {
+                    IM_CHECK_EQ(std::string{ctx->ItemInfo(dot.c_str()).DebugLabel}, report);
+                } else {
+                    IM_CHECK(!ctx->ItemExists(dot.c_str()));  // not yet traded
+                }
+            }
+            IM_CHECK(!ctx->ItemExists("**/##trade12"));  // ticker 2's
+            ctx->ItemClick(std::format("**/{}", fillscope::kReplayForward).c_str());
+        }
+        IM_CHECK(contains(vars.text, "Here the slicer buys 15 in pieces of 10"));
+        IM_CHECK(contains(vars.text, "Orange: the slicer's"));
+        // The book's orders, by client: after update 6, the maker's is gone and the slicer's rests.
+        vars.app->replay_to(6);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "6 (slicer)"));
+        IM_CHECK(contains(vars.text, "5 (random)"));
+        IM_CHECK(!contains(vars.text, "1 (maker)"));
+        vars.app->replay_to(3);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "1 (maker)"));
+        IM_CHECK(!contains(vars.text, "6 (slicer)"));
+        // A dot goes to its update; ticker 2's slicer trade is drawn on ticker 2's panel.
+        vars.app->replay_to(13);
+        ctx->Yield(2);
+        ctx->ItemClick("**/##trade7");
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "after update 7 of 13"));
+        ctx->ItemClick("**/2##ticker");
+        vars.app->replay_to(13);
+        ctx->Yield(2);
+        IM_CHECK_EQ(std::string{ctx->ItemInfo("**/##trade12").DebugLabel}, std::string{"12: 3 at 50, took"});
+        IM_CHECK(contains(vars.text, "The slicer has no order on this ticker."));
+    });
+
+    // A replay without a truth draws its trades, none coloured, and says why.
+    viewer_test(engine, "a_replay_without_a_truth_says_it_has_none", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        vars.app->open_replay("runs/plain.dat", {.recording = "requests.rec", .updates = fillscope::test::session_updates()});
+        vars.app->show_ticker(1);
+        vars.app->replay_to(13);
+        ctx->SetRef(fillscope::kViewerWindow);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "No truth for this replay, so no colours"));
+        IM_CHECK(!contains(vars.text, "Orange"));
+        IM_CHECK(!contains(vars.text, "(slicer)"));
+        IM_CHECK_EQ(std::string{ctx->ItemInfo("**/##trade4").DebugLabel}, std::string{"4: 10 at 105, none"});
+        IM_CHECK_EQ(std::string{ctx->ItemInfo("**/##trade7").DebugLabel}, std::string{"7: 5 at 105, none"});
     });
 
     // A long replay, going anywhere in it in any order, shows the books as if played from update 1:
