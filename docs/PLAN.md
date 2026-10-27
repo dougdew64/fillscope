@@ -516,6 +516,22 @@ background clients; recordings are made, never committed ([charter](CHARTER.md) 
 committed).
 **Done when:** a test checks each kind sends exactly its order, in the pieces and gaps it was given;
 a recorded session replays the same every time; and the truth marks exactly the slicer's trades.
+**Status:** done (2026-10-27). The slicer is `trading_main CLIENT SLICER --slice ...` in the fork
+(`trading/strategy/slicer.h`); `tools/sessions/record_session.py` records a session of it among the
+book's clients ([ARCHITECTURE.md](ARCHITECTURE.md), §1, *The planted slicer*, *A recorded session*).
+Its gaps are counted in market updates on its ticker, since the data has no time and the viewer's
+axis is the update number. The kinds are options that combine (`--gap-jitter`, `--size-spread`), and
+one slicer client works an order of each kind, one per ticker: six clients took 11.7 GB, against
+8.5 GB for four, with CI's runner at 16 GB. `strategy_system_tests` records the session and checks
+each order sent exactly as planned, piece by piece, and each piece its gap after the last, up to the
+updates it was on its way, which don't add up; the truth marking exactly the slicer's trades (about
+150 of 550); and a second replay, byte for byte. The fork's tests check the slicer's plan, its
+options and what it sends at each update; `backend_system_tests` that the client refuses a slicer
+without its orders or with one it can't slice. Found on the way: a client whose market data starts
+late waits for a snapshot, deciding nothing, and the book's client stops after a minute without
+market data, as a session's market maker once did (why it had none wasn't found), so the session's
+exchange sends a snapshot every second; and `lowlatency_tests`, at 7.9 GB in the sanitizer build, now holds the exchange's lock, so
+no session runs beside it. Checked by 15 mutants.
 
 ### 24. Slicing shown, from the truth
 In a replay with its truth, the viewer shows the slicer: a panel beside the book, each trade a dot,

@@ -44,6 +44,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The debug-state extension | `tools/vscode-debug-state/` | §5; [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md) | |
 | The attribution report | `tools/attribution/` | [AI-USE.md](AI-USE.md) (in part) | |
 | The code map's check | `tools/code_map/` | this document's opening | |
+| Recording a session of slicers among the book's clients | `tools/sessions/` | §1, *A recorded session* | |
 | The build, and the editor's configurations | `CMakeLists.txt`, `.vscode/`, `.gitignore`, `.gitmodules` | not yet; how to use them is in [RUNNING.md](RUNNING.md) | |
 | CI | `.github/` | §9 (in part) | |
 | The tests, by area | `tests/answer/`, `tests/feed/`, `tests/viewer/`, `tests/common/`, `tests/docs/`, `tests/support/`, `tests/vscode-debug-state/`, `tests/attribution/`, `tests/code_map/`, `tests/backend/backend_system_test.py`, `tests/backend/strategy_system_test.cpp`, `tests/truth/`, `tests/*/CMakeLists.txt` | §9; §10, *The demos* (`tests/viewer/viewer_demo.cpp`) | 2026-10-26: how the demos are made: a program of their own, driven through the Test Engine, recorded by a flag |
@@ -64,6 +65,7 @@ numbers are ARCHITECTURE.md's unless another document is named.
 | The client's market data consumer | `trading/market_data/` | not yet | |
 | The client's order gateway | `trading/order_gw/` | not yet | |
 | The client's trade engine, and its strategies | `trading/strategy/trade_engine.*`, `trading/strategy/feature_engine.h`, `trading/strategy/liquidity_taker.*`, `trading/strategy/market_maker.*` | §1, *A client, inside*; *The book's strategies* | 2026-10-27: where a slicing detector sits in a real system (beside the strategy, as a feature); whether each client is a process of its own; whether the market maker that uses it could be Fillscope's own client (it is to be) |
+| The planted slicer | `trading/strategy/slicer.*` | §1, *The planted slicer* | |
 | The client's copy of the books | `trading/strategy/market_order*` | §1, *The book's strategies* (in part); the fork's fixes in the back end's README ([backend/README.md](../backend/README.md)) | |
 | The client's orders, risk and position | `trading/strategy/om_order.h`, `trading/strategy/order_manager.*`, `trading/strategy/risk_manager.*`, `trading/strategy/position_keeper.h` | not yet | |
 | The lock-free queue between threads | `common/lf_queue*` | §1, *How the exchange's threads hand each other work* | 2026-10-24: how it works, what happens when one is full, and what to do about it |

@@ -92,6 +92,7 @@ LIQUIDITY_TAKER = "backend/Chapter12/trading/strategy/liquidity_taker.h"
 FEATURE_ENGINE = "backend/Chapter12/trading/strategy/feature_engine.h"
 CLIENT_BOOK = "backend/Chapter12/trading/strategy/market_order_book.cpp"
 CLIENT_BOOK_HEADER = "backend/Chapter12/trading/strategy/market_order_book.h"
+SLICER = "backend/Chapter12/trading/strategy/slicer.cpp"
 MATCHING_ENGINE = "backend/Chapter12/exchange/matcher/matching_engine.h"
 REPLAY_MAIN = "backend/Chapter12/exchange/exchange_replay.cpp"
 REQUEST_ANCHOR = "backend/Chapter12/exchange/matcher/lockstep_anchor.cpp"
@@ -236,6 +237,54 @@ MUTANTS = [
      [("(market_update->side_ == Side::BUY ? bbo->ask_qty_ : bbo->bid_qty_)",
        "(market_update->side_ == Side::BUY ? bbo->bid_qty_ : bbo->ask_qty_)")],
      "strategy_system_tests"),
+    # The planted slicer (slicer.h): a slicer that didn't send exactly its plan would show a pattern
+    # that wasn't the one planted.
+    ("a slicer sends each piece an update late", SLICER,
+     [("    if (order->since < order->plan[order->next].gap) {", "    if (order->since <= order->plan[order->next].gap) {")],
+     "strategy_system_tests"),
+    ("a slicer sends each piece an update early", SLICER,
+     [("    if (order->since < order->plan[order->next].gap) {", "    if (order->since + 1 < order->plan[order->next].gap) {")],
+     "lowlatency:SlicerTest.SendsEachPieceWhenItsGapOfUpdatesOnItsTickerHasPassed"),
+    ("a slicer counts other tickers' updates", SLICER,
+     [("ticker_id < by_ticker_.size() ? by_ticker_[ticker_id] : nullptr;", "ticker_id < by_ticker_.size() ? &orders_.front() : nullptr;")],
+     "lowlatency:SlicerTest.SendsEachPieceWhenItsGapOfUpdatesOnItsTickerHasPassed"),
+    ("a slicer counts each gap from its first piece", SLICER,
+     [("    order->since = 0;\n", "")],
+     "lowlatency:SlicerTest.SendsEachPieceWhenItsGapOfUpdatesOnItsTickerHasPassed"),
+    ("a slicer's buy takes the best bid", SLICER,
+     [("cfg.side == Common::Side::BUY ? bbo->ask_price_ : bbo->bid_price_", "cfg.side == Common::Side::BUY ? bbo->bid_price_ : bbo->ask_price_")],
+     "lowlatency:SlicerTest.*"),
+    ("a slicer with nothing to price a piece at sends it anyway", SLICER,
+     [("    if (price == Common::Price_INVALID) {", "    if (false) {")],
+     "lowlatency:SlicerTest.TheFirstPieceWaitsForAPrice"),
+    ("a slicer's gaps aren't jittered", SLICER,
+     [("gap{cfg.gap - cfg.gap_jitter, cfg.gap + cfg.gap_jitter}", "gap{cfg.gap, cfg.gap}")],
+     "lowlatency:SlicePlan.JitteredGapsStayWithinTheJitterAndASeedGivesTheSamePlan"),
+    ("a slicer's sizes aren't spread", SLICER,
+     [("size{cfg.piece - cfg.size_spread, cfg.piece + cfg.size_spread}", "size{cfg.piece, cfg.piece}")],
+     "lowlatency:SlicePlan.SpreadSizesStayWithinTheSpreadAndAddUpToTheTotal"),
+    ("a slicer's plan ignores its seed", SLICER,
+     [("    std::mt19937 random{cfg.seed};", "    std::mt19937 random{0};")],
+     "lowlatency:SlicePlan.JitteredGapsStayWithinTheJitterAndASeedGivesTheSamePlan"),
+    ("a slicer takes a jitter as large as its gap", SLICER,
+     [("    if (cfg.gap_jitter >= cfg.gap) {", "    if (cfg.gap_jitter > cfg.gap) {")],
+     "lowlatency:SlicePlan.AnOrderThatCantBeSlicedSaysWhy"),
+    ("the slicer's order takes any side", SLICER,
+     [('(side != "BUY" && side != "SELL")', "false")],
+     "lowlatency:SliceOptions.RefusesWhatIsntOne"),
+    ("a slicer's orders all draw the same plan", SLICER,
+     [("(options.seeded ? options.seed : client_id) + static_cast<uint32_t>(i);", "(options.seeded ? options.seed : client_id);")],
+     "lowlatency:SliceOptions.ReadsEachOrderAndHowToSliceIt"),
+    ("a slicer takes two orders on one ticker", SLICER,
+     [("      if (taken[orders[i].ticker_id]) {", "      if (false) {")],
+     "lowlatency:SliceOptions.ManyOrdersAreRefusedSayingWhy"),
+    ("a client that isn't a slicer takes the slicer's options", TRADING_MAIN_SOURCE,
+     [("(slice.any && algo_type != AlgoType::SLICER)", "false")],
+     "backend_system_tests"),
+    ("a slicer's order isn't checked", TRADING_MAIN_SOURCE,
+     [("    if (const auto error = Trading::slicesError(slice_orders)) {",
+       "    if (const auto error = std::optional<std::string>{}) {")],
+     "backend_system_tests"),
     # The client's book (market_order_book.h), fixed in the fork, caught by its own tests.
     ("the first order on an empty side isn't its best", CLIENT_BOOK,
      [("(!bids_by_price_ || market_update->price_ >= bids_by_price_->price_)",

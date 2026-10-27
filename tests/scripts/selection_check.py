@@ -104,6 +104,12 @@ CASES = [
     ("backend/Chapter12/trading/strategy/market_maker.h", CPP_PROBE,
      {"lowlatency_tests", "backend_system_tests", "feed_system_tests", "strategy_system_tests", "viewer_live_demo",
       "viewer_time_shift_demo"} | VIEWER_PROGRAM),
+    # The slicer: in the fork's tests' program, and in trading_main, as the other strategies are.
+    ("backend/Chapter12/trading/strategy/slicer.cpp", CPP_PROBE,
+     {"lowlatency_tests", "backend_system_tests", "feed_system_tests", "strategy_system_tests", "viewer_live_demo",
+      "viewer_time_shift_demo"} | VIEWER_PROGRAM),
+    # The script that records a session: run only by the test of one.
+    ("tools/sessions/record_session.py", TEXT_PROBE, {"strategy_system_tests"}),
     # The allocation tests are a program of their own, so a change to them affects only it.
     ("backend/Chapter12/tests/allocation_test.cpp", CPP_PROBE, {"lowlatency_allocation_tests"}),
     # A build file counts only through what it decides: what is built, and how CTest runs each

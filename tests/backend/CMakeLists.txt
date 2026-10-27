@@ -5,6 +5,10 @@
 # of a second and gigabytes to make, so a process per test would cost each), in the system tier:
 # about 3 s, but about 20 s in the sanitizer build.
 fillscope_test_program(lowlatency_tests system COMMAND $<TARGET_FILE:lowlatency_tests>)
+# Its matching engine and client's engine take 4.3 GB, 7.9 GB in the sanitizer build: with a session
+# of the exchange and its clients beside it (strategy_system_tests, 8.5 GB measured), CI's 16 GB would
+# run out, so it holds the lock those tests hold.
+set_tests_properties(lowlatency_tests PROPERTIES RESOURCE_LOCK exchange)
 
 # What must not allocate (the queues, the pools, the price levels, the snapshot's updates), in a
 # program of its own, since it replaces operator new. The system tier, as one test: it makes a
@@ -23,18 +27,20 @@ fillscope_test_program(backend_system_tests system
 # memory, so one test at a time may (feed_system_tests too).
 set_tests_properties(backend_system_tests PROPERTIES RESOURCE_LOCK exchange)
 
-# The book's market maker and liquidity taker against the real exchange, every order checked against
-# their rules, and the replay's truth of the session checked against its requests
-# (strategy_system_test.cpp). The system tier: it runs an exchange and three clients, on
-# ports of its own, and holds the exchange's lock.
+# A session of every kind of client, recorded by tools/sessions/record_session.py: the book's market
+# maker and liquidity taker checked against their rules, the slicers against their plans, and the
+# replay's truth and the replay itself (strategy_system_test.cpp). The system tier: it runs an
+# exchange and four clients, on ports of its own, and holds the exchange's lock.
 add_executable(strategy_system_tests strategy_system_test.cpp)
 target_link_libraries(strategy_system_tests PRIVATE fillscope_answer fillscope_feed fillscope_truth GTest::gtest)
 target_include_directories(strategy_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 target_compile_options(strategy_system_tests PRIVATE ${FILLSCOPE_WARNINGS})
+set(record_session ${PROJECT_SOURCE_DIR}/tools/sessions/record_session.py)
 fillscope_test_program(strategy_system_tests system
-  COMMAND $<TARGET_FILE:strategy_system_tests> $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main>
-          $<TARGET_FILE:exchange_replay>
-  RUNTIME_DEPS $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay>)
+  COMMAND $<TARGET_FILE:strategy_system_tests> ${Python3_EXECUTABLE} ${record_session} $<TARGET_FILE:exchange_main>
+          $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay>
+  RUNTIME_DEPS ${record_session} $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay>
+               ${Python3_EXECUTABLE})
 set_tests_properties(strategy_system_tests PROPERTIES RESOURCE_LOCK exchange)
 
 # Debugger lockstep with the matcher, on a replay (replay_debugger_test.cpp): exchange_replay under GDB

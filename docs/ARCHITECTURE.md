@@ -98,6 +98,53 @@ fixed in the fork (its README lists them): the first order on an empty side didn
 best price, a clear (how a client recovering from a snapshot starts) left the old best prices and
 its table of levels by price pointing at freed levels, and the book's tables started uninitialized.
 
+**The planted slicer** (`trading/strategy/slicer.h` in the fork). A fourth strategy, Fillscope's,
+there to be found: a trader working a large order by sending it in pieces, so as not to show its
+size. `trading_main CLIENT SLICER --slice TICKER BUY|SELL TOTAL PIECE GAP` sends TOTAL in pieces of
+PIECE, each GAP market updates on its ticker after the one before; given more than one `--slice`,
+each on a ticker of its own, it works them all at once, each its own way, as one firm's execution
+algorithm works several orders. Counting updates rather than
+time: the market data carries no time, the viewer's axis is the update number, and a gap of updates
+can be checked against the market data afterwards. Two options make it harder to see: `--gap-jitter
+J` draws each gap from GAP ± J, and `--size-spread S` each piece's size from PIECE ± S, each for the
+`--slice` before it. Each plan is drawn before it starts, from a generator seeded with `--slice-seed`
+(the client's id by default) plus the order's place, so a run's pieces and gaps are known and the
+same every time; `--slice-plan FILE` writes them, a line a piece: its ticker, quantity and gap. Each piece is priced to take liquidity, a buy at the best ask and a sell at the best
+bid, or at the last piece's price if that side is empty; whatever doesn't fill rests there and is
+never cancelled, so a slicer's order can be met resting as well as take. It sends its pieces itself,
+each order's numbered 1, 2, 3, ..., rather than through the order manager, which keeps one order a side, and
+checks no risk: it is to send exactly its order. The fork's tests check its plan, its options and,
+through the client's own books, what it sends at each update.
+
+**A recorded session** (`tools/sessions/record_session.py`). The background a slicer is hidden in
+is the book's clients, so a session is the exchange, recording, with the market maker (client 1),
+the liquidity taker (3) and the random client (5), as in the book, and the slicer (6) working an
+order of each kind, each on a ticker of its own: it buys in equal pieces at regular gaps on ticker
+1, sells with its gaps jittered on ticker 2, and buys in pieces of spread sizes on ticker 3. One
+client rather than one for each kind: each client is a trade engine with a book for every ticker,
+about 1.5 GB, and a session of six clients took 11.7 GB (measured), against 8.5 GB for four, which
+leaves CI's 16 GB room for the tests beside it. Each ticker sees about 8 updates a second, and each
+order's gap is 12 of them, so each goes in about 20 pieces over about 30 s. The script records
+until the slicer has sent all three orders, stops every program and replays the recording with its
+steps and its truth, and writes `session.json`: each client, its settings or its orders, each
+order's plan, and whether a client recovered from a snapshot. The exchange sends a snapshot every second rather than every minute: a
+client whose market data starts late, or loses a datagram, waits for one, deciding nothing, and the
+book's client stops after a minute with no market data, as a session's market maker once did (why
+it had none that minute wasn't found; with a snapshot a second, no wait is that long). A session is market
+data, never committed (the [charter](CHARTER.md), decision 5), so the script writes only outside the
+repository or where git ignores it.
+
+`strategy_system_tests` records one session and checks, besides the maker's and the taker's rules
+and the truth (§3, *A replay's truth*): that each order was sent exactly as planned, its pieces'
+sizes in order and no more; that each piece came its gap after the one before; that the truth marks
+exactly the slicer's trades, about 150 of 550, as the recording says, worked out without the truth; and that
+the recording replayed again gives the same market data, steps and truth, byte for byte. The gaps
+are checked through what the market data shows: a piece reaches the matcher some updates after the
+slicer decided on it, how many depending on how busy the machine is (up to 6 measured), but a late
+piece doesn't delay the next, whose gap counts from the decision. So with the plan's gaps, each
+piece's lateness, its updates before it arrived less the gaps' sum, is least by the same amount at
+the order's end as at its start, while a slicer that miscounted would drift by an update a piece.
+
 **How the exchange's threads hand each other work.** Each part of the exchange runs on a thread of
 its own: the order server reads the clients' requests, the matcher processes them, and the
 publisher sends the market data. Between each pair is a queue (`common/lf_queue.h`): a ring of

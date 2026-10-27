@@ -105,8 +105,10 @@ the slower program adds the tier to its name.
   matching (price-time priority, partial fills, sweeps, cancels), the incremental feed's sequence
   numbers, a snapshot's content and its interval, recording and replaying requests, the order
   server refusing what the matcher can't process, and the trading client's copy of the books (its
-  best bid and ask, through a clear). One process for them all, about 3 s and 4.3 GB (about 20 s in the sanitizer build):
-  the exchange's objects take gigabytes to make. The fork's own CI runs them too.
+  best bid and ask, through a clear), and the planted slicer (its plan, its options, and what it
+  sends at each update, through the client's books). One process for them all, about 3 s and 4.3 GB (about 20 s in the sanitizer build):
+  the exchange's objects take gigabytes to make, so it holds the lock the tests running the exchange
+  hold, and none of them runs beside it. The fork's own CI runs them too.
 - **`lowlatency_allocation_tests` (GoogleTest, `system`, the whole program as one test):** in the
   fork too: what must not allocate (a queue's write and read, a memory pool's allocate and release,
   a price level added and removed, the snapshot synthesizer's updates, and an `ASSERT` that holds),
@@ -121,18 +123,19 @@ the slower program adds the tier to its name.
   order ids, sent to the exchange directly, is rejected and left out of the recording, and the
   exchange runs on and accepts the next; and the exchange refuses bad options, its new ones
   (`--order-port`, `--snapshot`, `--incremental`) among them, and the client a bad
-  `--warm-up-seconds`. Its client warms up for a second rather than the book's 10, and its first
+  `--warm-up-seconds`, a slicer without its order or with one it can't slice, and the slicer's options
+  given to another strategy. Its client warms up for a second rather than the book's 10, and its first
   market update must arrive within 9 s, so a warm-up the client ignored fails it.
-- **`strategy_system_tests` (GoogleTest, `system`, the whole program as one test):** the book's
-  market maker and liquidity taker, with its own settings, run against the real exchange beside
-  the random client until each has sent enough (300 requests from the maker, 20 from the taker);
-  the exchange's recording, replayed with `--steps`, then says where each request came in the market
-  data, and every request of the two is checked against its strategy's rule on the market as
-  Fillscope's books rebuild it (ARCHITECTURE.md, §1, *The book's strategies*). The same replay
-  writes the session's truth (`--truth`), and every order and every trade in it is checked against
-  the recording's requests (ARCHITECTURE.md, §3, *A replay's truth*). About 30 s in either build,
-  the clients trading at their own pace; the session is recorded once for both checks. The exchange
-  and the clients run on the test's own ports.
+- **`strategy_system_tests` (GoogleTest, `system`, the whole program as one test):** a session of
+  every kind of client, recorded by `tools/sessions/record_session.py` (*Record a session*, below)
+  until the maker has sent 300 requests, the taker 20, and the slicer its three orders, then
+  replayed. Every request of the maker's and the taker's is checked against its strategy's rule on
+  the market as Fillscope's books rebuild it (ARCHITECTURE.md, §1, *The book's strategies*); each
+  sliced order against its plan (§1, *A recorded session*); every order and trade in the truth against the
+  recording's requests, and the slicer's trades as the truth marks them (§3, *A replay's truth*);
+  and the recording replayed again, byte for byte. The session is recorded once for all of them;
+  about 40 s in either build, the clients trading at their own pace. The exchange and the clients
+  run on the test's own ports.
 - **`truth_tests` (GoogleTest, `unit`):** reading a replay's truth: a file built byte by byte from
   its layout read back, an order's client found by its ticker and id, a trade by its update, and
   every way a file is refused (cut short anywhere, bytes left over, an order named twice, trades
@@ -325,6 +328,17 @@ a backtrace, give `addr2line` the binary the log names, while it is unchanged:
 segmentation fault is reported by AddressSanitizer instead, in the file beside the log ending in
 `.sanitizer.` and the process id. What it records, and why, is in
 [ARCHITECTURE.md](ARCHITECTURE.md), §4, *The viewer's log*.
+
+## Record a session
+`python3 -I tools/sessions/record_session.py data/sessions/NAME` records about 40 seconds of the
+exchange with the book's clients and a slicer working an order of each kind, and replays it, into
+that directory: the recording, its market data, steps and truth, `session.json` saying who ran with
+what settings and each order's plan, and every program's log, about 40 MB in all. It uses the debug
+build's programs and the book's ports, so nothing else may be using them (`--exchange`, `--trading`,
+`--replay` and the endpoints' options choose others). A session is market data, never committed, so
+it writes only outside the repository or where git ignores it, as `data/` (ARCHITECTURE.md, §1, *A
+recorded session*). The exchange and its four clients take 8.5 GB of memory while it records
+(measured), so record one session at a time.
 
 ## Answers
 Ask a question about the market in the editor's chat; the assistant answers with a scenario and

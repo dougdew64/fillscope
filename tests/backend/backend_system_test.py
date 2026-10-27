@@ -210,6 +210,25 @@ class ClientCommandLineTest(unittest.TestCase):
                 self.assertIn("USAGE trading_main", result.stderr, value)
                 self.assertIn("[--warm-up-seconds SECONDS]", result.stderr, value)
 
+    def test_a_slicer_without_its_order_or_with_a_bad_one_is_refused(self):
+        """A slicer needs --slice, only a slicer takes the slicer's options, and an order that can't
+        be sliced, or a plan that can't be written, is refused saying why; all before anything starts."""
+        slice_ = ["--slice", "1", "BUY", "100", "10", "3"]
+        with tempfile.TemporaryDirectory() as directory:
+            for args, said in ((["6", "SLICER"], "USAGE trading_main"),
+                               (["5", "RANDOM", *slice_], "USAGE trading_main"),
+                               (["1", "MAKER", "--gap-jitter", "2"], "USAGE trading_main"),
+                               (["1", "MAKER", "--slice-seed", "3"], "USAGE trading_main"),
+                               (["1", "MAKER", "--slice-plan", "plan"], "USAGE trading_main"),
+                               (["6", "SLICER", *slice_, "--gap-jitter", "3"], "the gap's jitter must be less than the gap"),
+                               (["6", "SLICER", *slice_, "--size-spread", "10"], "the size's spread must be less than the piece"),
+                               (["6", "SLICER", *slice_, "--slice-plan", "no-such-directory/plan"],
+                                "can't create no-such-directory/plan")):
+                result = subprocess.run([TRADING, *args], cwd=directory, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 1, args)
+                self.assertIn(said, result.stderr, args)
+            self.assertEqual(os.listdir(directory), [], "nothing started, so no log either")
+
 
 def start_exchange(test, args, directory):
     """The exchange, started in `directory`, once its order port is open."""

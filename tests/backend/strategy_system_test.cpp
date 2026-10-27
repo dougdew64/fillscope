@@ -1,7 +1,9 @@
-// The book's market maker and liquidity taker (backend/, trading/strategy/ there), run against the
-// real exchange beside its random client, and every order each sends checked against its rules,
-// given the market data it had received; and the replay's truth, who sent each order and each side
-// of each trade, checked against the recording's requests.
+// A session on the real exchange of every kind of client (backend/, trading/strategy/ there): the
+// book's market maker and liquidity taker beside its random client, and the planted slicer, working
+// an order of each kind, recorded by tools/sessions/record_session.py and replayed. Every order the
+// maker and the taker send is checked against their rules, given the market data they had received;
+// each sliced order against its plan; the replay's truth, who sent each order and each side of each trade, against the
+// recording's requests; and the replay against itself, done again.
 //
 // The exchange records every request in the order its matcher took them; replayed, the recording
 // gives the market data and, for each request, where in the market data it came. A client decides
@@ -24,7 +26,7 @@
 // at the rule's price for some moment, with the clip, and each cancel is of an order at a price the
 // rule no longer wanted.
 //
-//   strategy_system_tests EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY
+//   strategy_system_tests PYTHON RECORD_SESSION EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY
 #include "answer/wire.h"
 #include "feed/book_builder.h"
 #include "feed/feed_socket.h"
@@ -34,9 +36,11 @@
 #include "truth/truth.h"
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -54,20 +58,11 @@
 namespace fillscope {
 namespace {
 
-std::string g_exchange, g_trading, g_replay;
+std::string g_python, g_record_session, g_exchange, g_trading, g_replay;
 
 const std::uint16_t kOrderPort = test::test_port(0);
 const Stream kIncremental{kExchangeIncremental.group, test::test_port(1)};
 const Stream kSnapshot{kExchangeSnapshot.group, test::test_port(2)};
-
-std::vector<std::string> with_endpoints(std::vector<std::string> args) {
-    for (std::string arg : {std::string{"--order-port"}, std::to_string(kOrderPort), std::string{"--incremental"},
-                            std::format("{}:{}", kIncremental.group, kIncremental.port), std::string{"--snapshot"},
-                            std::format("{}:{}", kSnapshot.group, kSnapshot.port)}) {
-        args.push_back(std::move(arg));
-    }
-    return args;
-}
 
 // A strategy's settings for one ticker, as trading_main takes them: its clip, its threshold, and its
 // risk limits (the largest order, the largest position, the loss at which it stops).
@@ -78,34 +73,14 @@ struct TickerSettings {
     std::uint32_t max_position = 0;
     double max_loss = 0;
 };
+using Settings = std::array<TickerSettings, 8>;
 
-// The book's own (backend/Chapter12/scripts/run_clients.sh): its client 1, a market maker, and its
-// client 3, a liquidity taker, on all eight tickers.
+// The clients the session runs (record_session.py): the book's client 1, a market maker, and its
+// client 3, a liquidity taker, with its own settings (session.json says them); its random client 5;
+// and the slicer, client 6.
 constexpr std::uint32_t kMaker = 1;
 constexpr std::uint32_t kTaker = 3;
 constexpr std::uint32_t kRandom = 5;
-constexpr std::array<TickerSettings, 8> kMakerSettings{{{100, 0.6, 150, 300, -100}, {60, 0.6, 150, 300, -100},
-                                                       {150, 0.5, 250, 600, -100}, {200, 0.4, 500, 3000, -100},
-                                                       {1000, 0.9, 5000, 4000, -100}, {300, 0.8, 1500, 3000, -100},
-                                                       {50, 0.7, 150, 300, -100}, {100, 0.3, 250, 300, -100}}};
-constexpr std::array<TickerSettings, 8> kTakerSettings{{{300, 0.8, 350, 300, -300}, {60, 0.7, 350, 300, -300},
-                                                       {350, 0.5, 250, 600, -300}, {200, 0.6, 500, 3000, -300},
-                                                       {3000, 0.5, 5000, 4000, -300}, {300, 0.7, 3500, 3000, -300},
-                                                       {50, 0.3, 350, 300, -300}, {300, 0.8, 350, 300, -300}}};
-
-std::vector<std::string> client(std::uint32_t id, const char* algo, const std::array<TickerSettings, 8>* settings) {
-    std::vector<std::string> args{g_trading, std::to_string(id), algo};
-    if (settings != nullptr) {
-        for (const TickerSettings& s : *settings) {
-            for (std::string arg : {std::to_string(s.clip), std::format("{}", s.threshold), std::to_string(s.max_order),
-                                    std::to_string(s.max_position), std::format("{}", s.max_loss)}) {
-                args.push_back(std::move(arg));
-            }
-        }
-    }
-    args.insert(args.end(), {"--warm-up-seconds", "1"});
-    return with_endpoints(std::move(args));
-}
 
 // A request, as the recording and the steps file hold it (wire.h has the layout).
 struct Request {
@@ -137,19 +112,6 @@ Request decode(const RequestBytes& bytes) {
     take(request.qty);
     request.side = side == 1 ? Side::buy : side == -1 ? Side::sell : Side::none;
     return request;
-}
-
-// How many requests each client has in the recording so far: 8 bytes of header, then 30 a request.
-std::map<std::uint32_t, std::size_t> recorded_by_client(const std::filesystem::path& recording) {
-    std::ifstream in{recording, std::ios::binary};
-    std::map<std::uint32_t, std::size_t> counts;
-    std::vector<char> bytes{std::istreambuf_iterator<char>{in}, {}};
-    for (std::size_t at = 8; at + kRequestSize <= bytes.size(); at += kRequestSize) {
-        std::uint32_t client = 0;
-        std::memcpy(&client, bytes.data() + at + 1, sizeof client);
-        ++counts[client];
-    }
-    return counts;
 }
 
 // The market as a client saw it after one update: the update, and its ticker's best bid and ask,
@@ -190,7 +152,7 @@ struct Wanted {
 };
 
 // The market maker's rule (trading/strategy/market_maker.h there): the same arithmetic in doubles.
-std::optional<Wanted> maker_wants(const Moment& m, const std::array<TickerSettings, 8>& settings) {
+std::optional<Wanted> maker_wants(const Moment& m, const Settings& settings) {
     if (m.update.type == UpdateType::trade || !m.bid || !m.ask) {
         return std::nullopt;
     }
@@ -203,7 +165,7 @@ std::optional<Wanted> maker_wants(const Moment& m, const std::array<TickerSettin
 
 // The liquidity taker's (trading/strategy/liquidity_taker.h there): a trade's side is that of the
 // order that came in and took the other side's.
-std::optional<Wanted> taker_wants(const Moment& m, const std::array<TickerSettings, 8>& settings) {
+std::optional<Wanted> taker_wants(const Moment& m, const Settings& settings) {
     if (m.update.type != UpdateType::trade || !m.bid || !m.ask) {
         return std::nullopt;
     }
@@ -215,7 +177,7 @@ std::optional<Wanted> taker_wants(const Moment& m, const std::array<TickerSettin
     return bought ? Wanted{.bid = *m.ask, .ask = std::nullopt} : Wanted{.bid = std::nullopt, .ask = *m.bid};
 }
 
-using Rule = std::optional<Wanted> (*)(const Moment&, const std::array<TickerSettings, 8>&);
+using Rule = std::optional<Wanted> (*)(const Moment&, const Settings&);
 
 struct Checked {
     std::size_t new_orders = 0;
@@ -228,7 +190,7 @@ struct Checked {
 // rule wanted on its side, or a cancel of an order at a price the rule no longer wanted there, at a
 // moment from the last one used up to the request's own.
 // (A function with GoogleTest's ASSERTs returns nothing, so it fills in `checked`.)
-void check_client(std::uint32_t client, Rule rule, const std::array<TickerSettings, 8>& settings,
+void check_client(std::uint32_t client, Rule rule, const Settings& settings,
                   const std::vector<Moment>& moments, const StepsFile& steps, Checked& checked) {
     std::map<std::uint64_t, Request> sent;  // its new orders, by its order id
     std::uint64_t from = 1;                  // the earliest moment its next request can have come from
@@ -288,49 +250,55 @@ void check_client(std::uint32_t client, Rule rule, const std::array<TickerSettin
 constexpr std::size_t kMakerRequestsWanted = 300;
 constexpr std::size_t kTakerRequestsWanted = 20;
 
+// An order the slicer worked, as the session ran it: the order, and the plan the slicer wrote as it
+// started, each piece's quantity and the updates on its ticker it waited for before it.
+struct SlicedOrder {
+    std::uint32_t client = 0;  // the slicer's
+    std::string kind;
+    std::uint32_t ticker = 0;
+    Side side = Side::none;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> plan;
+    bool recovered = false;  // it recovered from a snapshot, counting the snapshot's orders as updates
+};
+
 // A session of every kind of client against the real exchange, recorded and replayed once for all
-// the tests: the market data, what each request did, and the truth.
+// the tests: the market data, what each request did, the truth, and who ran with what settings.
 struct Session {
+    test::TemporaryDirectory directory{"fillscope-strategies"};
     std::vector<MarketUpdate> updates;
     StepsFile steps;
     std::optional<Truth> truth;
+    Settings maker{};
+    Settings taker{};
+    std::vector<SlicedOrder> sliced;
 };
+
+Settings settings_of(const nlohmann::json& client) {
+    Settings settings{};
+    EXPECT_EQ(client.at("tickers").size(), settings.size()) << client.dump();
+    for (std::size_t i = 0; i < settings.size() && i < client.at("tickers").size(); ++i) {
+        const auto& t = client.at("tickers")[i];
+        settings[i] = {t.at("clip"), t.at("threshold"), t.at("max_order"), t.at("max_position"), t.at("max_loss")};
+    }
+    return settings;
+}
 
 // (A function with GoogleTest's ASSERTs returns nothing, so it fills in `session`.)
 void record(Session& session) {
-    const test::TemporaryDirectory temporary{"fillscope-strategies"};
-    const std::filesystem::path& directory = temporary.path;
+    const std::filesystem::path& directory = session.directory.path;
     ASSERT_FALSE(test::tcp_port_open(kOrderPort)) << "something is already listening on this test's order port, " << kOrderPort;
-    {
-        test::Program exchange(with_endpoints({g_exchange, "--record", "requests.rec"}), directory);
-        ASSERT_TRUE(exchange.started());
-        const auto exchange_deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
-        while (!test::tcp_port_open(kOrderPort)) {
-            ASSERT_TRUE(exchange.running()) << "the exchange exited";
-            ASSERT_LT(std::chrono::steady_clock::now(), exchange_deadline) << "the exchange didn't open its order port";
-            std::this_thread::sleep_for(std::chrono::milliseconds{100});
-        }
-        test::Program maker(client(kMaker, "MAKER", &kMakerSettings), directory);
-        test::Program taker(client(kTaker, "TAKER", &kTakerSettings), directory);
-        test::Program random(client(kRandom, "RANDOM", nullptr), directory);
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{90};
-        for (;;) {
-            const auto counts = recorded_by_client(directory / "requests.rec");
-            const auto count = [&](std::uint32_t id) { return counts.contains(id) ? counts.at(id) : 0; };
-            if (count(kMaker) >= kMakerRequestsWanted && count(kTaker) >= kTakerRequestsWanted) {
-                break;
-            }
-            for (const test::Program* program : {&exchange, &maker, &taker, &random}) {
-                ASSERT_TRUE(program->running()) << "a program exited";
-            }
-            ASSERT_LT(std::chrono::steady_clock::now(), deadline)
-                << std::format("after 90 s, the maker had sent {} requests and the taker {}", count(kMaker), count(kTaker));
-            std::this_thread::sleep_for(std::chrono::milliseconds{250});
-        }
-    }  // all killed: the recording holds every request the matcher took
+    const int recorded = test::run_to_exit(
+        {g_python, "-I", g_record_session, directory.string(), "--exchange", g_exchange, "--trading", g_trading, "--replay",
+         g_replay, "--order-port", std::to_string(kOrderPort), "--incremental", std::format("{}:{}", kIncremental.group, kIncremental.port),
+         "--snapshot", std::format("{}:{}", kSnapshot.group, kSnapshot.port), "--at-least",
+         std::format("{}:{}", kMaker, kMakerRequestsWanted), "--at-least", std::format("{}:{}", kTaker, kTakerRequestsWanted),
+         "--max-seconds", "100"},
+        directory);
+    std::ifstream said{directory / "record_session.log"};
+    const std::string log{std::istreambuf_iterator<char>{said}, {}};
+    std::printf("%s", log.c_str());
+    ASSERT_EQ(recorded, 0) << "record_session.py: " << log;
 
-    ASSERT_EQ(test::run_to_exit({g_replay, "requests.rec", "market.dat", "--steps", "steps.bin", "--truth", "truth.bin"}, directory),
-              0);
     auto market = read_market_data_file(directory / "market.dat");
     ASSERT_TRUE(market) << market.error();
     auto steps = read_steps_file(directory / "steps.bin");
@@ -340,12 +308,36 @@ void record(Session& session) {
     session.updates = std::move(market->updates);
     session.steps = std::move(*steps);
     session.truth = std::move(*truth);
+
+    std::ifstream in{directory / "session.json"};
+    const auto json = nlohmann::json::parse(in);
+    for (const auto& client : json.at("clients")) {
+        const std::string strategy = client.at("strategy");
+        if (strategy == "MAKER") {
+            ASSERT_EQ(client.at("client"), kMaker);
+            session.maker = settings_of(client);
+        } else if (strategy == "TAKER") {
+            ASSERT_EQ(client.at("client"), kTaker);
+            session.taker = settings_of(client);
+        } else if (strategy == "SLICER") {
+            for (const auto& order : client.at("orders")) {
+                SlicedOrder sliced{.client = client.at("client"), .kind = order.at("kind"), .ticker = order.at("ticker"),
+                                   .side = order.at("side") == "BUY" ? Side::buy : Side::sell, .plan = {},
+                                   .recovered = client.at("recovered")};
+                for (const auto& piece : order.at("plan")) {
+                    sliced.plan.emplace_back(piece.at(0), piece.at(1));
+                }
+                session.sliced.push_back(std::move(sliced));
+            }
+        }
+    }
+    ASSERT_EQ(session.sliced.size(), 3u) << "an order of each kind";
 }
 
 class RecordedSession : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
-        session_ = new Session;
+        session_ = new Session;  // its directory stays until the last test is done
         record(*session_);
         if (::testing::Test::HasFailure()) {
             delete session_;
@@ -366,8 +358,8 @@ TEST_F(RecordedSession, EveryOrderTheMarketMakerAndTheLiquidityTakerSendFollowsT
     const std::vector<Moment> moments = moments_of(session_->updates);
     Checked maker;
     Checked taker;
-    check_client(kMaker, maker_wants, kMakerSettings, moments, session_->steps, maker);
-    check_client(kTaker, taker_wants, kTakerSettings, moments, session_->steps, taker);
+    check_client(kMaker, maker_wants, session_->maker, moments, session_->steps, maker);
+    check_client(kTaker, taker_wants, session_->taker, moments, session_->steps, taker);
     // Not vacuous: each strategy traded, the maker on several tickers, moving its quotes.
     EXPECT_GE(maker.new_orders, 100u);
     EXPECT_GE(maker.cancels, 50u);
@@ -441,20 +433,143 @@ TEST_F(RecordedSession, EveryOrderAndEveryTradeHasItsClientInTheTruth) {
                 orders, trades, traded[kMaker], traded[kTaker], traded[kRandom]);
 }
 
+// Each slicer sends exactly its plan: new orders only, on its ticker and side, numbered 1, 2, 3, ...,
+// each of its piece's quantity, every piece and no more. And each piece came its gap of updates on
+// the ticker after the one before: the slicer counts the updates as it receives them, and a piece
+// reaches the matcher some updates after the slicer decided on it. So if piece i was decided at the
+// ticker's k-th update, k is a fixed start plus the sum of the gaps up to i, and no later than the
+// ticker's updates before the piece arrived, a(i). So a(i) less the gaps' sum is, for every piece,
+// that start plus the updates the piece was on its way. How many depends on how busy the machine
+// is (up to 6 measured, at the lowest priority), but a late piece doesn't delay the next, so with
+// the plan's gaps the least of them is the same at the order's end as at its start; a slicer that
+// miscounted its gaps would drift, a whole update a piece or more. (That each piece is priced at the
+// best price opposite is the fork's own test, which can see the slicer's books.)
+constexpr std::size_t kPiecesCompared = 6;  // at each end of the order
+constexpr std::uint64_t kMostDrift = 2;
+
+TEST_F(RecordedSession, EachSlicedOrderIsSentExactlyAsPlannedInItsPiecesAndGaps) {
+    for (const SlicedOrder& slicer : session_->sliced) {
+        SCOPED_TRACE(std::format("the slicer's order on ticker {} ({})", slicer.ticker, slicer.kind));
+        ASSERT_GE(slicer.plan.size(), 10u);
+        std::uint64_t on_ticker = 0;  // the ticker's updates so far
+        std::uint64_t seq = 0;        // the last update counted
+        std::uint64_t gaps = 0;       // the gaps' sum so far
+        std::vector<std::uint64_t> late;  // each piece's a(i) less the gaps' sum
+        std::size_t piece = 0;
+        for (const ReplayStep& step : session_->steps.steps) {
+            for (; seq + 1 < step.first_update; ++seq) {  // the updates made before this request
+                on_ticker += session_->updates.at(seq).ticker == slicer.ticker;
+            }
+            const Request request = decode(step.request);
+            if (request.client != slicer.client || request.ticker != slicer.ticker) {
+                continue;
+            }
+            ASSERT_LT(piece, slicer.plan.size()) << "a request past its plan";
+            EXPECT_EQ(request.type, kNew) << "piece " << piece + 1;
+            EXPECT_EQ(request.side, slicer.side) << "piece " << piece + 1;
+            EXPECT_EQ(request.order_id, piece + 1);
+            EXPECT_EQ(request.qty, slicer.plan[piece].first) << "piece " << piece + 1;
+            gaps += slicer.plan[piece].second;
+            ASSERT_GE(on_ticker, gaps) << "piece " << piece + 1 << " came before its gaps had passed";
+            late.push_back(on_ticker - gaps);
+            ++piece;
+        }
+        ASSERT_EQ(piece, slicer.plan.size()) << "every piece sent";
+        ASSERT_GE(late.size(), 2 * kPiecesCompared);
+        const auto least = [](auto first, auto last) { return *std::min_element(first, last); };
+        const std::uint64_t start = least(late.begin(), late.begin() + kPiecesCompared);
+        const std::uint64_t end = least(late.end() - kPiecesCompared, late.end());
+        const std::uint64_t base = std::min(start, end);
+        std::string lags;
+        for (const std::uint64_t l : late) {
+            lags += std::format(" {}", l - least(late.begin(), late.end()));
+        }
+        EXPECT_LE(std::max(start, end) - base, kMostDrift)
+            << "the pieces' gaps aren't the plan's: the updates each was late by,"
+            << lags << (slicer.recovered ? " (it recovered from a snapshot, whose orders it counted)" : "");
+        std::printf("the slicer's order on ticker %u (%s): %zu pieces, each its gap after the last; the updates each was "
+                    "late by:%s\n",
+                    slicer.ticker, slicer.kind.c_str(), piece, lags.c_str());
+    }
+}
+
+// The truth marks exactly the slicer's trades: those it says the slicer was on a side of are those
+// whose incoming order the slicer's request sent, or whose resting order the slicer's request added,
+// as the recording says, worked out without the truth.
+TEST_F(RecordedSession, TheTruthMarksExactlyTheSlicersTrades) {
+    std::set<std::uint32_t> slicers;
+    for (const SlicedOrder& order : session_->sliced) {
+        slicers.insert(order.client);
+    }
+    std::map<std::pair<std::uint32_t, std::uint64_t>, std::uint32_t> added_by;  // an order on the book: who added it
+    std::set<std::uint64_t> slicers_trades;
+    std::map<std::uint32_t, std::size_t> traded;  // the slicer's trades, by ticker
+    for (const ReplayStep& step : session_->steps.steps) {
+        const Request request = decode(step.request);
+        for (std::uint64_t seq = step.first_update; seq < step.first_update + step.update_count; ++seq) {
+            const MarketUpdate& update = session_->updates.at(seq - 1);
+            if (update.type == UpdateType::add) {
+                added_by[{update.ticker, update.order_id}] = request.client;
+            } else if (update.type == UpdateType::trade) {
+                const MarketUpdate& resting = session_->updates.at(seq);  // its resting order's cancel or modify
+                const std::uint32_t resting_client = added_by.at({resting.ticker, resting.order_id});
+                if (slicers.contains(request.client) || slicers.contains(resting_client)) {
+                    slicers_trades.insert(seq);
+                    ++traded[update.ticker];
+                }
+            }
+        }
+    }
+    std::set<std::uint64_t> marked;
+    for (const TradeTruth& trade : session_->truth->trades()) {
+        if (slicers.contains(trade.incoming_client) || slicers.contains(trade.resting_client)) {
+            marked.insert(trade.update);
+        }
+    }
+    EXPECT_EQ(marked, slicers_trades);
+    std::string by_ticker;
+    for (const SlicedOrder& order : session_->sliced) {
+        EXPECT_GE(traded[order.ticker], 10u) << "the slicer hardly traded on ticker " << order.ticker;
+        by_ticker += std::format(" {} on ticker {} ({}),", traded[order.ticker], order.ticker, order.kind);
+    }
+    std::printf("the truth marks %zu trades as the slicer's:%s\n", marked.size(), by_ticker.c_str());
+}
+
+// The recording, replayed again, gives the same market data, steps and truth, byte for byte.
+TEST_F(RecordedSession, ASessionReplaysTheSameEveryTime) {
+    const std::filesystem::path& directory = session_->directory.path;
+    ASSERT_EQ(test::run_to_exit({g_replay, "requests.rec", "again.dat", "--steps", "again-steps.bin", "--truth", "again-truth.bin"},
+                                directory),
+              0);
+    const auto bytes = [&](const char* name) {
+        std::ifstream in{directory / name, std::ios::binary};
+        return std::string{std::istreambuf_iterator<char>{in}, {}};
+    };
+    for (const auto& [first, again] : {std::pair{"market.dat", "again.dat"}, std::pair{"steps.bin", "again-steps.bin"},
+                                       std::pair{"truth.bin", "again-truth.bin"}}) {
+        const std::string original = bytes(first);
+        EXPECT_GT(original.size(), 1000u) << first;
+        EXPECT_TRUE(original == bytes(again)) << first << " differs, replayed again";
+    }
+}
+
 }  // namespace
 }  // namespace fillscope
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    if (argc != 4) {
-        std::fprintf(stderr, "usage: strategy_system_tests EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY\n");
+    if (argc != 6) {
+        std::fprintf(stderr, "usage: strategy_system_tests PYTHON RECORD_SESSION EXCHANGE_MAIN TRADING_MAIN EXCHANGE_REPLAY\n");
         return 2;
     }
-    fillscope::g_exchange = std::filesystem::absolute(argv[1]).string();
-    fillscope::g_trading = std::filesystem::absolute(argv[2]).string();
-    fillscope::g_replay = std::filesystem::absolute(argv[3]).string();
+    fillscope::g_python = argv[1];
+    fillscope::g_record_session = std::filesystem::absolute(argv[2]).string();
+    fillscope::g_exchange = std::filesystem::absolute(argv[3]).string();
+    fillscope::g_trading = std::filesystem::absolute(argv[4]).string();
+    fillscope::g_replay = std::filesystem::absolute(argv[5]).string();
     // The lowest priority, for this process and the programs it starts: the exchange and the clients
-    // keep their threads spinning (the book's design, for latency), four programs' worth, and at the
+    // keep their threads spinning (the book's design, for latency), four programs' worth when it was
+    // measured (five now, with the slicer), and at the
     // usual priority they starved the tests running beside them, which timed out (measured: the
     // sanitizer build's unit and UI tests, eight at a time in each build, as the gate runs them).
     // What this test checks doesn't depend on how fast they run.
