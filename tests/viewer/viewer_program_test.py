@@ -70,9 +70,10 @@ class Display:
             read, write = os.pipe()
             # -displayfd: Xvfb picks a free display number and writes it to the pipe once it is ready.
             # A small screen, so the window is small and software OpenGL draws it quickly: a viewer
-            # that didn't pace itself would paint far more than 60 times a second, where on a large
-            # one each frame took long enough that it didn't.
-            self.xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(write), "-screen", "0", "800x600x24", "-nolisten", "tcp"],
+            # that didn't pace itself paints far more than 60 times a second, even with every core
+            # busy (measured: 148 a second at 400x300; at 800x600, 117 on an idle machine but 71 on a
+            # busy one, so the mutation check, keeping every core busy, once let it through).
+            self.xvfb = subprocess.Popen(["Xvfb", "-displayfd", str(write), "-screen", "0", "400x300x24", "-nolisten", "tcp"],
                                          pass_fds=[write], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             os.close(write)
             with os.fdopen(read) as pipe:
