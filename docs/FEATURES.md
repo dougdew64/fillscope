@@ -6,8 +6,8 @@ is deleted when empty. **Read when:** choosing what to build next, or asking wha
 
 **The showcase is item 18:** a pattern detector trained offline and used online, inside a strategy
 (the owner, 2026-10-26). Most other features are chosen to serve it, and its demonstration.
-What comes next is being decided, now that time-shifting live market data is built ([PLAN.md](PLAN.md)'s
-steps 16 to 20). Answers (15) are built, and their later parts remain here.
+Next is slicing, seen before it is detected: the first part of item 13, as [PLAN.md](PLAN.md)'s
+steps 21 to 25. Answers (15) are built, and their later parts remain here.
 The other items aren't in order yet. The [charter](CHARTER.md)'s rules bind every one of them.
 Known defects and test gaps are in [TECH-DEBT.md](TECH-DEBT.md).
 
@@ -167,6 +167,9 @@ The stages of the roadmap, each a change to the fork.
       the first version, the trades flagged as a slice take a color, and with the later patterns
       the orders the detector groups take one color per inferred trader, joined by lines. Then the
       truth outlined, with the hits, misses and false alarms, and the score.
+    - **Seen first, from the truth (the owner, 2026-10-26).** Before the detector is written, the
+      display shows the slicer's trades from the truth alone, and a demo shows it, so the owner
+      learns the pattern by watching it ([PLAN.md](PLAN.md), steps 21 to 25).
     - **The demo,** in three scenes: the slicer uses equal sizes and is caught; it randomizes its
       sizes and is lost; the detector improves and finds it again.
     - **Rests on** the animated replay (4), a new strategy in the fork, the fork's ground-truth

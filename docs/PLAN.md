@@ -462,6 +462,61 @@ gone through in any order, past an update it can't apply, against the books play
 histories included), unit tests (a history as of an update; books keeping no histories, and a copy
 without them, recovering too), and 12 mutants (9 new; 3 rewritten for the shared code).
 
+### 21 to 25. Slicing, seen before it is detected
+Decided by the owner on 2026-10-26: the first part of the slicing detector ([FEATURES.md](FEATURES.md),
+item 13), and so of the showcase (item 18). Before a detector is written, the viewer shows what
+slicing looks like in the market data, drawn from the truth: which client really sent each order.
+The owner learns the pattern by watching it, then designs and writes the detector.
+**Who writes what** (the owner, 2026-10-26): Claude writes all five steps. The display is built by
+Claude and judged by the owner, as item 13 decided. The detector and its interface are the owner's,
+after step 25.
+
+### 21. The market-making and liquidity-taking clients, run and tested
+The book's market maker and liquidity taker, so far unused under Fillscope (only the random
+client, as client 5, has run), are run beside the exchange as the background a slicer is hidden
+in, and tested like the rest of the fork; what is found is fixed in the fork.
+**Done when:** a test runs each against the real exchange and checks every order it sends against
+its rules, given the market data it received: the maker quoting at the best prices, a tick back
+when its fair price is within its threshold; the taker sending its clip when a trade passes its
+threshold.
+
+### 22. The ground truth
+Replaying a recording also writes who sent what: each order id with its client, and each trade with
+its aggressor's client, which the matcher's responses carry. Fillscope's own code still never sees a
+client in the market data; the truth is a separate file, read only to show and score.
+**Done when:** for a recorded session with every kind of client, every order and every trade in
+the replay's market data has its client in the truth, checked against the recording's requests;
+the format is in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+### 23. The planted slicer
+A new strategy in the fork's trading client: given a large order (side, total, piece size, gap), it
+sends it in pieces. Several kinds, to show what changes and what stays visible: equal pieces at
+regular gaps, then jittered gaps, then random sizes. A script records sessions of it among the
+background clients; recordings are made, never committed ([charter](CHARTER.md) decision 5: market data is never
+committed).
+**Done when:** a test checks each kind sends exactly its order, in the pieces and gaps it was given;
+a recorded session replays the same every time; and the truth marks exactly the slicer's trades.
+
+### 24. Slicing shown, from the truth
+In a replay with its truth, the viewer shows the slicer: a panel beside the book, each trade a dot,
+update number across and price up, the slicer's trades colored; and in the book, each order's
+client, as answers' rows already show. Stepping, pausing and going to any update work as in any
+replay, so a slice can be stopped on and the book looked at around it. The viewer says the colors
+are the recording's truth; live, or in a replay without truth, there is none, and it says so.
+**Done when:** UI tests check the panel and the book against the truth, update by update; the owner
+has judged the display in screenshots and the running viewer.
+
+### 25. The slicing demo
+A demo, part of the tests like the others, recorded for sharing: a recorded session with each kind
+of slicer, the panel showing its trades among the background's, a slice stopped on and its pieces
+followed in the book.
+**Done when:** it runs in the tests, checked against books of its own as the other demos are, and
+records itself.
+
+After step 25 the plan pauses, while the owner reads and watches slicing in the viewer. Then come
+the detector's interface (the owner's), the scorer (Claude's: the detector's check), the detector
+(the owner's), and its flags shown beside the truth; they are ordered here then.
+
 ## Later
 The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are
-ordered and broken into steps here when steps 15 to 20 have landed.
+ordered and broken into steps here when steps 21 to 25 have landed.
