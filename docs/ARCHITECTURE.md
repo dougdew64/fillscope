@@ -260,6 +260,22 @@ field by field rather than including the back end's header, so it is a second, i
 of the format the back end's own tests pin down; it rejects bytes that aren't whole updates of
 known types.
 
+**What one match makes.** An incoming order that meets resting ones makes several updates, one
+change each (the matcher's `match()`, in `exchange/matcher/me_order_book.cpp`): for each resting
+order it meets, a trade, then that order's own update, a cancel if the trade filled it, a modify (its
+quantity left) if not. A trade names no order: it says only how much traded, at what price, and
+which side came in. So for one update, between a trade and the resting order's update, the book
+still shows the order the trade has filled; the next update corrects it. A buy of 30 meeting sells
+of 14 and 2 makes four updates: trade, cancel, trade, cancel. Nasdaq's feed (ITCH) reports the
+same match differently: its execution message names the resting order and the shares executed, so
+a reader reduces the order from that one message and the book is right after every message. Ghosh's
+design keeps the trade anonymous and simple, at the cost of the update where the book is out of
+step. Nothing in the market data marks where one request's updates begin or end, so a reader
+watching live can't tell when the book is whole again; a replay's steps can (`exchange_replay
+--steps`: each request's updates, *Replaying*, below), but the viewer steps an update at a time,
+so it shows each step between. (The owner asked, 2026-10-27, why a trade and the removal of the
+order it filled come in different updates.)
+
 **Two streams.** Incremental updates (add, modify, cancel, trade) are numbered 1, 2, 3, ... Every
 so often the exchange's snapshot synthesizer also sends a snapshot of every book: a start, a clear
 for each of the 8 tickers followed by its resting orders, an end, numbered from 0; the start and
