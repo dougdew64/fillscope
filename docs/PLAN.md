@@ -541,7 +541,11 @@ replay, so a slice can be stopped on and the book looked at around it. The viewe
 are the recording's truth; live, or in a replay without truth, there is none, and it says so.
 **Done when:** UI tests check the panel and the book against the truth, update by update; the owner
 has judged the display in screenshots and the running viewer.
-**Status:** built, and checked as the first half says (2026-10-27); for the owner to judge.
+**Status:** done (2026-10-27): the owner judged the display in screenshots and the running viewer, asking
+for two changes, both made: an axis that stays put while it fills (it first ended at the update shown,
+so update 1's label moved at each step), and a way through a replay without stepping 1,200 times
+(play at 10, 100 or 1,000 updates a second, and jumps to the previous and next trade and slicer's
+trade; [ARCHITECTURE.md](ARCHITECTURE.md), §4, *Playing a replay, and jumping to its trades*).
 `viewer --session DIR` shows a recorded session with its truth (`src/viewer/session_truth.h`;
 [ARCHITECTURE.md](ARCHITECTURE.md), §4, *A session, and its truth*); `--at` and `--ticker` open it
 where wanted. The panel's dots are each trade on the ticker shown, over the 1,200 updates up to the
