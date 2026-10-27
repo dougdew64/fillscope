@@ -576,9 +576,31 @@ own, built from the session's market data, the trades the panel counts, and each
 dots against the truth. Recorded at 1920 by 1080: at the other demos' 1280 by 720 the panel's
 words filled it, and its chart never showed.
 
-After step 25 the plan pauses, while the owner reads and watches slicing in the viewer. Then come
-the detector's interface (the owner's), the scorer (Claude's: the detector's check), the detector
-(the owner's), and its flags shown beside the truth; they are ordered here then.
+After step 25 the owner reads and watches slicing in the viewer. Then come the owner's detector,
+whose interface comes out of the owner's market maker's design (a Fillscope client, [FEATURES.md](FEATURES.md),
+item 18), the scorer's call to it, and its flags shown beside the truth; they are ordered here
+then. Meanwhile, Claude's steps 26 and 27, which need nothing from the owner (decided 2026-10-27).
+
+### 26. The scorer, but its call to the detector
+The detector's check (FEATURES.md, item 13: the score defined before the detector is written), as
+far as it goes without a detector. From a recorded session, which trades are targets: those a
+target client was on a side of, the targets being any client that trades repeatedly at one side and
+size, the slicer and the liquidity taker, known from `session.json`. Then, given any set of trades
+flagged, the hits (flagged, a target's), the misses (a target's, not flagged) and the false alarms
+(flagged, not a target's), per ticker and in all. When the owner's detector exists, a small adapter
+runs it over a replay and collects its flags; nothing else changes.
+**Done when:** unit tests score sets of flags made by hand (none, all, exactly the targets, and
+some of each) against a session made by hand, and the targets of a real recorded session are
+checked against its truth.
+
+### 27. CI's build cache, shared with the checks' copies
+CI's mutation and selection checks build copies of the tree at other paths, which share nothing
+with the main build in ccache's eyes, so after a commit that changes widely included headers every
+tree compiles afresh ([TROUBLESHOOTING.md](TROUBLESHOOTING.md), case 1). Shared (ccache's
+`base_dir`), with care: `-g` makes ccache hash the build directory, and turning that off changes
+the source paths in the debug information, which the debugger tests check.
+**Done when:** a CI run after such a commit takes about what a run after any other does, the
+debugger tests passing, measured.
 
 ## Later
 The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are

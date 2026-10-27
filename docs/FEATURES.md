@@ -29,7 +29,9 @@ pause, play behind live, step, and a live moment's address ([ARCHITECTURE.md](AR
       every trade comes labelled. Many sessions are recorded: Ghosh's market maker and liquidity
       taker as the background, and planted slicers of varied behaviour (fixed sizes and random
       ones, regular timing and jittered, different paces). Deterministic replay makes each
-      reproducible.
+      reproducible. *For later discussion (2026-10-27):* a script recording many sessions with
+      varied slicers (sizes, gaps, paces), each with its truth and a summary, useful for study
+      before it is training data.
     - **Features written once, in C++, used both offline and online.** Computed incrementally, an
       update at a time: how many trades of one side and size lately, how regular the gaps between
       them, how a size compares with the usual, whether it took the best price, the recent rate. A
@@ -97,7 +99,9 @@ pause, play behind live, step, and a live moment's address ([ARCHITECTURE.md](AR
       the detector, it matters much less.
     - **Who writes what, to be decided when it is planned** (charter, §4): a natural split is the
       strategy and the detector the owner's, and the gateway with its protocol's tests, and the risk
-      and position plumbing, Claude's, unless the owner wants some of them.
+      and position plumbing, Claude's, unless the owner wants some of them. *For later discussion
+      (2026-10-27):* Claude's share could be started before the maker is planned, once the split is
+      decided.
     - **Its worth, measured exactly.** The same recorded day played twice, with the detector and
       without, compared: profit, fills that went against the strategy, inventory. Deterministic
       replay makes the difference the detector's alone, which most backtests can't claim. Each
@@ -209,6 +213,10 @@ The stages of the roadmap, each a change to the fork.
       the display first, checking it in screenshots; the owner then judges it, and either it stays
       Claude's or the owner takes it over to polish. Whether the owner also writes the strategy's
       evasion step (the second scene) is decided once the display works.
+    - **The interface's timing (the owner, 2026-10-27).** Its main user is now the owner's own market
+      maker (18), so the interface comes out of the maker's design rather than first; the scorer,
+      the detector's tests and the viewer's flags, Claude's, are written against it once the
+      detector exists.
     - **The patterns.** A large order sliced into equal pieces: repeated trades of one side and
       quantity. Cancel and replace: a cancel, and an order added close by in price soon after,
       likely the same trader adjusting; a client can't modify an order, so this is what moving one
