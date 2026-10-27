@@ -10,7 +10,9 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <csignal>
+#include <cstdio>
 
 #include <cstring>
 #include <filesystem>
@@ -98,11 +100,22 @@ TEST(KeptFile, ARunsStartKeepsItsOrdersAndLastTrades) {
     EXPECT_EQ(read->arrived(11), TimeShiftBuffer::Clock::time_point{std::chrono::seconds{5}});
 }
 
+// It says how far it has got as it goes, with the time since it began: on CI it has taken more
+// than its 2 s in the sanitizer build, where it takes about 0.3 s, and a test stopped for its time
+// prints only what it wrote, so the next time says where the time went (CTest shows a test's
+// output only when it fails).
 TEST(KeptFile, ReadWhileBeingWrittenItIsWhatWasWrittenToTheLastWholeRecord) {
+    const auto began = std::chrono::steady_clock::now();
+    const auto progress = [&](const std::string& what) {
+        std::printf("%5.0f ms: %s\n", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count(),
+                    what.c_str());
+        std::fflush(stdout);
+    };
     const Scratch scratch;
     Viewer viewer;
     write_while_feeding(viewer, scratch.path / "kept");
     const std::string whole = bytes_of(scratch.path / "kept");
+    progress(std::format("written and read back whole: {} bytes, in {}", whole.size(), scratch.path.string()));
     // Cut at every byte of the header, at every 293rd byte inside the first run's start record, at every
     // byte from its last 16 through the update after it, at each edge (and either side) of the next
     // updates, and at 3 places spread over the rest: each is a file a reader could find while the
@@ -137,7 +150,9 @@ TEST(KeptFile, ReadWhileBeingWrittenItIsWhatWasWrittenToTheLastWholeRecord) {
     std::size_t read_some = 0;
     for (const std::size_t length : cuts) {
         std::ofstream{scratch.path / "cut", std::ios::binary | std::ios::trunc} << whole.substr(0, length);
+        progress(std::format("cut at {} written", length));
         const auto read = read_kept_file(scratch.path / "cut");
+        progress("read");
         if (length < kKeptFileMagic.size()) {
             EXPECT_FALSE(read) << length;  // not even the header yet
             continue;
@@ -156,6 +171,7 @@ TEST(KeptFile, ReadWhileBeingWrittenItIsWhatWasWrittenToTheLastWholeRecord) {
         }
     }
     EXPECT_GT(read_some, kUpdateRecord);  // those from the first run's start on
+    progress(std::format("done: {} cuts", cuts.size()));
 }
 
 TEST(KeptFile, AFileThatIsntOneIsRefusedSayingWhy) {
