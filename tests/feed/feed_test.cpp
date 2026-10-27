@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstddef>
@@ -22,6 +23,7 @@
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace fillscope {
@@ -332,6 +334,86 @@ TEST(BookBuilder, AnInconsistentSnapshotLeavesTheBooksAsTheyWere) {
     EXPECT_EQ(builder.status(), BookBuilder::Status::live);
     EXPECT_EQ(builder.last_seq(), 5u);
     EXPECT_EQ(builder.history(0, 7).size(), 1u);
+}
+
+// An order's history as of an update is the start of its history: the events up to that update.
+TEST(BookBuilder, AHistoryAsOfAnUpdateIsItsStart) {
+    BookBuilder builder;
+    builder.on_incremental(add(1, 7, Side::sell, 100, 10, 1));
+    builder.on_incremental(trade(2, Side::buy, 100, 4));
+    builder.on_incremental(modify(3, 7, Side::sell, 100, 6));
+    builder.on_incremental(cancel(4, 7, Side::sell, 100));
+    const auto history = builder.history(0, 7);
+    EXPECT_TRUE(builder.history(0, 7, 0).empty());
+    for (const auto& [up_to, events] : {std::pair{1u, 1u}, {2u, 1u}, {3u, 2u}, {4u, 3u}, {100u, 3u}}) {
+        const auto then = builder.history(0, 7, up_to);
+        EXPECT_TRUE(std::ranges::equal(then, history.first(events))) << "up to " << up_to;
+        EXPECT_EQ(then.data(), history.data()) << "not a copy";
+    }
+    EXPECT_TRUE(builder.history(0, 8, 4).empty());
+}
+
+void expect_same_books(const BookBuilder& books, const BookBuilder& expected) {
+    EXPECT_EQ(books.status(), expected.status());
+    EXPECT_EQ(books.last_seq(), expected.last_seq());
+    EXPECT_EQ(books.updates_received(), expected.updates_received());
+    EXPECT_EQ(books.recovering_because(), expected.recovering_because());
+    EXPECT_TRUE(std::ranges::equal(books.recoveries(), expected.recoveries()));
+    for (std::uint32_t ticker = 0; ticker < BookBuilder::kTickers; ++ticker) {
+        EXPECT_EQ(books.book(ticker).orders(), expected.book(ticker).orders()) << "ticker " << ticker;
+        EXPECT_EQ(books.last_trade(ticker), expected.last_trade(ticker)) << "ticker " << ticker;
+    }
+}
+
+// Books keeping no histories (the books shown) apply everything as other books do, recovering too,
+// even from a snapshot they can't use: only the histories are missing.
+TEST(BookBuilder, BooksKeepingNoHistoriesAreOtherwiseTheSame) {
+    BookBuilder kept;
+    BookBuilder none = BookBuilder::keeping_no_histories();
+    const auto both = [&](const auto& give) {
+        give(kept);
+        give(none);
+        expect_same_books(none, kept);
+    };
+    both([](BookBuilder& b) { b.on_incremental(add(1, 1, Side::buy, 100, 5, 1, 0)); });
+    both([](BookBuilder& b) { b.on_incremental(add(2, 2, Side::sell, 110, 3, 1, 3)); });
+    both([](BookBuilder& b) { b.on_incremental(add(4, 3, Side::buy, 99, 5, 2, 0)); });  // 3 missing
+    both([](BookBuilder& b) {  // one order twice: not used, and put back
+        feed_snapshot(b, snapshot(3, {add(0, 7, Side::buy, 100, 5, 1, 0), add(0, 9, Side::sell, 120, 1, 1, 3),
+                                      add(0, 9, Side::sell, 120, 1, 1, 3)}));
+    });
+    both([](BookBuilder& b) { feed_snapshot(b, snapshot(3, {add(0, 7, Side::buy, 100, 5, 1, 0)})); });
+    both([](BookBuilder& b) { b.on_incremental(cancel(5, 7, Side::buy, 100)); });
+    ASSERT_EQ(kept.status(), BookBuilder::Status::live);
+    EXPECT_EQ(kept.history(0, 7).size(), 2u);
+    for (const auto& [ticker, order_id] : {std::pair{0u, 1u}, {3u, 2u}, {0u, 3u}, {0u, 7u}, {3u, 9u}}) {
+        EXPECT_TRUE(none.history(ticker, order_id).empty());
+    }
+}
+
+// A copy keeping no histories is the books as they are, recovering or not, and goes on as they do.
+TEST(BookBuilder, ACopyKeepingNoHistoriesGoesOnAsTheBooksDo) {
+    BookBuilder books;
+    books.on_incremental(add(1, 1, Side::buy, 100, 5, 1, 0));
+    books.on_incremental(trade(2, Side::sell, 100, 1, 0));
+    books.on_incremental(add(4, 3, Side::buy, 99, 5, 2, 0));  // 3 missing: recovering, 4 queued
+    const std::vector<MarketUpdate> whole = snapshot(3, {add(0, 1, Side::buy, 100, 5, 1, 0)});
+    const std::vector<MarketUpdate> first_half(whole.begin(), whole.begin() + static_cast<std::ptrdiff_t>(whole.size() / 2));
+    const std::vector<MarketUpdate> second_half(whole.begin() + static_cast<std::ptrdiff_t>(whole.size() / 2), whole.end());
+    feed_snapshot(books, first_half);  // half a snapshot queued
+    ASSERT_EQ(books.status(), BookBuilder::Status::recovering);
+    BookBuilder copy = books.copy_keeping_no_histories();
+    expect_same_books(copy, books);
+    EXPECT_TRUE(copy.history(0, 1).empty());
+    for (BookBuilder* b : {&books, &copy}) {
+        feed_snapshot(*b, second_half);
+        b->on_incremental(cancel(5, 3, Side::buy, 99));
+    }
+    ASSERT_EQ(books.status(), BookBuilder::Status::live);
+    ASSERT_EQ(books.last_seq(), 5u) << "the queued update 4 and the snapshot's half were copied";
+    expect_same_books(copy, books);
+    EXPECT_TRUE(copy.history(0, 3).empty());
+    EXPECT_EQ(books.history(0, 3).size(), 2u);
 }
 
 // The start of one snapshot and the end of the next, with what was lost between them at the same

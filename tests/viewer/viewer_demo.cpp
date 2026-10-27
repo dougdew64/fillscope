@@ -683,7 +683,7 @@ std::optional<std::pair<fillscope::Order, std::uint64_t>> latest_arrival(ImGuiTe
     const std::vector<fillscope::Order> rows = rows_of(books.book(ticker));
     std::vector<std::pair<fillscope::Order, std::uint64_t>> arrivals;  // newest first
     for (std::size_t row = 0; row < std::min(drawn_rows(vars.text).size(), rows.size()); ++row) {
-        const auto history = books.history(ticker, rows[row].order_id);
+        const auto history = fillscope::shown_history(vars.app->state(), ticker, rows[row].order_id);
         if (!history.empty() && !history.front().from_snapshot) {
             arrivals.emplace_back(rows[row], history.front().seq);
         }

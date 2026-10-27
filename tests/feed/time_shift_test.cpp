@@ -149,7 +149,8 @@ TEST(TimeShiftBuffer, AReplayIsHeldTheSameWayWithNoTimes) {
 }
 
 // The books as of a past update, rebuilt from what was kept and the books at a later one, are the
-// live books as they were then: their books, last trades, every order's history, the recoveries.
+// live books as they were then: their books, last trades and recoveries; and every order's history
+// then is the later books' up to that update, which the rebuilt books don't copy.
 // The feed is played twice: the first time to the end, for what was kept and the later books; the
 // second, comparing at the updates the first rebuilds.
 TEST(BookBuilderAsOf, IsTheLiveBooksAsTheyWereThen) {
@@ -174,7 +175,7 @@ TEST(BookBuilderAsOf, IsTheLiveBooksAsTheyWereThen) {
     std::size_t rebuilt = 0;
     again.also = [&](const BookBuilder& then) {
         // At each run's start, where the books were rebuilt from a snapshot, and one update in 251:
-        // each rebuild copies every order's history, and each comparison looks up thousands.
+        // each comparison looks up thousands of histories.
         const bool run_start = std::ranges::any_of(first.kept.runs(), [&](const auto& run) { return run.first == then.last_seq(); });
         if (!run_start && then.last_seq() % 251 != 0) {
             return;
@@ -189,8 +190,9 @@ TEST(BookBuilderAsOf, IsTheLiveBooksAsTheyWereThen) {
             EXPECT_EQ(as_of.last_trade(ticker), then.last_trade(ticker));
         }
         for (const auto& [ticker, order_id] : orders) {
-            EXPECT_TRUE(std::ranges::equal(as_of.history(ticker, order_id), then.history(ticker, order_id)))
+            EXPECT_TRUE(std::ranges::equal(first.books.history(ticker, order_id, then.last_seq()), then.history(ticker, order_id)))
                 << "update " << then.last_seq() << ", ticker " << ticker << ", order " << order_id;
+            EXPECT_TRUE(as_of.history(ticker, order_id).empty());
         }
         ++rebuilt;
     };

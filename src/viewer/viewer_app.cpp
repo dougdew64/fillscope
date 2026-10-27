@@ -6,6 +6,35 @@
 
 namespace fillscope {
 
+namespace {
+
+// Makes `books` those as of update `seq` of `kept`, a moment that can be shown: forward within a run,
+// a few updates, by applying them as the feed's books did; otherwise rebuilt from the nearest
+// checkpoint (BookBuilder::as_of), with the histories `feed` has. Live and replay show moments this
+// way. False, with the books unchanged, if `seq` isn't kept.
+bool show_moment(BookBuilder& books, std::uint64_t seq, const TimeShiftBuffer& kept, const BookBuilder& feed) {
+    bool stepped = books.status() == BookBuilder::Status::live && books.last_seq() <= seq &&
+                   seq - books.last_seq() < TimeShiftBuffer::kCheckpointEvery;
+    for (std::uint64_t next = books.last_seq() + 1; stepped && next <= seq; ++next) {
+        const MarketUpdate* update = kept.update(next);
+        if (update == nullptr) {
+            stepped = false;  // a gap, or a run's start: rebuilt below
+            break;
+        }
+        books.on_incremental(*update);
+    }
+    if (!stepped || books.last_seq() != seq) {
+        const auto moment = kept.moment(seq);
+        if (!moment) {
+            return false;
+        }
+        books = BookBuilder::as_of(seq, moment->books, moment->last_trades, feed);
+    }
+    return true;
+}
+
+}  // namespace
+
 void ViewerApp::receive(FeedSocket& incremental, FeedSocket& snapshot, Clock::time_point now) {
     received_.clear();  // keeps its storage
     if (const auto result = incremental.receive(received_, kMaxDatagramsPerPaint); result.error) {
@@ -106,7 +135,7 @@ void ViewerApp::go_live() {
         return;
     }
     state_.time_shift.reset();
-    state_.books = state_.live;
+    state_.books = state_.live.copy_keeping_no_histories();
 }
 
 std::optional<ViewerApp::Clock::time_point> ViewerApp::arrival_for_play(std::uint64_t seq) const {
@@ -120,27 +149,9 @@ std::optional<ViewerApp::Clock::time_point> ViewerApp::arrival_for_play(std::uin
 }
 
 void ViewerApp::show(std::uint64_t seq) {
-    TimeShift& shift = *state_.time_shift;
-    BookBuilder& books = state_.books;
-    // Forward within a run, a few updates: applied to the books shown, as the live books applied them.
-    bool stepped = books.status() == BookBuilder::Status::live && books.last_seq() <= seq &&
-                   seq - books.last_seq() < TimeShiftBuffer::kCheckpointEvery;
-    for (std::uint64_t next = books.last_seq() + 1; stepped && next <= seq; ++next) {
-        const MarketUpdate* update = kept_.update(next);
-        if (update == nullptr) {
-            stepped = false;  // a gap, or a run's start: rebuilt below
-            break;
-        }
-        books.on_incremental(*update);
+    if (show_moment(state_.books, seq, kept_, state_.live)) {  // always: seq is one that can be shown
+        state_.time_shift->shown = seq;
     }
-    if (!stepped || books.last_seq() != seq) {
-        if (const auto moment = kept_.moment(seq)) {
-            books = BookBuilder::as_of(seq, moment->books, moment->last_trades, state_.live);
-        } else {
-            return;  // can't happen: seq is one that can be shown
-        }
-    }
-    shift.shown = seq;
 }
 
 void ViewerApp::advance(Clock::time_point now) {
@@ -171,27 +182,30 @@ void ViewerApp::advance(Clock::time_point now) {
 }
 
 void ViewerApp::open_replay(const std::filesystem::path& file, MarketDataFile market_data) {
-    state_.books = BookBuilder{};
-    state_.replay = Replay{.file = std::filesystem::absolute(file),
-                           .recording = std::move(market_data.recording),
-                           .updates = std::move(market_data.updates)};
+    state_.books = BookBuilder::keeping_no_histories();
+    state_.replay = Replay::of(std::filesystem::absolute(file), std::move(market_data.recording), std::move(market_data.updates));
 }
 
 void ViewerApp::replay_to(std::uint64_t seq) {
     if (!state_.replay) {
         return;
     }
-    const std::vector<MarketUpdate>& updates = state_.replay->updates;
-    seq = std::min<std::uint64_t>(seq, updates.size());
-    if (seq < state_.books.last_seq()) {
-        state_.books = BookBuilder{};
+    const Replay& replay = *state_.replay;
+    seq = std::min<std::uint64_t>(seq, replay.updates.size());
+    if (seq == 0) {
+        state_.books = BookBuilder::keeping_no_histories();  // before the first update: waiting for it
+        return;
     }
-    // The replay's updates are numbered 1, 2, 3, ... (read_market_data_file checks), so update n is
-    // updates[n - 1]. An update the books can't apply leaves them recovering, which a replay can't do
-    // (it has no snapshots): they stay where they are.
-    for (std::uint64_t next = state_.books.last_seq() + 1;
-         next <= seq && state_.books.status() != BookBuilder::Status::recovering; ++next) {
-        state_.books.on_incremental(updates[next - 1]);
+    // What is kept ends before an update the books can't apply, if one comes; past it, the books are
+    // the last kept moment's, given that update, and recovering.
+    const std::uint64_t last_kept = replay.kept.newest().value_or(0);
+    if (last_kept == 0) {
+        state_.books = BookBuilder::keeping_no_histories();  // update 1 is the one it can't apply
+    } else {
+        (void)show_moment(state_.books, std::min(seq, last_kept), replay.kept, replay.books);  // always kept
+    }
+    if (seq > last_kept) {
+        state_.books.on_incremental(replay.updates[last_kept]);
     }
 }
 
@@ -219,7 +233,7 @@ void ViewerApp::poll_answer(Clock::time_point now) {
         shown.answer.reset();
         shown.problem = std::move(loaded.error());
         state_.replay.reset();
-        state_.books = BookBuilder{};
+        state_.books = BookBuilder::keeping_no_histories();
         return;
     }
     shown.problem.reset();

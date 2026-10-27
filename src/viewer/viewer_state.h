@@ -3,13 +3,15 @@
 #pragma once
 
 #include "feed/book_builder.h"
-#include "viewer/answer_state.h"
 #include "feed/market_update.h"
+#include "feed/time_shift.h"
+#include "viewer/answer_state.h"
 
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -21,6 +23,14 @@ struct Replay {
     std::filesystem::path file;  // the market data file, as an absolute path
     std::string recording;       // the recording it was replayed from, as exchange_replay was given it
     std::vector<MarketUpdate> updates;
+    // The whole run, held as a live feed's is: its moments, as kept (TimeShiftBuffer::from_replay), and
+    // the books after all of it, whose histories the books shown have up to their update. Both stop
+    // before an update the books can't apply: a replay has no snapshots to recover with.
+    TimeShiftBuffer kept;
+    BookBuilder books;
+
+    // A replay of `updates`, numbered 1, 2, 3, ... (read_market_data_file checks), with its run held.
+    [[nodiscard]] static Replay of(std::filesystem::path file, std::string recording, std::vector<MarketUpdate> updates);
 };
 
 // Live, the moment the screen shows when it isn't following the newest update (feed/time_shift.h),
@@ -44,8 +54,8 @@ struct TimeShift {
 
 struct ViewerState {
     // The books shown. Live, they follow `live` update by update, unless time-shifted, when they are
-    // the books as of the update shown.
-    BookBuilder books;
+    // the books as of the update shown. They keep no histories: shown_history() has them.
+    BookBuilder books = BookBuilder::keeping_no_histories();
     // Live: the feed's books, always current, from which its health is shown and published.
     BookBuilder live;
     // Live: set while the screen shows a moment that isn't the newest.
@@ -67,5 +77,9 @@ struct ViewerState {
     // Set when it also offers a course: its lessons, and which is chosen.
     std::optional<CourseChoice> course;
 };
+
+// What the books shown have seen of an order: the feed's history of it (the replay's, or the live
+// feed's) up to the update shown. One set of histories, however far back the books shown are.
+[[nodiscard]] std::span<const OrderEvent> shown_history(const ViewerState& state, std::uint32_t ticker, std::uint64_t order_id);
 
 }  // namespace fillscope

@@ -65,6 +65,9 @@ CASES = [
      | DEMO | VIEWER_PROGRAM),
     # The viewer's core is linked by the viewer, its test programs and its demos, and by nothing else.
     ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    ("src/viewer/viewer_state.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    # The simulated exchange: the tests of what is kept, and the UI test of a long replay.
+    ("tests/feed/simulated_exchange.h", CPP_PROBE, {"time_shift_tests", "kept_file_tests", "viewer_ui_tests"}),
     # The books: Fillscope's reading of the market data, which the viewer (its log's events among
     # it), the answer tool and the system test link.
     ("src/feed/book_builder.cpp", CPP_PROBE,

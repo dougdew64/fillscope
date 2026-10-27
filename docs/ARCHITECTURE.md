@@ -204,7 +204,11 @@ follows):
 type, the order's quantity after it, and whether it was found in a snapshot rather than seen
 arriving), and a record of each recovery: the updates from `after_seq` to `snapshot_seq` were never
 applied one by one, so an order's history has none of their events. It keeps every order's history,
-about 40 bytes an event, so a long run takes memory in proportion to its length.
+about 40 bytes an event, so a long run takes memory in proportion to its length. Since the books
+apply updates in order, and an order's events only accumulate, its history as of an earlier update
+N is the start of its history now: `history(ticker, order, N)` finds it by binary search, without a
+copy. That is how a past moment has its histories (§3, *Keeping what arrives*), and why the books
+the viewer shows keep none of their own (`keeping_no_histories`, §4, *Time-shifting*).
 
 **Receiving** (`feed_socket.h`): a `FeedSocket` joins one stream's group on the default interface,
 as the trading clients do, bound to the group's address so only that group's datagrams arrive; it
@@ -263,11 +267,17 @@ hour's session (180,000 updates, the live demo's rate, with about 340 resting or
 the slowest moment to rebuild, 1,023 updates past a checkpoint, takes 0.4 ms in the debug build
 and 1.9 ms in the sanitizer build, against a frame's 16.7 ms; without checkpoints, an hour in, it
 would apply 180 times as many. The session takes about 18 MB of memory an hour, the live books'
-histories of every order included. An order's history needs no checkpoint: its events as of N are
-the live history's up to N, since the books apply updates in order.
+histories of every order included. An order's history needs no checkpoint, and isn't copied: its
+events as of N are the start of the live history (*Keeping the books in step*, above). So the whole of going to a
+moment, the checkpoint and its updates and the books made from them (`BookBuilder::as_of`), takes
+at most 0.44 ms in the debug build and 1.8 ms in the sanitizer build, an hour in, and no more
+later: copying every order's history, as `as_of` once did, took 11.7 ms and 54 ms, growing with
+the session.
 
 A replay's market data is held the same way (`from_replay`): one run, from before update 1, with no
-arrival times, ending where the books can't apply an update, as the viewer's replay stops there.
+arrival times, ending where the books can't apply an update, since a replay has no snapshots to
+recover with. The viewer shows a replay's moments from it, as it shows live ones (§4, *A replay, and
+its addresses*), with the books after the whole replay (`Replay::books`) holding the histories.
 
 **A live moment's address** (`kept_file.h`). Live, the viewer writes what it keeps to a file as it
 keeps it, so a moment has an address: the file and an update number, from which the books then
@@ -383,8 +393,11 @@ books include, which the context names (`asOfSeq`).
 
 **A replay, and its addresses.** With `--replay FILE`, the viewer shows a replay's market data
 instead of the live exchange: its books are built from the file's updates 1 to N, and controls move
-N anywhere, forward by applying the next updates, back by rebuilding from the first
-(`ViewerApp::replay_to`). The books are then exactly the recorded run's after update N, so a point
+N anywhere (`ViewerApp::replay_to`), as a time-shifted moment is shown (*Time-shifting*): a few
+updates forward by applying them, anything else rebuilt from the nearest checkpoint, from what is
+kept of the replay (`Replay::kept`). Past an update the books can't apply, they are the last
+moment before it given that update, and stay there, stuck, as a replay played through would. The
+books are then exactly the recorded run's after update N, so a point
 or follow carries a replay address: the market data file, the recording it came from, and N.
 Applying the file's updates 1 to N rebuilds that state. Live, there is no replay address, and the
 file says why and how to record a run.
@@ -437,7 +450,8 @@ gives both every update, so they are the same; time-shifted (`ViewerState::time_
   it stays as far behind live as it was when it began (the market data carries no times; these are
   the viewer's own arrival times, and the screen says so). A run's start, rebuilt from a snapshot,
   has no arrival time of its own and takes the next update's.
-- **Live** follows the newest update again: the books shown become the live books.
+- **Live** follows the newest update again: the books shown become the live books, without their
+  histories.
 
 The controls sit at the bottom of the market pane, under a line saying what the screen shows, as a
 video player's do: the tickers, the book and the followed order's history are a region of their
@@ -446,8 +460,11 @@ text changes length as the market moves, they had moved a line as the mouse reac
 
 Moving the books shown forward, a few updates within a run, applies the kept updates to them, as the
 live books applied them; anything else rebuilds them (`BookBuilder::as_of`): the kept books as of
-the update, with the live books' histories and recoveries up to it, which are what the books had
-then, since they apply updates in order. A point or a follow is about the books shown, so paused,
+the update, with the live books' recoveries up to it, which are what the books had then. A replay is
+shown the same way (`show_moment`, in `viewer_app.cpp`). The books shown keep no histories, live or
+replayed: an order's history is the feed's (the live books', or the replay's whole run) up to the
+update shown (`shown_history`). There is one set of histories, however far back the screen is, and
+a jump copies none, nor does going live. A point or a follow is about the books shown, so paused,
 the order pointed at stays as the screen shows it however the live books have moved on.
 
 While the screen isn't at the newest update, it says so, and how far behind: in the status

@@ -44,12 +44,12 @@ MarketUpdate cancel(std::uint64_t seq, std::uint64_t id, Side side, std::int64_t
     return {.seq = seq, .type = UpdateType::cancel, .order_id = id, .ticker = 0, .side = side, .price = price, .qty = 0, .priority = 0};
 }
 
-// The context of a viewer as the app keeps it: live and following it, the feed's books are the books
-// shown (ViewerApp gives both every update), so the tests build the books shown and the feed's are
-// the same.
+// The context of a viewer as the app keeps it: live and following it, the books shown are the feed's
+// (ViewerApp gives both every update), without histories, so the tests build the feed's books and the
+// books shown are the same.
 Context context_of(ViewerState state, const Selection& selection) {
     if (!state.replay && !state.answer && !state.time_shift) {
-        state.live = state.books;
+        state.books = state.live.copy_keeping_no_histories();
     }
     return make_context(state, selection);
 }
@@ -57,9 +57,9 @@ Context context_of(ViewerState state, const Selection& selection) {
 // Ticker 0's book: orders 1 and 2 bid 100 (1 first), order 3 bids 99.
 ViewerState three_bids() {
     ViewerState state;
-    state.books.on_incremental(add(1, 1, Side::buy, 100, 5, 1));
-    state.books.on_incremental(add(2, 2, Side::buy, 100, 7, 2));
-    state.books.on_incremental(add(3, 3, Side::buy, 99, 4, 1));
+    state.live.on_incremental(add(1, 1, Side::buy, 100, 5, 1));
+    state.live.on_incremental(add(2, 2, Side::buy, 100, 7, 2));
+    state.live.on_incremental(add(3, 3, Side::buy, 99, 4, 1));
     return state;
 }
 
@@ -166,7 +166,7 @@ TEST(MakeContext, ARestingOrderPointedAtKnowsWhatIsAheadOfItInItsQueue) {
 
 TEST(MakeContext, AnOrderNoLongerRestingSaysHowItLeft) {
     ViewerState state = three_bids();
-    state.books.on_incremental(cancel(4, 1, Side::buy, 100));
+    state.live.on_incremental(cancel(4, 1, Side::buy, 100));
     Selection selection;
     selection.point_at(OrderRef{0, 1});
     const Context context = context_of(state, selection);  // kept: order refers into it
@@ -182,10 +182,10 @@ TEST(MakeContext, AnOrderNoLongerRestingSaysHowItLeft) {
 // and the point says so. Order 3 left by its cancel, before the recovery.
 TEST(MakeContext, AnOrderThatLeftDuringARecoverySaysSo) {
     ViewerState state = three_bids();
-    state.books.on_incremental(cancel(4, 3, Side::buy, 99));
-    state.books.on_incremental(add(7, 4, Side::buy, 98, 1, 1));
-    recover_from_snapshot(state.books, 6, {add(0, 2, Side::buy, 100, 7, 2)});
-    ASSERT_EQ(state.books.status(), BookBuilder::Status::live);
+    state.live.on_incremental(cancel(4, 3, Side::buy, 99));
+    state.live.on_incremental(add(7, 4, Side::buy, 98, 1, 1));
+    recover_from_snapshot(state.live, 6, {add(0, 2, Side::buy, 100, 7, 2)});
+    ASSERT_EQ(state.live.status(), BookBuilder::Status::live);
     Selection selection;
     selection.point_at(OrderRef{0, 1});
     const Context context = context_of(state, selection);  // kept: order refers into it
@@ -235,7 +235,7 @@ TEST(MakeContext, ALevelPointedAtListsItsOrdersInTheOrderTheyWillFill) {
 TEST(MakeContext, ALevelsListIsCappedButItsCountIsExact) {
     ViewerState state;
     for (std::uint64_t i = 1; i <= kMaxLevelOrders + 5; ++i) {
-        state.books.on_incremental(add(i, i, Side::sell, 105, 1, i));
+        state.live.on_incremental(add(i, i, Side::sell, 105, 1, i));
     }
     Selection selection;
     selection.point_at(LevelRef{0, Side::sell, 105});
@@ -248,8 +248,8 @@ TEST(MakeContext, ALevelsListIsCappedButItsCountIsExact) {
 
 TEST(MakeContext, AFollowedOrderHasEveryEventInOrder) {
     ViewerState state = three_bids();
-    state.books.on_incremental(modify(4, 1, Side::buy, 100, 3));
-    state.books.on_incremental(cancel(5, 1, Side::buy, 100));
+    state.live.on_incremental(modify(4, 1, Side::buy, 100, 3));
+    state.live.on_incremental(cancel(5, 1, Side::buy, 100));
     Selection selection;
     selection.follow(OrderRef{0, 1});
     const Context context = context_of(state, selection);
@@ -264,9 +264,9 @@ TEST(MakeContext, AFollowedOrderHasEveryEventInOrder) {
 
 TEST(MakeContext, AFollowListIsCappedButItsCountIsExact) {
     ViewerState state;
-    state.books.on_incremental(add(1, 1, Side::buy, 100, 5'000, 1));
+    state.live.on_incremental(add(1, 1, Side::buy, 100, 5'000, 1));
     for (std::uint64_t seq = 2; seq <= kMaxFollowedEvents + 10; ++seq) {
-        state.books.on_incremental(modify(seq, 1, Side::buy, 100, static_cast<std::uint32_t>(5'000 - seq)));
+        state.live.on_incremental(modify(seq, 1, Side::buy, 100, static_cast<std::uint32_t>(5'000 - seq)));
     }
     Selection selection;
     selection.follow(OrderRef{0, 1});
@@ -278,9 +278,9 @@ TEST(MakeContext, AFollowListIsCappedButItsCountIsExact) {
 
 TEST(MakeContext, AFollowedOrdersGapsAreTheRecoveriesSinceItWasFirstSeen) {
     ViewerState state = three_bids();
-    state.books.on_incremental(add(6, 6, Side::buy, 98, 1, 1));  // 4 and 5 missed
-    recover_from_snapshot(state.books, 5, {add(0, 1, Side::buy, 100, 2, 1), add(0, 3, Side::buy, 99, 4, 1)});
-    ASSERT_EQ(state.books.status(), BookBuilder::Status::live);
+    state.live.on_incremental(add(6, 6, Side::buy, 98, 1, 1));  // 4 and 5 missed
+    recover_from_snapshot(state.live, 5, {add(0, 1, Side::buy, 100, 2, 1), add(0, 3, Side::buy, 99, 4, 1)});
+    ASSERT_EQ(state.live.status(), BookBuilder::Status::live);
     Selection selection;
     selection.follow(OrderRef{0, 1});
     Context context = context_of(state, selection);
@@ -311,9 +311,9 @@ TEST(MakeContext, OnlyTheLatestRecoveriesAreListedButAllAreCounted) {
     std::uint64_t seq = 0;
     for (std::size_t i = 0; i < kMaxListedRecoveries + 3; ++i) {
         seq += 2;  // one update missed each time
-        state.books.on_incremental(add(seq, seq, Side::buy, 100, 1, seq));
-        recover_from_snapshot(state.books, seq - 1, {});
-        ASSERT_EQ(state.books.status(), BookBuilder::Status::live);
+        state.live.on_incremental(add(seq, seq, Side::buy, 100, 1, seq));
+        recover_from_snapshot(state.live, seq - 1, {});
+        ASSERT_EQ(state.live.status(), BookBuilder::Status::live);
     }
     const Context::Feed feed = context_of(state, Selection{}).feed;
     EXPECT_EQ(feed.recovery_count, kMaxListedRecoveries + 3);
@@ -326,9 +326,9 @@ TEST(MakeContext, OnlyTheLatestRecoveriesAreListedButAllAreCounted) {
 // three_bids(), as a replay of 4 updates (the fourth cancels order 1), at update `at`.
 ViewerState replay_at(std::uint64_t at) {
     ViewerState state;
-    state.replay = Replay{.file = "/runs/a.dat", .recording = "a.rec",
-                          .updates = {add(1, 1, Side::buy, 100, 5, 1), add(2, 2, Side::buy, 100, 7, 2),
-                                      add(3, 3, Side::buy, 99, 4, 1), cancel(4, 1, Side::buy, 100)}};
+    state.replay = Replay::of("/runs/a.dat", "a.rec",
+                              {add(1, 1, Side::buy, 100, 5, 1), add(2, 2, Side::buy, 100, 7, 2),
+                               add(3, 3, Side::buy, 99, 4, 1), cancel(4, 1, Side::buy, 100)});
     for (std::uint64_t seq = 1; seq <= at; ++seq) {
         state.books.on_incremental(state.replay->updates[seq - 1]);
     }
@@ -452,7 +452,7 @@ TEST(ContextJson, APointedLevelCarriesItsOrders) {
 
 TEST(ContextJson, AFollowedOrderCarriesItsEventsAndGaps) {
     ViewerState state = three_bids();
-    state.books.on_incremental(cancel(4, 1, Side::buy, 100));
+    state.live.on_incremental(cancel(4, 1, Side::buy, 100));
     Selection selection;
     selection.follow(OrderRef{0, 1});
     const auto json = nlohmann::json::parse(to_json(context_of(state, selection), Writer{}, 1, 0).dump());
@@ -469,11 +469,11 @@ TEST(ContextJson, AFollowedOrderCarriesItsEventsAndGaps) {
 
 TEST(ContextJson, ARecoveringFeedSaysWhyAndListsItsRecoveries) {
     ViewerState state = three_bids();
-    state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));  // 4 missed
+    state.live.on_incremental(add(5, 5, Side::buy, 90, 1, 1));  // 4 missed
     auto json = nlohmann::json::parse(to_json(context_of(state, Selection{}), Writer{}, 1, 0).dump());
     EXPECT_EQ(json["background"]["feed"]["status"], "recovering");
     EXPECT_EQ(json["background"]["feed"]["recoveringBecause"], "update 5 arrived when 4 was next");
-    recover_from_snapshot(state.books, 4, {});
+    recover_from_snapshot(state.live, 4, {});
     json = nlohmann::json::parse(to_json(context_of(state, Selection{}), Writer{}, 1, 0).dump());
     EXPECT_EQ(json["background"]["feed"]["status"], "live");
     EXPECT_EQ(json["background"]["feed"]["recoveryCount"], 1);
@@ -489,15 +489,15 @@ TEST(ContextBar, SaysWhereTheFeedIsAndWhichTickerIsShown) {
     ViewerState state = three_bids();
     state.shown_ticker = 2;
     EXPECT_EQ(bar_text(context_of(state, Selection{})).background, "Exchange live at update 3 · showing ticker 2");
-    state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
+    state.live.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
     EXPECT_EQ(bar_text(context_of(state, Selection{})).background,
               "Exchange: recovering, the books are as of update 3 (update 5 arrived when 4 was next) · showing ticker 2");
 }
 
 TEST(ContextBar, CountsRecoveriesAndShowsTheLastError) {
     ViewerState state = three_bids();
-    state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
-    recover_from_snapshot(state.books, 4, {});
+    state.live.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
+    recover_from_snapshot(state.live, 4, {});
     state.feed_error = "bad datagram";
     EXPECT_EQ(bar_text(context_of(state, Selection{})).background,
               "Exchange live at update 5 · showing ticker 0 · 1 recovery · last error: bad datagram");
@@ -509,7 +509,7 @@ TEST(ContextBar, SaysWhereAPointedOrderIsOrHowItLeft) {
     selection.point_at(OrderRef{0, 2});
     EXPECT_EQ(bar_text(context_of(state, selection)).point,
               "Pointing at order 2 of ticker 0: buy 7 @ 100, 1 order (5) ahead of it in its queue");
-    state.books.on_incremental(cancel(4, 2, Side::buy, 100));
+    state.live.on_incremental(cancel(4, 2, Side::buy, 100));
     EXPECT_EQ(bar_text(context_of(state, selection)).point,
               "Pointing at order 2 of ticker 0: not in the book (its last update: cancel at update 4)");
     selection.point_at(OrderRef{0, 99});
@@ -531,8 +531,8 @@ TEST(ContextBar, SaysWhatAFollowedOrderHasDoneAndAnyGaps) {
     selection.follow(OrderRef{0, 3});
     EXPECT_EQ(bar_text(context_of(state, selection)).follow,
               "Following order 3 of ticker 0: 1 event, buy 4 @ 99, 0 orders (0) ahead of it in its queue");
-    state.books.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
-    recover_from_snapshot(state.books, 4, {add(0, 3, Side::buy, 99, 4, 1)});
+    state.live.on_incremental(add(5, 5, Side::buy, 90, 1, 1));
+    recover_from_snapshot(state.live, 4, {add(0, 3, Side::buy, 99, 4, 1)});
     EXPECT_EQ(bar_text(context_of(state, selection)).follow,
               "Following order 3 of ticker 0: 2 events, buy 4 @ 99, 0 orders (0) ahead of it in its queue · "
               "1 recovery may hide some of its events");

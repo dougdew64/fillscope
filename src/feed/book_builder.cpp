@@ -6,22 +6,34 @@
 
 namespace fillscope {
 
+BookBuilder BookBuilder::keeping_no_histories() {
+    BookBuilder books;
+    books.keeps_histories_ = false;
+    return books;
+}
+
+BookBuilder BookBuilder::copy_keeping_no_histories() const {
+    BookBuilder copy = keeping_no_histories();
+    copy.status_ = status_;
+    copy.next_seq_ = next_seq_;
+    copy.updates_received_ = updates_received_;
+    copy.books_ = books_;
+    copy.last_trades_ = last_trades_;
+    copy.recovering_because_ = recovering_because_;
+    copy.recovery_after_ = recovery_after_;
+    copy.queued_incremental_ = queued_incremental_;
+    copy.queued_snapshot_ = queued_snapshot_;
+    copy.recoveries_ = recoveries_;
+    return copy;
+}
+
 BookBuilder BookBuilder::as_of(std::uint64_t seq, const std::array<Book, kTickers>& books,
                                const std::array<std::optional<MarketUpdate>, kTickers>& last_trades, const BookBuilder& later) {
-    BookBuilder then;
+    BookBuilder then = keeping_no_histories();
     then.status_ = Status::live;
     then.next_seq_ = seq + 1;
     then.books_ = books;
     then.last_trades_ = last_trades;
-    for (std::size_t ticker = 0; ticker < kTickers; ++ticker) {
-        for (const auto& [order_id, events] : later.histories_[ticker]) {
-            // Events in the order applied, so in update order: those up to seq are a prefix.
-            const auto end = std::ranges::find_if(events, [&](const OrderEvent& event) { return event.seq > seq; });
-            if (end != events.begin()) {
-                then.histories_[ticker].emplace(order_id, std::vector<OrderEvent>(events.begin(), end));
-            }
-        }
-    }
     for (const Recovery& recovery : later.recoveries_) {
         if (recovery.snapshot_seq <= seq) {
             then.recoveries_.push_back(recovery);
@@ -146,7 +158,7 @@ void BookBuilder::try_to_sync() {
             queued_snapshot_.clear();
             return;
         }
-        if (update.type != UpdateType::clear && update.type != UpdateType::trade) {  // those add no event
+        if (keeps_histories_ && update.type != UpdateType::clear && update.type != UpdateType::trade) {  // those add no event
             added.emplace_back(update.ticker, update.order_id);
         }
     }
@@ -195,12 +207,14 @@ bool BookBuilder::apply_to_books(const MarketUpdate& update, bool from_snapshot,
         problem = applied.error();
         return false;
     }
-    histories_[update.ticker][update.order_id].push_back(OrderEvent{.seq = seq,
-                                                                    .type = update.type,
-                                                                    .side = update.side,
-                                                                    .price = update.price,
-                                                                    .qty = update.qty,
-                                                                    .from_snapshot = from_snapshot});
+    if (keeps_histories_) {
+        histories_[update.ticker][update.order_id].push_back(OrderEvent{.seq = seq,
+                                                                        .type = update.type,
+                                                                        .side = update.side,
+                                                                        .price = update.price,
+                                                                        .qty = update.qty,
+                                                                        .from_snapshot = from_snapshot});
+    }
     return true;
 }
 
@@ -211,6 +225,13 @@ std::span<const OrderEvent> BookBuilder::history(std::uint32_t ticker, std::uint
         return {};
     }
     return found->second;
+}
+
+std::span<const OrderEvent> BookBuilder::history(std::uint32_t ticker, std::uint64_t order_id, std::uint64_t up_to) const {
+    const std::span<const OrderEvent> events = history(ticker, order_id);
+    // In the order applied, so in update order: those up to up_to are a prefix.
+    const auto end = std::ranges::upper_bound(events, up_to, {}, &OrderEvent::seq);
+    return events.first(static_cast<std::size_t>(end - events.begin()));
 }
 
 }  // namespace fillscope

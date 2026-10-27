@@ -202,8 +202,8 @@ struct Context {
 
 [[nodiscard]] Context make_context(const ViewerState& state, const Selection& selection);
 
-// An order as the books have it now (also used to draw it).
-[[nodiscard]] OrderState order_state(const BookBuilder& books, const OrderRef& ref);
+// An order as the books shown have it, with what they have seen of it (shown_history).
+[[nodiscard]] OrderState order_state(const ViewerState& viewer, const OrderRef& ref);
 
 // Who wrote the file. The file outlives the viewer, so a reader needs to tell a current file from
 // one a viewer left behind: `running` is false in the last file a viewer writes as it exits

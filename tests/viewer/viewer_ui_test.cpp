@@ -17,6 +17,7 @@
 #include "feed/feed_socket.h"
 #include "feed/kept_file.h"
 #include "feed/market_update.h"
+#include "feed/simulated_exchange.h"
 #include "support/answer_fixture.h"
 #include "support/test_support.h"
 #include "viewer/context.h"
@@ -33,6 +34,7 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
@@ -41,6 +43,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -1140,6 +1143,59 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "updates received: 2 "));
         IM_CHECK(contains(vars.text, "at update 1 of 3, stuck: "));
+    });
+
+    // A long replay, going anywhere in it in any order, shows the books as if played from update 1:
+    // a jump back is rebuilt from the nearest checkpoint, a step forward applied. Its update 3,500
+    // can't be applied, so past it the books stay after 3,499, stuck, as a replay played through does.
+    viewer_test(engine, "a_long_replay_goes_anywhere_as_if_played_from_the_start", [](ImGuiTestContext* ctx) {
+        UiVars& vars = ctx->GetVars<UiVars>();
+        constexpr std::uint64_t kUpdates = 5'000;
+        constexpr std::uint64_t kBad = 3'500;
+        fillscope::test::Exchange exchange{7};
+        fillscope::MarketDataFile replay{.recording = "runs/long.rec", .updates = {}};
+        for (std::uint64_t seq = 1; seq <= kUpdates; ++seq) {
+            replay.updates.push_back(seq == kBad ? MarketUpdate{.seq = seq, .type = UpdateType::cancel, .order_id = 999'999,
+                                                                .ticker = 0, .side = Side::buy, .price = 1}
+                                                 : exchange.next());
+            replay.updates.back().seq = seq;
+        }
+        // Where to go, in this order: back, forward a step, across checkpoints both ways, past the
+        // update that can't be applied, and back. Each compared with the books played from update 1.
+        const std::vector<std::uint64_t> visits{4'000, 2'500, 2'501, 2'520, 100, 1'024, 1'023, 1'025, 3'000, 2'048,
+                                                3'499, kBad, 4'999, kUpdates, 3'498, 1, 0, 3'072, 600, 2'047};
+        std::vector<std::uint64_t> in_order = visits;
+        std::ranges::sort(in_order);
+        std::map<std::uint64_t, fillscope::BookBuilder> played;  // the books after each visited update, from update 1
+        fillscope::BookBuilder books;
+        std::uint64_t next = 1;
+        for (const std::uint64_t seq : in_order) {
+            for (; next <= seq; ++next) {
+                if (books.status() != fillscope::BookBuilder::Status::recovering) {
+                    books.on_incremental(replay.updates[next - 1]);
+                }
+            }
+            played.insert_or_assign(seq, books);
+        }
+        vars.app->open_replay("runs/long.dat", std::move(replay));
+        for (const std::uint64_t seq : visits) {
+            vars.app->replay_to(seq);
+            const fillscope::ViewerState& state = vars.app->state();
+            const fillscope::BookBuilder& shown = state.books;
+            const fillscope::BookBuilder& expected = played.at(seq);
+            IM_CHECK_EQ(shown.status(), expected.status());
+            IM_CHECK_EQ(shown.last_seq(), expected.last_seq());
+            IM_CHECK_EQ(shown.updates_received(), expected.updates_received());
+            IM_CHECK(shown.recovering_because() == expected.recovering_because());
+            for (std::uint32_t ticker = 0; ticker < fillscope::BookBuilder::kTickers; ++ticker) {
+                IM_CHECK(shown.book(ticker).orders() == expected.book(ticker).orders());
+                IM_CHECK(shown.last_trade(ticker) == expected.last_trade(ticker));
+                for (const fillscope::Order& order : expected.book(ticker).orders()) {
+                    IM_CHECK(std::ranges::equal(fillscope::shown_history(state, ticker, order.order_id),
+                                                expected.history(ticker, order.order_id)));
+                }
+            }
+        }
     });
 
     viewer_test(engine, "finish_publishes_that_the_viewer_has_stopped", [](ImGuiTestContext* ctx) {

@@ -27,7 +27,8 @@ void Selection::clear_follow() {
     follow_seq_ = next_seq_++;
 }
 
-OrderState order_state(const BookBuilder& books, const OrderRef& ref) {
+OrderState order_state(const ViewerState& viewer, const OrderRef& ref) {
+    const BookBuilder& books = viewer.books;
     OrderState state;
     state.ref = ref;
     if (ref.ticker >= BookBuilder::kTickers) {
@@ -47,7 +48,7 @@ OrderState order_state(const BookBuilder& books, const OrderRef& ref) {
             }
         }
     }
-    const auto history = books.history(ref.ticker, ref.order_id);
+    const auto history = shown_history(viewer, ref.ticker, ref.order_id);
     if (!history.empty()) {
         state.last_event = history.back();
         if (!state.resting && state.last_event->type != UpdateType::cancel) {
@@ -146,7 +147,7 @@ Context make_context(const ViewerState& state, const Selection& selection) {
     if (const auto& pointed = selection.pointed()) {
         context.point = Context::Point{.seq = selection.point_seq(), .target = OrderState{}, .replay = here};
         if (const auto* order = std::get_if<OrderRef>(&*pointed)) {
-            context.point->target = order_state(books, *order);
+            context.point->target = order_state(state, *order);
         } else {
             context.point->target = level_state(books, std::get<LevelRef>(*pointed));
         }
@@ -155,10 +156,10 @@ Context make_context(const ViewerState& state, const Selection& selection) {
     if (const auto& followed = selection.followed()) {
         Context::Follow follow;
         follow.seq = selection.follow_seq();
-        follow.order = order_state(books, *followed);
+        follow.order = order_state(state, *followed);
         follow.replay = here;
         if (followed->ticker < BookBuilder::kTickers) {
-            const auto history = books.history(followed->ticker, followed->order_id);
+            const auto history = shown_history(state, followed->ticker, followed->order_id);
             follow.event_count = history.size();
             const auto listed = history.first(std::min(history.size(), kMaxFollowedEvents));
             follow.events.assign(listed.begin(), listed.end());

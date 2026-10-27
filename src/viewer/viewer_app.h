@@ -65,8 +65,8 @@ public:
     // `file` is where it was read from.
     void open_replay(const std::filesystem::path& file, MarketDataFile market_data);
     // In a replay, makes the books exactly the recorded run's after update `seq` (clamped to the
-    // replay's length): forward by applying the updates after the books' last, back by rebuilding
-    // from the first. What is pointed at and followed stays.
+    // replay's length), as a time-shifted moment is shown: forward a few updates by applying them,
+    // otherwise rebuilt from the nearest checkpoint. What is pointed at and followed stays.
     void replay_to(std::uint64_t seq);
 
     // Shows answers: watches `file` for an answer (answer/answer.h), and shows each new one as it is
@@ -113,8 +113,7 @@ public:
     void set_publisher(std::filesystem::path context_file) { publisher_ = ContextPublisher{std::move(context_file)}; }
 
 private:
-    // The books shown become those as of kept update `seq`: by applying the kept updates after the
-    // shown ones, when they follow on in one run, otherwise rebuilt (BookBuilder::as_of).
+    // The books shown become those as of kept update `seq` (show_moment, as a replay's are).
     void show(std::uint64_t seq);
     // When update `seq` arrived, for playing: a run's start, rebuilt from a snapshot, has no time of
     // its own, so it takes the next update's.

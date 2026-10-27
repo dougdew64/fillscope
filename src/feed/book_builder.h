@@ -59,10 +59,18 @@ public:
         recovering,  // updates were missed; waiting for a snapshot to rebuild from
     };
 
-    // The books as they were after update `seq`, live: given those books and last trades (each
-    // ticker's), and `later`, the same feed's books at a later update, whose histories and recoveries
-    // up to `seq` are what these had then, since the books apply updates in order. For showing a
-    // past moment (feed/time_shift.h); given more incremental updates, it goes on from `seq`.
+    // Books that keep no order histories: for showing books whose histories another BookBuilder,
+    // the feed's, keeps (history(ticker, order_id, up_to) there). Otherwise as any other.
+    [[nodiscard]] static BookBuilder keeping_no_histories();
+    // These books, keeping no histories from now on and holding none.
+    [[nodiscard]] BookBuilder copy_keeping_no_histories() const;
+
+    // The books as they were after update `seq`, live, keeping no histories: given those books and
+    // last trades (each ticker's), and `later`, the same feed's books at a later update, whose
+    // recoveries up to `seq` are what these had then. Their histories are `later`'s up to `seq`
+    // (history(ticker, order_id, seq) there), not copied: a copy would cost in proportion to every
+    // order seen. For showing a past moment (feed/time_shift.h); given more incremental updates, it
+    // goes on from `seq`.
     [[nodiscard]] static BookBuilder as_of(std::uint64_t seq, const std::array<Book, kTickers>& books,
                                            const std::array<std::optional<MarketUpdate>, kTickers>& last_trades,
                                            const BookBuilder& later);
@@ -87,6 +95,10 @@ public:
     // What the books applied to this order, in order; empty if it was never seen. Kept for every order,
     // about 40 bytes an event: a long run's orders take memory in proportion to the run.
     [[nodiscard]] std::span<const OrderEvent> history(std::uint32_t ticker, std::uint64_t order_id) const;
+    // The same, as it was after update `up_to`: since the books apply updates in order, and an
+    // order's events only accumulate, that is the start of what it is now. Without copying.
+    [[nodiscard]] std::span<const OrderEvent> history(std::uint32_t ticker, std::uint64_t order_id,
+                                                      std::uint64_t up_to) const;
 
 private:
     void start_recovery(std::string reason);
@@ -99,6 +111,7 @@ private:
     std::uint64_t updates_received_ = 0;
     std::array<Book, kTickers> books_;
     std::array<std::optional<MarketUpdate>, kTickers> last_trades_;
+    bool keeps_histories_ = true;
     std::array<std::unordered_map<std::uint64_t, std::vector<OrderEvent>>, kTickers> histories_;
 
     std::optional<std::string> recovering_because_;

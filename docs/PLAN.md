@@ -448,6 +448,18 @@ shown the way a time-shifted moment is, so live and replay share one way of show
 back rebuilds from the nearest checkpoint, not from the first update.
 **Done when:** every replay test passes unchanged, and going to any update of a long replay takes
 less than a frame.
+**Status:** done (2026-10-26). `show_moment` (`src/viewer/viewer_app.cpp`) shows a live and a
+replayed moment alike; `Replay::of` (`src/viewer/viewer_state.h`) holds a replay's run and its books
+([ARCHITECTURE.md](ARCHITECTURE.md), §4, *A replay, and its addresses*). Every replay test passes,
+their checks unchanged (a fixture builds its replay with `Replay::of`). Over a replay of 180,000
+updates, an hour's, going to any update takes at most 0.44 ms in the debug build and 1.8 ms in the
+sanitizer build (GCC 16.2.1), against a frame's 16.7 ms. Found on the way: `as_of` copied every
+order's history, which took up to 11.7 ms in the debug build an hour in, live or replayed, and
+grew with the session; a history as of an update is now the start of the feed's, not copied, and
+the books shown keep none, so going live copies none either. Checked by a UI test (a long replay
+gone through in any order, past an update it can't apply, against the books played from update 1,
+histories included), unit tests (a history as of an update; books keeping no histories, and a copy
+without them, recovering too), and 12 mutants (9 new; 3 rewritten for the shared code).
 
 ## Later
 The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are
