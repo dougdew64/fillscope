@@ -6,15 +6,16 @@ is deleted when empty. **Read when:** choosing what to build next, or asking wha
 
 **The showcase is item 18:** a pattern detector trained offline and used online, inside a strategy
 (the owner, 2026-10-26). Most other features are chosen to serve it, and its demonstration.
-Time-shifting live market data (16) is being built now, as [PLAN.md](PLAN.md)'s steps 16 to 20;
-what comes after it is decided then. Answers (15) are built, and their later parts remain here.
+What comes next is being decided, now that time-shifting live market data is built ([PLAN.md](PLAN.md)'s
+steps 16 to 20). Answers (15) are built, and their later parts remain here.
 The other items aren't in order yet. The [charter](CHARTER.md)'s rules bind every one of them.
 Known defects and test gaps are in [TECH-DEBT.md](TECH-DEBT.md).
 
 Built so far: the back end, built and tested by Fillscope at a pinned commit; the live view of the
 exchange's books; deterministic replay; the matching engine stepped in a debugger while the book
-view follows; answers, scenarios the real matcher plays, explained step by step; and the viewer's
-log, which records a crash ([ARCHITECTURE.md](ARCHITECTURE.md)).
+view follows; answers, scenarios the real matcher plays, explained step by step; the viewer's
+log, which records a crash; and time-shifting the live market data, as a television recorder does:
+pause, play behind live, step, and a live moment's address ([ARCHITECTURE.md](ARCHITECTURE.md)).
 
 ## The showcase: a detector trained offline, used online in a strategy
 18. **A slicing detector trained offline, used online by a market-making strategy, and its worth
@@ -50,7 +51,7 @@ log, which records a crash ([ARCHITECTURE.md](ARCHITECTURE.md)).
     - **Its worth, measured exactly.** The same recorded day played twice, with the detector and
       without, compared: profit, fills that went against the strategy, inventory. Deterministic
       replay makes the difference the detector's alone, which most backtests can't claim. Each
-      flag can be paused on and stepped through (16), and its moment rebuilt.
+      flag can be paused on and stepped through (time-shifting, built), and its moment rebuilt.
     - **The demonstration:** a video of the whole loop: the slicer hidden in the background, the
       detector finding it, the strategy stepping aside, and the measured difference.
     - **Limits, said wherever results are shown.** A model trained on planted slicers learns them;
@@ -97,7 +98,7 @@ The stages of the roadmap, each a change to the fork.
      them, so its book would drift from Nasdaq's and show what didn't happen.
    - **To carry over:** the exchange's 8 tickers (8 stocks of a day's thousands), its order ids
      (ITCH's are far larger, so renumbered), and ITCH's nanosecond timestamps, which the exchange's
-     own feed lacks: time-shifting (16) could then play at the exchange's pace, not the viewer's.
+     own feed lacks: time-shifting could then play at the exchange's pace, not the viewer's.
 6. **Backtesting on simulated time, with recovery from a snapshot.** Latency in a backtest is
    simulated, not the network's ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)).
 7. **Fill simulation:** queue position, latency, fees.
@@ -246,40 +247,3 @@ The stages of the roadmap, each a change to the fork.
       reads the time only to notice a quiet market. Rests on the book's market-making and
       liquidity-taking clients run and tested, and on running its trading engine without its
       threads and sockets, which is most of what backtesting on simulated time (6) needs too.
-
-## Watching live
-16. **Time-shifting the live market data, as a television recorder does** (the owner, 2026-10-26).
-    Pointing at an order in a live book is hard: the rows move while the mouse is on its way, the
-    order may be cancelled or filled a moment later, and a question asked afterwards is about a
-    book that has moved on. A television recorder solved the same problem for a broadcast: pause,
-    and it records what arrives meanwhile; resume, and it plays from the recording, behind live;
-    rewind within what it has. So here.
-    - **The viewer keeps what it receives.** Every update it applies, with when it arrived, in a
-      buffer: live is then the buffer's newest update, and the screen can show the books as of any
-      update in it. Pause holds the screen at one update while the updates keep coming in; resume
-      plays from the buffer, behind live; step and rewind move within it; live returns to the
-      newest. A viewer's replay does most of this already, for a recording that doesn't grow.
-    - **Pointing at a still book.** Paused, what is pointed at stays put, and the context file says
-      as of which update.
-    - **A live moment gets an address.** Written to a file as it arrives, the buffer gives every
-      live moment what a replay's has: a file and an update number, from which the assistant
-      rebuilds exactly the books the user was looking at when they pointed, however much later in
-      the session the question comes. Live now publishes that it has no such address.
-    - **The viewer cleans up after itself** (the owner, 2026-10-26): it deletes the buffer's file,
-      and anything else it made for its own use, when it exits, so an address lasts as long as the
-      viewer runs; files left by a viewer that was killed are removed by the next one to start.
-    - **Behind live is never mistaken for live.** While the screen isn't at the newest update, it
-      says so, and how far behind (in updates, and in time); the feed's health (received, recovering,
-      seconds since the last update) is the live feed's, apart from the moment shown.
-    - **The data has no time.** An update carries a sequence number, not a timestamp; playing back
-      at the pace it arrived uses the viewer's own arrival times, which are the viewer's, not the
-      exchange's, and are shown as such.
-    - **Gaps.** A viewer that joins late, or misses updates, rebuilds from a snapshot: its buffer
-      begins there, or has a hole at the gap, and the books before a hole can't be rebuilt from
-      after it. What can be shown, and what can't, is said.
-    - **Small:** an update is 42 bytes, and the book's random client causes about 50 a second
-      (1,100 in the live demo's first 21 seconds of trading), about 8 MB an hour in a file; in
-      memory, with the checkpoints that let the viewer go to any update in under a frame, about
-      18 MB an hour (measured, [ARCHITECTURE.md](ARCHITECTURE.md), §3, *Keeping what arrives*).
-    - **Rests on** replay (built); it gives the animated replay (4) live data as a source, and the
-      live moments that fill explanations (1) and counterfactuals (2) need.

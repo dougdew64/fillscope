@@ -250,7 +250,7 @@ freeze mid-way. How the anchor stops a program is §6.
 
 **Keeping what arrives** (`time_shift.h`). Live, the viewer keeps every update its books apply,
 with the time it arrived, so it can show the books exactly as they were after any of them, as a
-television recorder plays back what it recorded ([FEATURES.md](FEATURES.md), item 16). The live
+television recorder plays back what it recorded (§4, *Time-shifting*, says why). The live
 books (`BookBuilder`) stay as they are; `TimeShiftBuffer` watches them. Each update is handed to it
 as it arrives, before the books are given it, and after the books are given any update, incremental
 or snapshot, it looks at what they applied and keeps those updates, in order. They come in **runs**:
@@ -435,8 +435,12 @@ within 100 ms plus a paint, if the write succeeds.
 
 ### Time-shifting: pause, play, step and live
 Live, the viewer can show a moment behind the newest update, as a television recorder plays back
-what it recorded ([FEATURES.md](FEATURES.md), item 16), from what it keeps (§3, *Keeping what
-arrives*). It holds two `BookBuilder`s (`ViewerState`): `live`, the feed's, which takes every update
+what it recorded, from what it keeps (§3, *Keeping what arrives*). **Why** (the owner, 2026-10-26):
+pointing at an order in a live book is hard. The rows move while the mouse is on its way, the order
+may be cancelled or filled a moment later, and a question asked afterwards is about a book that
+has moved on. A television recorder solved the same problem for a broadcast: pause, and it records
+what arrives meanwhile; resume, and it plays from the recording, behind live; rewind within what it
+has. It holds two `BookBuilder`s (`ViewerState`): `live`, the feed's, which takes every update
 and from which the feed's health is shown and published; and `books`, the books shown, which
 everything drawn and published about an order or a level is about. Following live, `ViewerApp`
 gives both every update, so they are the same; time-shifted (`ViewerState::time_shift`), only

@@ -347,7 +347,8 @@ included), and 13 mutants. Found on the way: the viewer printed each second's li
 it, so a viewer killed in between lost it from the log; it now logs first.
 
 ### 16 to 19. Time-shifting the live market data
-Decided by the owner on 2026-10-26: what it is, and why, is in [FEATURES.md](FEATURES.md), item 16.
+Decided by the owner on 2026-10-26; why, and how it works, is in [ARCHITECTURE.md](ARCHITECTURE.md),
+§4, *Time-shifting*.
 **Who writes what** (the owner, 2026-10-26): Claude writes all four steps; the owner's hand-written
 code comes later. **Resuming** plays from the buffer at the pace the updates arrived, behind live,
 with a separate way back to live. **The viewer keeps the whole session,** written to a file as it
