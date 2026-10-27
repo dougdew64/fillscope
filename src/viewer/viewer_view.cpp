@@ -680,8 +680,9 @@ void report_trade([[maybe_unused]] const TradeDot& dot) {
     IMGUI_TEST_ENGINE_ITEM_INFO(ImGui::GetItemID(), trade_report(dot).c_str(), ImGui::GetItemStatusFlags());
 }
 
-// The trades on the shown ticker over the last kTradesWindow updates up to the one shown, each a dot:
-// its update across, its price up, its area as its quantity. In a recorded session's replay, the
+// The trades on the shown ticker up to the update shown, each a dot: its update across, its price up,
+// its area as its quantity, on an axis of kTradesWindow updates from update 1 that scrolls once the
+// update shown passes its end. In a recorded session's replay, the
 // slicer's are coloured, from the truth: filled where its piece came in and took, a ring where its
 // resting order was met. Hovering a dot says who traded; clicking it goes to its update.
 void draw_trades(const ViewerView& view, ViewerActions& actions) {
@@ -694,7 +695,12 @@ void draw_trades(const ViewerView& view, ViewerActions& actions) {
     const Replay& replay = *view.state.replay;
     const SessionTruth* truth = replay.truth ? &*replay.truth : nullptr;
     const std::uint64_t to = view.state.books.last_seq();
-    const std::uint64_t from = to >= kTradesWindow ? to - kTradesWindow + 1 : 1;  // the trades drawn: those of the window
+    // The axis: kTradesWindow updates, or the whole replay if it is shorter, so a short one's trades
+    // aren't crowded together. It starts at update 1 and stays put while the update shown is within
+    // it, the dots filling in from the left; after that it scrolls, the update shown at its right.
+    const std::uint64_t window = std::min<std::uint64_t>(kTradesWindow, std::max<std::uint64_t>(replay.updates.size(), 2));
+    const std::uint64_t from = to > window ? to - window + 1 : 1;  // the axis's first update
+    const std::uint64_t axis_end = from + window - 1;
     static const SessionTruth kNoTruth{.directory = {}, .truth = Truth{"", {}, {}}, .roles = {}, .slicers = {}, .slices = {}};
     const std::vector<TradeDot> dots = trade_dots(replay.updates, truth ? *truth : kNoTruth, ticker, from, to);
     wrapped(to == 0 ? std::format("Trades on ticker {}: none yet, before the first update.", ticker)
@@ -733,12 +739,9 @@ void draw_trades(const ViewerView& view, ViewerActions& actions) {
     }
     low -= 1;
     high += 1;
-    // Across, kTradesWindow updates, or the whole replay if it is shorter, so a short one's trades
-    // aren't crowded at the right.
-    const std::uint64_t window = std::min<std::uint64_t>(kTradesWindow, std::max<std::uint64_t>(replay.updates.size(), 2));
     const auto x_of = [&](std::uint64_t update) {
         const double span = static_cast<double>(window - 1);
-        return right - static_cast<float>(static_cast<double>(to - update) / span) * (right - left);
+        return left + static_cast<float>(static_cast<double>(update - from) / span) * (right - left);
     };
     const auto y_of = [&](std::int64_t price) {
         return bottom - static_cast<float>(static_cast<double>(price - low) / static_cast<double>(high - low)) * (bottom - top);
@@ -749,12 +752,13 @@ void draw_trades(const ViewerView& view, ViewerActions& actions) {
         draw->AddText({origin.x, bottom - font * 0.5f}, label_color, Label{"{}", low}.c_str());
     }
 
-    // The first update drawn under its own place (early in a replay, not the left edge), and the one
-    // shown under the right edge.
+    // The axis's ends under its ends, and a line at the update shown (at the right edge once the axis
+    // scrolls).
+    draw->AddText({left, bottom + font * 0.2f}, label_color, Label{"{}", from}.c_str());
+    const Label end_label{"{}", axis_end};
+    draw->AddText({right - ImGui::CalcTextSize(end_label.c_str()).x, bottom + font * 0.2f}, label_color, end_label.c_str());
     if (to > 0) {
-        draw->AddText({x_of(from), bottom + font * 0.2f}, label_color, Label{"{}", from}.c_str());
-        const Label last{"{}", to};
-        draw->AddText({right - ImGui::CalcTextSize(last.c_str()).x, bottom + font * 0.2f}, label_color, last.c_str());
+        draw->AddLine({x_of(to), top}, {x_of(to), bottom}, ImGui::GetColorU32(ImGuiCol_TextDisabled), font * 0.08f);
     }
     const ImU32 slicer = ImGui::GetColorU32(kSlicerColor);
     const ImU32 other = ImGui::GetColorU32(kTradeColor);

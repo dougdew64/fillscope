@@ -41,7 +41,12 @@ fillscope_test_program(strategy_system_tests system
           $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay>
   RUNTIME_DEPS ${record_session} $<TARGET_FILE:exchange_main> $<TARGET_FILE:trading_main> $<TARGET_FILE:exchange_replay>
                ${Python3_EXECUTABLE})
-set_tests_properties(strategy_system_tests PROPERTIES RESOURCE_LOCK exchange)
+# Alone: its exchange and clients spin, about 8 CPUs' worth. At the lowest priority they take no CPU
+# time from the tests beside them, but on a machine of 4 cores, each two hyperthreads, a time-limited
+# test still shared its core with spinning threads, and the chip, held at its power limit, slowed
+# every core's clock: three sanitizer-build tests timed out in each of two runs with it, none in two
+# without (2026-10-27); kept to one core, one still did. Alone, it adds its own time to a run's.
+set_tests_properties(strategy_system_tests PROPERTIES RESOURCE_LOCK exchange RUN_SERIAL TRUE)
 
 # Debugger lockstep with the matcher, on a replay (replay_debugger_test.cpp): exchange_replay under GDB
 # and LLDB. Also exchange_replay with the anchor and everything it uses built at -O2, to check the

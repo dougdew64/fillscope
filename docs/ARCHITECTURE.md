@@ -535,9 +535,14 @@ refused if the truth isn't its market data's: replayed from another recording, o
 the market data hasn't, or without one it has. The truth is shown in two places, and nowhere else:
 - **The book** names each order's client in a column, "6 (slicer)", as an answer's book names the
   scenario's traders.
-- **The trades panel**, beside the book, draws each trade on the ticker shown as a dot, its update
-  across and its price up, its area its quantity, over the 1,200 updates up to the one shown (or the
-  whole replay, if shorter), so stepping adds the dots as the trades happen. The slicer's are orange,
+- **The trades panel**, beside the book, draws each trade on the ticker shown up to the update
+  shown as a dot, its update across and its price up, its area its quantity, so stepping adds the
+  dots as the trades happen. The axis across spans 1,200 updates (or the whole replay, if shorter),
+  labelled at its ends. It starts at update 1 and stays put while the update shown is within it, a
+  line marking the update shown and the dots filling in from the left; once the update shown passes
+  its end, it scrolls, the line at its right edge and its first update 1,199 before. (It first
+  always ended at the update shown, so early in a replay update 1 sat partway in, its label moving
+  left at each step, which the owner asked about.) The slicer's are orange,
   filled where its piece came in and took, a ring where its resting order was met; everyone else's
   grey. Hovering a dot says which clients traded; clicking it goes to its update. The panel says
   that the colours are the recording's truth, which the market data doesn't say, and what the

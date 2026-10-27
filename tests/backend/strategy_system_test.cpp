@@ -584,12 +584,10 @@ int main(int argc, char** argv) {
     fillscope::g_exchange = std::filesystem::absolute(argv[3]).string();
     fillscope::g_trading = std::filesystem::absolute(argv[4]).string();
     fillscope::g_replay = std::filesystem::absolute(argv[5]).string();
-    // The lowest priority, for this process and the programs it starts: the exchange and the clients
-    // keep their threads spinning (the book's design, for latency), four programs' worth when it was
-    // measured (five now, with the slicer), and at the
-    // usual priority they starved the tests running beside them, which timed out (measured: the
-    // sanitizer build's unit and UI tests, eight at a time in each build, as the gate runs them).
-    // What this test checks doesn't depend on how fast they run.
+    // The exchange and the clients keep their threads spinning (the book's design, for latency): five
+    // programs, about 8 CPUs' worth. So this process, and the programs it starts, take the lowest
+    // priority, and CTest runs it with no other test beside it (tests/backend/CMakeLists.txt says
+    // why). What this test checks doesn't depend on how fast they run.
     if (::setpriority(PRIO_PROCESS, 0, 19) != 0) {
         std::perror("strategy_system_tests: setpriority");
         return 2;

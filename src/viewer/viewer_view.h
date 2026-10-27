@@ -104,7 +104,8 @@ inline constexpr const char* kAnswerEnd = ">|##answer_end";
 // The trades panel, beside the book: each trade a dot, its update across and its price up. A dot's
 // item is "##trade<update>"; the UI tests read what it shows from its report (trade_report).
 inline constexpr const char* kTradesPanel = "trades";
-// How many updates the panel spans, ending at the one shown.
+// How many updates the panel's axis spans: from update 1, until the update shown passes its end, then
+// ending at the one shown.
 inline constexpr std::uint64_t kTradesWindow = 1200;
 // The choice of what the pane shows, with a course: your latest question, or a lesson.
 inline constexpr const char* kLessonChoice = "##lesson";

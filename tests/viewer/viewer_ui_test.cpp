@@ -1160,20 +1160,31 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->ItemClick("**/1##ticker");
         const std::vector<std::pair<std::uint64_t, std::string>> trades{
             {4, "4: 10 at 105, took"}, {7, "7: 5 at 105, met"}, {9, "9: 4 at 106, none"}};
+        std::optional<float> trade4_x;  // where update 4's dot is: the axis stays put, so it does too
         for (std::uint64_t at = 0; at <= 13; ++at) {
             ctx->Yield(2);
+            if (at >= 4) {
+                const float x = ctx->ItemInfo("**/##trade4").RectFull.Min.x;
+                if (!trade4_x) {
+                    trade4_x = x;
+                }
+                IM_CHECK_EQ(x, *trade4_x);
+            }
             IM_CHECK(contains(vars.text, std::format("after update {} of 13", at)));
+            // How many dots, from the panel's heading (so no frames are spent searching for the dots
+            // that shouldn't be there: those still to trade, and ticker 2's), then each one's report.
+            std::size_t drawn = 0;
             for (const auto& [update, report] : trades) {
-                const std::string dot = std::format("**/##trade{}", update);
                 if (update <= at) {
-                    IM_CHECK_EQ(std::string{ctx->ItemInfo(dot.c_str()).DebugLabel}, report);
-                } else {
-                    IM_CHECK(!ctx->ItemExists(dot.c_str()));  // not yet traded
+                    ++drawn;
+                    IM_CHECK_EQ(std::string{ctx->ItemInfo(std::format("**/##trade{}", update).c_str()).DebugLabel}, report);
                 }
             }
-            IM_CHECK(!ctx->ItemExists("**/##trade12"));  // ticker 2's
+            IM_CHECK(contains(vars.text, at == 0 ? std::string{"Trades on ticker 1: none yet"}
+                                                 : std::format("Trades on ticker 1, updates 1 to {}: {}.", at, drawn)));
             ctx->ItemClick(std::format("**/{}", fillscope::kReplayForward).c_str());
         }
+        IM_CHECK(!ctx->ItemExists("**/##trade12"));  // ticker 2's, once: the counts above say the rest
         IM_CHECK(contains(vars.text, "Here the slicer buys 15 in pieces of 10"));
         IM_CHECK(contains(vars.text, "Orange: the slicer's"));
         // The book's orders, by client: after update 6, the maker's is gone and the slicer's rests.
