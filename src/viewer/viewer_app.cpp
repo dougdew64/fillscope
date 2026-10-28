@@ -318,7 +318,7 @@ void ViewerApp::choose(std::size_t choice) {
 ViewerActions ViewerApp::paint(Clock::time_point now) {
     advance(now);
     state_.books_kept = kept_.updates_to_apply(state_.books.last_seq()).has_value();
-    ViewerTiming timing{.seconds_since_update = std::nullopt, .paints = paints_};
+    ViewerTiming timing{.seconds_since_update = std::nullopt};
     if (last_update_at_) {
         timing.seconds_since_update = std::chrono::duration<double>(now - *last_update_at_).count();
     }

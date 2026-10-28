@@ -154,11 +154,11 @@ void draw_status(const ViewerView& view) {
         if (books.status() == BookBuilder::Status::recovering) {
             wrapped(std::format("market data: a replay, stuck after update {}: {}; a replay has no snapshots to recover from",
                              books.last_seq(), books.recovering_because().value_or("an update can't be applied")));
-        } else {
+        } else if (answering) {
             // In an answer, the replay is the answer's own, so only where it is matters.
-            wrapped(answering ? std::format("the books as of update {}", books.last_seq())
-                              : std::format("market data: a replay, the books are as of update {}", books.last_seq()));
+            wrapped(std::format("the books as of update {}", books.last_seq()));
         }
+        // Otherwise the context bar says which file, and where in it.
     } else {
         switch (books.status()) {
         case BookBuilder::Status::waiting:
@@ -174,8 +174,9 @@ void draw_status(const ViewerView& view) {
         }
     }
     // In an answer, the line above says all a viewer needs; the rest are the feed's and the viewer's
-    // health, for watching the exchange.
-    if (!answering) {
+    // health, for watching the exchange. A replay's updates received are where it is, and with no
+    // snapshots it never recovers, so it has none of them.
+    if (!answering && !state.replay) {
         wrapped(std::format("updates received: {}  recoveries: {}", books.updates_received(), books.recoveries().size()));
     }
     if (state.feed_error) {
@@ -189,12 +190,16 @@ void draw_status(const ViewerView& view) {
     if (view.timing.seconds_since_update) {
         wrapped(std::format("seconds since last update: {:.1f}", *view.timing.seconds_since_update));
     }
-    wrapped(std::format("viewer paints: {} (keeps rising while the exchange is stopped)", view.timing.paints));
 }
 
 // The space between paragraphs of an answer: half a line, so it grows with the text.
 void paragraph_break() {
     ImGui::Dummy(ImVec2{0.0f, ImGui::GetTextLineHeight() * 0.5f});
+}
+
+// The space before each part of a replay's controls, the buttons and what happened: a blank line.
+void section_break() {
+    ImGui::Dummy(ImVec2{0.0f, ImGui::GetTextLineHeight()});
 }
 
 // A divider between the parts of a pane, with a paragraph's space on either side.
@@ -300,6 +305,8 @@ void draw_time_shift(const ViewerView& view, ViewerActions& actions) {
     }
 }
 
+void draw_account(const SessionTruth& truth, std::span<const MarketUpdate> updates, std::uint64_t at);
+
 // With a session's steps: jumps by request, and what the request that made the update on screen did,
 // each of its updates said in words, the one on screen marked, then its sender's next request on
 // the ticker. It is the session's record, which the market data doesn't carry, and says so.
@@ -317,6 +324,15 @@ void draw_request(const SessionTruth& truth, std::span<const MarketUpdate> updat
                                way == Way::forward ? "next" : "this or the previous");
         });
     }
+    // A fixed height, whatever the account's length (kRequestLines); a longer one scrolls inside it.
+    section_break();
+    ImGui::BeginChild(kRequestRegion, {0.0f, ImGui::GetTextLineHeightWithSpacing() * kRequestLines});
+    draw_account(truth, updates, at);
+    ImGui::EndChild();
+}
+
+// What the request on screen did, as draw_request frames it.
+void draw_account(const SessionTruth& truth, std::span<const MarketUpdate> updates, std::uint64_t at) {
     const auto shown = request_at(truth, updates, at);
     if (!shown) {
         wrapped("What happened: before the first request.");
@@ -365,8 +381,7 @@ void draw_replay(const ViewerView& view, ViewerActions& actions) {
     const Replay& replay = *view.state.replay;
     const std::uint64_t at = view.state.books.last_seq();
     const std::uint64_t last = replay.updates.size();
-    wrapped(std::format("replay of {} (recorded in {}): after update {} of {}{}", replay.file.string(), replay.recording, at, last,
-                        replay.play.playing ? std::format(", playing at {} updates a second", replay.play.rate) : std::string{}));
+    // Which file, and where in it, the context bar says.
     if (ImGui::SmallButton(kReplayStart)) {
         actions.replay_to = 0;
     }
@@ -789,6 +804,43 @@ void report_trade([[maybe_unused]] const TradeDot& dot) {
     IMGUI_TEST_ENGINE_ITEM_INFO(ImGui::GetItemID(), trade_report(dot).c_str(), ImGui::GetItemStatusFlags());
 }
 
+// The trades' colours, in a line of their own above the chart, each beside a mark drawn as its dots
+// are; hovering it says where the colours come from.
+void draw_trades_legend() {
+    const float font = ImGui::GetFontSize();
+    const float line = ImGui::GetTextLineHeight();
+    struct Key {
+        const char* label;
+        ImVec4 colour;
+        bool ring;
+    };
+    ImGui::BeginGroup();
+    bool first = true;
+    for (const Key& key : {Key{"slicer took", kSlicerColor, false}, Key{"slicer's order met", kSlicerColor, true},
+                           Key{"others", kTradeColor, false}}) {
+        if (!first) {
+            ImGui::SameLine(0.0f, font);
+        }
+        first = false;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        ImGui::Dummy({line, line});
+        const ImVec2 centre{at.x + line * 0.5f, at.y + line * 0.5f};
+        const ImU32 colour = ImGui::GetColorU32(key.colour);
+        if (key.ring) {
+            ImGui::GetWindowDrawList()->AddCircle(centre, line * 0.3f, colour, 0, font * 0.12f);
+        } else {
+            ImGui::GetWindowDrawList()->AddCircleFilled(centre, line * 0.3f, colour);
+        }
+        ImGui::SameLine(0.0f, font * 0.3f);
+        text(key.label);
+    }
+    ImGui::EndGroup();
+    tooltip([] {
+        return std::string{"The slicer's trades are orange: filled where its piece came in and took, a ring where its resting "
+                           "order was met. Who traded is the recording's truth, which the market data doesn't say."};
+    });
+}
+
 // The trades on the shown ticker up to the update shown, each a dot: its update across, its price up,
 // its area as its quantity, on an axis of kTradesWindow updates from update 1 that scrolls once the
 // update shown passes its end. In a recorded session's replay, the
@@ -815,13 +867,10 @@ void draw_trades(const ViewerView& view, ViewerActions& actions) {
     wrapped(to == 0 ? std::format("Trades on ticker {}: none yet, before the first update.", ticker)
                     : std::format("Trades on ticker {}, updates {} to {}: {}.", ticker, from, to, dots.size()));
     if (truth) {
-        ImGui::PushStyleColor(ImGuiCol_Text, kSlicerColor);
-        wrapped("Orange: the slicer's, filled where its piece took, a ring where its resting order was met.");
-        ImGui::PopStyleColor();
-        wrapped("Grey: everyone else's. Who traded is the recording's truth, which the market data doesn't say.");
         const auto slice = truth->slices.find(ticker);
         wrapped(slice != truth->slices.end() ? std::format("Here the slicer {}.", slice->second)
                                              : std::string{"The slicer has no order on this ticker."});
+        draw_trades_legend();  // the last line above the chart
     } else {
         wrapped("No truth for this replay, so no colours: the market data doesn't say who traded (viewer --session DIR "
                 "shows a recorded session's).");

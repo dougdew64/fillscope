@@ -28,8 +28,9 @@
 // truth (viewer --session). On ticker 1, where the slicer buys in equal pieces at regular gaps, it
 // plays at 100 updates a second until six of the slicer's pieces have traded there, and pauses; then
 // walks back through the three pieces before with `< slicer`, each piece's dot pointed at, so its
-// tooltip says who traded; then plays tickers 2 (the gaps jittered) and 3 (the sizes spread) the
-// same way.
+// tooltip says who traded, the first of them played through as "What happened" tells it (its
+// request from its start, update by update, then on to the slicer's cancel of its rest); then plays
+// tickers 2 (the gaps jittered) and 3 (the sizes spread) the same way.
 // At each stop it checks the viewer's books against its own, built from the session's market data,
 // the trades the panel counts, each of the slicer's dots against the truth, and each jump against
 // the slicer's trades as the demo finds them.
@@ -72,6 +73,7 @@
 #include <array>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -853,6 +855,60 @@ std::vector<SlicerTrade> slicer_trades(std::uint32_t ticker) {
     return trades;
 }
 
+// A request of the session's, as its steps record it: the step's place, and the request's fields,
+// decoded here from its bytes (answer/wire.h has the layout).
+struct DemoRequest {
+    std::size_t index = 0;  // in the steps, from 0
+    std::uint8_t type = 0;  // 1, a new order; 2, a cancel
+    std::uint32_t client = 0;
+    std::uint32_t ticker = 0;
+    std::int8_t side = 0;
+    std::int64_t price = 0;
+    std::uint32_t qty = 0;
+};
+
+DemoRequest demo_request(std::size_t index) {
+    const fillscope::RequestBytes& bytes = g_slicing.session->truth.steps[index].request;
+    DemoRequest r{.index = index};
+    std::uint64_t order_id = 0;
+    std::size_t at = 0;
+    const auto take = [&](auto& field) {
+        std::memcpy(&field, bytes.data() + at, sizeof field);
+        at += sizeof field;
+    };
+    take(r.type);
+    take(r.client);
+    take(r.ticker);
+    take(order_id);
+    take(r.side);
+    take(r.price);
+    take(r.qty);
+    return r;
+}
+
+// The step whose updates include `update`, found here.
+std::size_t step_making(std::uint64_t update) {
+    const auto& steps = g_slicing.session->truth.steps;
+    for (std::size_t i = 0; i < steps.size(); ++i) {
+        if (update >= steps[i].first_update && update < steps[i].first_update + steps[i].update_count) {
+            return i;
+        }
+    }
+    return steps.size();
+}
+
+// The book and the panel stay where they were first drawn, playing or paused, whatever "What
+// happened" says: they once moved as it, and a line above, grew and shrank, which made the
+// video unwatchable.
+void check_book_stays(ImGuiTestContext* ctx) {
+    static std::optional<float> book_top;
+    const float top = ctx->ItemInfo("**/0##ticker").RectFull.Min.y;
+    if (!book_top) {
+        book_top = top;
+    }
+    IM_CHECK_EQ(top, *book_top);
+}
+
 // The slicing demo, at a stop: the viewer's books against the demo's own, built from the session's
 // market data, 1 to the viewer's update; the shown book's rows drawn, as the live demo checks them;
 // the trades the panel counts; and each of the slicer's dots drawn as the truth says it should be.
@@ -876,6 +932,7 @@ void check_slicing(ImGuiTestContext* ctx) {
     const std::vector<DrawnRow> drawn = drawn_rows(vars.text);
     IM_CHECK(rows.empty() || !drawn.empty());
     IM_CHECK(drawn.size() <= rows.size() && std::equal(drawn.begin(), drawn.end(), rows.begin()));
+    check_book_stays(ctx);
     // The panel's window, and the trades in it, counted here.
     const std::uint64_t window = std::min<std::uint64_t>(fillscope::kTradesWindow, updates.size());
     const std::uint64_t from = at > window ? at - window + 1 : 1;
@@ -930,11 +987,68 @@ std::optional<std::uint64_t> play_until_pieces(ImGuiTestContext* ctx, std::size_
     while (vars.app->state().books.last_seq() < *target) {
         IM_CHECK_RETV(std::chrono::steady_clock::now() < deadline, std::nullopt);
         ctx->Yield();
+        check_book_stays(ctx);
     }
     click_slicing(ctx, fillscope::kReplayPause);
     IM_CHECK_RETV(!vars.app->state().replay->play.playing, std::nullopt);
     check_slicing(ctx);
     return vars.app->state().books.last_seq();
+}
+
+// The piece whose last trade is at `last`, in full, as "What happened" tells it: `< request` to the
+// start of its request, `>` through each of its updates, the one on screen marked; then `request >`
+// on to the slicer's next request on the ticker, its cancel of the piece's rest, or, if the piece
+// left none, the account saying the cancel was rejected. Each checked against the steps, read here.
+void play_piece(ImGuiTestContext* ctx, std::uint64_t last) {
+    DemoVars& vars = ctx->GetVars<DemoVars>();
+    const auto& steps = g_slicing.session->truth.steps;
+    const std::size_t index = step_making(last);
+    IM_CHECK_RETV(index < steps.size(), void());
+    const fillscope::ReplayStep& step = steps[index];
+    const DemoRequest request = demo_request(index);
+    IM_CHECK_RETV(request.type == 1 && g_slicing.session->truth.slicers.contains(request.client), void());
+    const auto at = [&] { return vars.app->state().books.last_seq(); };
+    if (at() > step.first_update) {
+        click_slicing(ctx, fillscope::kReplayPrevRequest);
+    }
+    IM_CHECK_EQ(at(), step.first_update);
+    IM_CHECK(contains(vars.text, std::format("Request {}: the slicer (client {}) sent a {} of {} at {} on ticker {}, which made {} update",
+                                             index + 1, request.client, request.side == 1 ? "buy" : "sell", request.qty,
+                                             request.price, request.ticker, step.update_count)));
+    for (std::uint64_t update = step.first_update; update < step.first_update + step.update_count; ++update) {
+        if (at() != update) {
+            click_slicing(ctx, fillscope::kReplayForward);
+        }
+        IM_CHECK_EQ(at(), update);
+        IM_CHECK(contains(vars.text, std::format("> {}: ", update)));
+        linger(ctx, 2.0f);
+    }
+    // The slicer's next request on the ticker, found here.
+    std::optional<std::size_t> next;
+    for (std::size_t i = index + 1; i < steps.size() && !next; ++i) {
+        const DemoRequest later = demo_request(i);
+        if (later.client == request.client && later.ticker == request.ticker) {
+            next = i;
+        }
+    }
+    IM_CHECK_RETV(next.has_value() && demo_request(*next).type == 2, void());  // a cancel
+    if (steps[*next].update_count == 0) {
+        IM_CHECK(contains(vars.text, "rejected: it was already gone"));  // the piece left no rest
+        linger(ctx, 3.0f);
+        return;
+    }
+    {
+        const QuickClicks quick{ctx};
+        while (at() < steps[*next].first_update) {
+            const std::uint64_t was = at();
+            click_slicing(ctx, fillscope::kReplayNextRequest);
+            IM_CHECK_RETV(at() > was, void());
+        }
+    }
+    IM_CHECK_EQ(at(), steps[*next].first_update);
+    IM_CHECK(contains(vars.text, std::format("Request {}: the slicer (client {}) cancelled its order", *next + 1, request.client)));
+    IM_CHECK(contains(vars.text, "removed: its client cancelled it"));
+    linger(ctx, 3.0f);
 }
 
 // The slicing demo.
@@ -976,6 +1090,9 @@ void play_slicing(ImGuiTestContext* ctx) {
         IM_CHECK_EQ(vars.app->state().books.last_seq(), before->update);
         piece = before->piece;
         check_slicing(ctx);
+        if (walked == 0) {
+            play_piece(ctx, before->update);
+        }
         // The mouse to the dot's centre, its tooltip shown: of this trade, or of a dot drawn over it
         // there (at the recording's size the panel is narrow, and dots overlap), so the hover isn't
         // demanded. What each dot shows is checked above, from its report.

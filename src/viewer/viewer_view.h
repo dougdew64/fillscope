@@ -51,11 +51,9 @@ struct ViewerActions {
 // Applies the user's actions: to the selection, and to which ticker is shown.
 void apply(const ViewerActions& actions, Selection& selection, ViewerState& state);
 
-// The viewer's own liveness, shown so it is visible that it keeps painting while the exchange is
-// stopped in a debugger.
+// How long the market data has been quiet, shown so a stopped exchange is told from a busy one.
 struct ViewerTiming {
     std::optional<double> seconds_since_update;  // empty until an update has arrived
-    std::uint64_t paints = 0;
 };
 
 // What draw_viewer draws from. The context bar, and the book's highlights, are drawn from
@@ -100,8 +98,12 @@ inline constexpr const char* kReplayNextSlicer = "slicer >##replay_next_slicer";
 inline constexpr const char* kReplayPrevRequest = "< request##replay_prev_request";
 inline constexpr const char* kReplayNextRequest = "request >##replay_next_request";
 // How many of a request's updates are listed; a sweep through many orders lists these, and says
-// how many more.
-inline constexpr std::size_t kRequestUpdatesListed = 8;
+// how many more. The account is drawn in a region of a fixed height, kRequestLines lines, the same
+// at every update, so the book and the panel below never move as the account's length changes
+// (they bounced in the demo's video, which made it unwatchable).
+inline constexpr std::size_t kRequestUpdatesListed = 5;
+inline constexpr float kRequestLines = 8.0f;
+inline constexpr const char* kRequestRegion = "what_happened";
 // Live, the time-shifting controls: pause, play, to the oldest kept, back one, forward one, a slider
 // over what is kept, and back to live.
 inline constexpr const char* kShiftPause = "pause##shift_pause";

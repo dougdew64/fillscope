@@ -252,7 +252,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         const auto before = vars.app->paints();
         ctx->Yield(5);
         IM_CHECK_EQ(vars.app->paints(), before + 5);
-        IM_CHECK(contains(vars.text, std::format("viewer paints: {} ", before + 4)));
+        IM_CHECK(!contains(vars.text, "viewer paints"));  // counted in the printed line and the log, not on screen
     });
 
     viewer_test(engine, "the_seconds_since_the_last_update_count_from_it", [](ImGuiTestContext* ctx) {
@@ -934,7 +934,6 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(contains(vars.text, "the books as of update 1"));
         IM_CHECK(!contains(vars.text, "a replay"));
         IM_CHECK(!contains(vars.text, "updates received"));
-        IM_CHECK(!contains(vars.text, "viewer paints"));
 
         ctx->ItemClick(forward.c_str());
         ctx->ItemClick(forward.c_str());
@@ -1080,8 +1079,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
 
     // A line longer than the window wraps rather than widening it: a wider window scrolls sideways,
     // and a click can then leave the book out of reach. A replay's file is named by its absolute
-    // path, as long as the directory it is in, and is named twice: in the bar and above the replay's
-    // controls.
+    // path, as long as the directory it is in, and is named in the context bar.
     replay_test(engine, "a_long_file_name_wraps_rather_than_widening_the_window", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         const std::string deep = std::string(300, 'd') + "/a.dat";
@@ -1110,21 +1108,20 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         vars.app->open_replay("runs/a.dat", std::move(replay));
         ctx->SetRef(fillscope::kViewerWindow);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "(recorded in runs/a.rec): after update 0 of 8"));
         IM_CHECK(contains(vars.text, "ticker 0: no orders"));
 
         ctx->ItemClick(std::format("**/{}", fillscope::kReplayEnd).c_str());
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 8 of 8"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 8u);
         IM_CHECK(!ctx->ItemExists("**/sell##order12"));  // cancelled by update 8
         ctx->ItemClick(std::format("**/{}", fillscope::kReplayBack).c_str());
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 7 of 8"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 7u);
         IM_CHECK(ctx->ItemExists("**/sell##order12"));  // back: before its cancel
         ctx->ItemClick(std::format("**/{}", fillscope::kReplayStart).c_str());
         ctx->ItemClick(std::format("**/{}", fillscope::kReplayForward).c_str());
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 1 of 8"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 1u);
         IM_CHECK(ctx->ItemExists("**/sell##order10"));
         IM_CHECK(!ctx->ItemExists("**/sell##order11"));
 
@@ -1133,10 +1130,11 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         IM_CHECK_EQ(read_context(vars)["point"]["replayAddress"]["seq"].get<int>(), 1);
         IM_CHECK(read_context(vars)["point"]["replayAddress"]["marketDataFile"].get<std::string>().ends_with("/runs/a.dat"));
-        IM_CHECK(bar_starts(vars.text, "Replay of "));
+        // The file, and where in it, are said once: in the context bar.
+        IM_CHECK(bar_starts(vars.text, std::format("Replay of {} at update 1 of 8", std::filesystem::absolute("runs/a.dat").string())));
         ctx->ItemInputValue(std::format("**/{}", fillscope::kReplaySlider).c_str(), 7);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 7 of 8"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 7u);
         IM_CHECK_EQ(read_context(vars)["point"]["replayAddress"]["seq"].get<int>(), 7);
         IM_CHECK_EQ(read_context(vars)["background"]["replay"]["updates"].get<int>(), 8);
     });
@@ -1153,15 +1151,18 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         vars.app->open_replay("runs/b.dat", std::move(replay));
         ctx->SetRef(fillscope::kViewerWindow);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "market data: a replay, the books are as of update 0"));
-        IM_CHECK(!contains(vars.text, "market data: waiting for the exchange"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 0u);
+        IM_CHECK(!contains(vars.text, "market data: "));  // where it is, the context bar says
         ctx->ItemClick(std::format("**/{}", fillscope::kReplayEnd).c_str());
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "market data: a replay, stuck after update 1: "));
-        IM_CHECK(contains(vars.text, "updates received: 2 "));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 1u);
+        IM_CHECK(!contains(vars.text, "updates received"));  // a replay's position says it
+        IM_CHECK_EQ(vars.app->state().books.updates_received(), 2u);
         ctx->ItemClick(std::format("**/{}", fillscope::kReplayForward).c_str());
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "updates received: 2 "));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 1u);
+        IM_CHECK_EQ(vars.app->state().books.updates_received(), 2u);  // update 2 not fed again
         IM_CHECK(contains(vars.text, "at update 1 of 3, stuck: "));
     });
 
@@ -1189,7 +1190,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
                 }
                 IM_CHECK_EQ(x, *trade4_x);
             }
-            IM_CHECK(contains(vars.text, std::format("after update {} of 13", at)));
+            IM_CHECK_EQ(vars.app->state().books.last_seq(), at);
             // How many dots, from the panel's heading (so no frames are spent searching for the dots
             // that shouldn't be there: those still to trade, and ticker 2's), then each one's report.
             std::size_t drawn = 0;
@@ -1205,7 +1206,15 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         }
         IM_CHECK(!ctx->ItemExists("**/##trade12"));  // ticker 2's, once: the counts above say the rest
         IM_CHECK(contains(vars.text, "Here the slicer buys 15 in pieces of 10"));
-        IM_CHECK(contains(vars.text, "Orange: the slicer's"));
+        // The legend, one line, the last above the chart: a mark and its words for each colour.
+        const auto legend = vars.text.find("slicer took");
+        IM_CHECK(legend != std::string::npos);
+        IM_CHECK_LT(vars.text.find("Here the slicer buys"), legend);
+        // On one line: its three keys with no line between them.
+        const auto legend_end = vars.text.find("others", legend);
+        IM_CHECK(legend_end != std::string::npos);
+        IM_CHECK(vars.text.find('\n', legend) > legend_end);
+        IM_CHECK(contains(vars.text.substr(legend, legend_end - legend), "slicer's order met"));
         // The book's orders, by client: after update 6, the maker's is gone and the slicer's rests.
         vars.app->replay_to(6);
         ctx->Yield(2);
@@ -1221,7 +1230,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->Yield(2);
         ctx->ItemClick("**/##trade7");
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 7 of 13"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 7u);
         ctx->ItemClick("**/2##ticker");
         vars.app->replay_to(13);
         ctx->Yield(2);
@@ -1245,52 +1254,64 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         ctx->SetRef(fillscope::kViewerWindow);
         ctx->Yield(2);
         const auto click = [&](const char* item) { ctx->ItemClick(std::format("**/{}", item).c_str()); };
+        // Playing shows as the pause button where play was, the rate chosen marked beside it.
+        const auto playing = [&] { return ctx->ItemExists(std::format("**/{}", fillscope::kReplayPause).c_str()); };
         IM_CHECK(marked(ctx, "**/###replay_rate100"));
         click("###replay_rate10");
         IM_CHECK(marked(ctx, "**/###replay_rate10"));
         click(fillscope::kReplayPlay);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 0 of 13, playing at 10 updates a second"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 0u);
+        IM_CHECK(playing());
         vars.now = at(500);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 5 of 13, playing"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 5u);
+        IM_CHECK(playing());
         click(fillscope::kReplayPause);
         vars.now = at(900);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 5 of 13\n"));  // paused: no further, and not playing
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 5u);  // paused: no further, and not playing
+        IM_CHECK(!playing());
         // Played on from 5; a step of the user's own pauses it.
         click(fillscope::kReplayPlay);
         vars.now = at(1200);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 8 of 13, playing"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 8u);
+        IM_CHECK(playing());
         click(fillscope::kReplayForward);
         vars.now = at(3000);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 9 of 13\n"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 9u);
+        IM_CHECK(!playing());
         // A new rate goes on from where it is: 10 a second from 9 to 10, then 100 a second from there.
         click(fillscope::kReplayPlay);
         vars.now = at(3100);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 10 of 13, playing at 10 updates a second"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 10u);
+        IM_CHECK(playing());
         click("###replay_rate100");
         vars.now = at(3120);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 12 of 13, playing at 100 updates a second"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 12u);
+        IM_CHECK(playing());
+        IM_CHECK(marked(ctx, "**/###replay_rate100"));
         // To the end, where it stops; play again starts from the start.
         vars.now = at(10000);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 13 of 13\n"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 13u);
+        IM_CHECK(!playing());
         IM_CHECK(ctx->ItemExists(std::format("**/{}", fillscope::kReplayPlay).c_str()));
         click(fillscope::kReplayPlay);
         ctx->Yield(2);
-        IM_CHECK(contains(vars.text, "after update 0 of 13, playing"));
+        IM_CHECK_EQ(vars.app->state().books.last_seq(), 0u);
+        IM_CHECK(playing());
         click(fillscope::kReplayPause);
 
         // The jumps, from the start: each trade in turn, and nothing past the last.
         const auto jumps_to = [&](const char* item, int update) {
             click(item);
             ctx->Yield(2);
-            IM_CHECK(contains(vars.text, std::format("after update {} of 13", update)));
+            IM_CHECK_EQ(vars.app->state().books.last_seq(), static_cast<std::uint64_t>(update));
         };
         vars.app->replay_to(0);
         jumps_to(fillscope::kReplayNextTrade, 4);
@@ -1326,6 +1347,26 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         vars.app->replay_to(0);
         ctx->Yield(2);
         IM_CHECK(contains(vars.text, "What happened: before the first request."));
+        // Whatever the account's length (none yet, one update, two), and playing or not, what is
+        // below it stays put.
+        std::optional<float> book_top;
+        const auto stays = [&] {
+            const float top = ctx->ItemInfo("**/0##ticker").RectFull.Min.y;
+            if (!book_top) {
+                book_top = top;
+            }
+            IM_CHECK_EQ(top, *book_top);
+        };
+        for (const std::uint64_t at : {0, 1, 4, 6, 9}) {
+            vars.app->replay_to(at);
+            ctx->Yield(2);
+            stays();
+        }
+        click(fillscope::kReplayPlay);
+        ctx->Yield(2);
+        IM_CHECK(vars.app->state().replay->play.playing);
+        stays();
+        click(fillscope::kReplayPause);
     });
 
     // A replay without a truth draws its trades, none coloured, and says why.

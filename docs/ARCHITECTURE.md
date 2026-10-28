@@ -489,14 +489,14 @@ The screen shows one ticker's book at a time; the ticker buttons, 0 to 7, choose
 over one shows how many orders its book holds.
 
 **The health lines say which side has stopped.** Under the market data's state, live, come the
-updates received and recoveries, the seconds since the last update, and the viewer's own paint
-count ("viewer paints: 1087 (keeps rising while the exchange is stopped)"). When the books stop
+updates received and recoveries, and the seconds since the last update. When the books stop
 changing, three things look the same on screen: the exchange is quiet or stopped (frozen at a
 breakpoint, in lockstep debugging, which is why the viewer is a process of its own); the viewer's
 loop has stalled (it once did, when vsync held a hidden window's swaps, and market data was lost);
-or the viewer has hung. A rising paint count says the viewer is painting, so the stop is the market
-data's; with the seconds since the last update, it says which side stopped. The count is also in
-the line printed each second and in the log.
+or the viewer has hung. The seconds since the last update rising on screen say the viewer is
+painting, so the stop is the market data's. The viewer's own paint count is in the line it prints
+each second ("viewer: t=12 paints=724 …") and in its log, not on screen: it was there once, and
+the seconds already say what it said.
 
 **The context bar shows the context's three parts**, one line each, indented under the heading
 "Context, as published for the assistant:" so they read as its contents. The first, always there, is
@@ -544,7 +544,10 @@ books are then exactly the recorded run's after update N, so a point
 or follow carries a replay address: the market data file, the recording it came from, and N.
 Applying the file's updates 1 to N rebuilds that state. Live, there is no replay address, and the
 file says why and how to record a run. `--at N` opens a replay at update N, and `--ticker T` with
-ticker T's book shown.
+ticker T's book shown. Which file is replayed, and where in it the books are, the context bar says,
+and nothing else on screen repeats it: the live status lines (the market data's state, the updates
+received, the seconds since the last) say nothing a replay's position doesn't, so a replay draws
+them only when it is stuck, to say why.
 
 **Playing a replay, and jumping to its trades.** Below the slider, `play` moves the replay on by
 itself, 10, 100 or 1,000 updates a second (a replay has no times of its own, so its pace is
@@ -572,10 +575,15 @@ the market data hasn't, or without one it has. The truth is shown in two places,
   always ended at the update shown, so early in a replay update 1 sat partway in, its label moving
   left at each step, which the owner asked about.) The slicer's are orange,
   filled where its piece came in and took, a ring where its resting order was met; everyone else's
-  grey. Hovering a dot says which clients traded; clicking it goes to its update. The panel says
-  that the colours are the recording's truth, which the market data doesn't say, and what the
-  slicer's order on the ticker is. In a replay without a truth, the dots are drawn with no colours
-  and it says there is none; live, it says the market data never names a client.
+  grey. The colours are the recording's truth, which the market data doesn't say. Hovering a dot
+  says which clients traded; clicking it goes to its update. Above the chart, the panel says how
+  many trades it shows and what the slicer's order on the ticker is, and, as its last line, a
+  legend: each colour's mark, drawn as the dots are, and a few words ("slicer took", "slicer's
+  order met", "others"), hovering it saying where the colours come from. It is one line for the
+  chart's height (it was once three sentences), and is there for someone seeing the viewer for the
+  first time, in the demo's video, say. In a
+  replay without a truth, the dots are drawn with no colours and it says there is none; live, it
+  says the market data never names a client.
 - **What happened**, under the replay's controls, from the session's steps (`DIR/steps.bin`, the
   replay's record of what each request did): the request that made the update on screen, said in
   words ("the slicer (client 6) sent a buy of 30 at 172 on ticker 1"), each update it made said in
@@ -1307,14 +1315,19 @@ priority), and reads it back on its own; the viewer opens it as **viewer (sessio
 ticker 1, where the slicer buys in equal pieces at regular gaps. It plays at 100 updates a second
 until six of the slicer's pieces have traded there, and pauses; then walks back through the three
 pieces before with `< slicer`, stopping on each piece's last trade with the mouse on its dot, so
-the tooltip says who traded; then plays tickers 2 (the gaps jittered) and 3 (the sizes spread) the
-same way. A piece is the slicer's order in a trade, as the truth says, and can trade more than
+the tooltip says who traded. The first of those three it plays through as *What happened* tells
+it (§4, *A session, and its truth*): `< request` to the start of the piece's request, `>` through
+each of its updates (the trades, the orders they filled removed, its rest resting), each marked in
+turn, then `request >` on to the slicer's cancel of the rest. Then it plays tickers 2 (the gaps
+jittered) and 3 (the sizes spread) the same way. A piece is the slicer's order in a trade, as the truth says, and can trade more than
 once, at updates close together, as it meets several resting orders; `< slicer` goes back a trade
 at a time, so a piece that traded more than once takes more than one click. At each stop it
 checks the viewer's books against its own, built from the session's market data; the shown book's
 drawn rows, as the live demo does; the number of trades the panel says it draws, counted on its
-own; each of the slicer's dots in view, from its report, against the truth; and each walk back
-landing on the piece the demo found. Two things were found in its first recordings: a dot can lie
+own; each of the slicer's dots in view, from its report, against the truth; each walk back
+landing on the piece the demo found; and, through the piece played, each account against the
+session's steps, read and decoded by the demo itself: which request made each update, what it was,
+the marker on the update shown, and the cancel that followed. Two things were found in its first recordings: a dot can lie
 under another (a piece's trades close together, and at the recording's size the panel narrow), so
 the mouse goes to the dot's centre without demanding the Test Engine call it a hover; and at the
 other demos' 1280 by 720 the panel's words filled it and its chart never showed, so it is
