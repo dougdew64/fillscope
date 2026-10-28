@@ -1,7 +1,7 @@
 # A scratch copy of the working tree, with a build of its own, for the checks that change source
 # files (mutants.py, selection_check.py). They work only in the copy, so they never touch the files
-# being edited, nor the build the editor and iterate.py use. The selection check makes a copy in a
-# temporary directory and deletes it afterwards (make, remove). The mutation check keeps one in
+# being edited, nor the build the editor and iterate.py use. The selection check makes a copy afresh
+# each time, in build/selection/tree, and deletes it afterwards (make, remove). The mutation check keeps one in
 # build/mutants/tree and brings it up to date each time (sync): its build is then incremental, and
 # its programs, built at the same paths, can be compared from one run to the next.
 #
@@ -44,11 +44,20 @@ def copy_file(source, target):
         shutil.copy2(source, target)
 
 
-def make(root):
-    """Copies the working tree at `root` into a new temporary directory, and returns its path.
-    Modification times are kept, so the copy's build sees the files as they are. If copying fails
-    or is interrupted, the partial copy is removed."""
-    copy = pathlib.Path(tempfile.mkdtemp(prefix="fillscope-check-"))
+def make(root, at=None):
+    """Copies the working tree at `root` into the directory `at`, emptied first, or a new temporary
+    one, and returns its path. Modification times are kept, so the copy's build sees the files as
+    they are. If copying fails or is interrupted, the partial copy is removed.
+
+    At the same path each time, the copy's compiles are found in ccache from the last time: ccache
+    tells compiles apart by their paths (with -g, the directory they run in too), so a copy at a new
+    path each time is compiled afresh, every time."""
+    if at is None:
+        copy = pathlib.Path(tempfile.mkdtemp(prefix="fillscope-check-"))
+    else:
+        copy = pathlib.Path(at)
+        remove(copy)
+        copy.mkdir(parents=True)
     try:
         fill(root, copy)
     except BaseException:  # KeyboardInterrupt and SystemExit (a signal) too

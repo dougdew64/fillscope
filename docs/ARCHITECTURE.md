@@ -1031,6 +1031,10 @@ listing of every test, where the mutation check asks CTest about each name), so 
 doesn't hide in the other. Among its cases: a change to nothing any program uses runs none, a test
 changed runs every mutant its program's tests may catch, one mutant's definition changed runs that
 mutant alone (and those of the scripts' own tests), and a mutant no longer recorded runs alone.
+Its copy, and the mutation check's copy that its last cases use, are made afresh each run, but at
+the same paths (`build/selection/`): ccache tells compiles apart by their paths, so at a new
+temporary path each run, as they once were, both were compiled from nothing every time, as was
+every case's rebuild. At fixed paths the whole check takes about 3 minutes instead of 8.
 
 **The machinery's own tests and mutants.** `scripts_tests` tests the parts whose mistakes would
 pass silently: reading the manifest, what is never recorded as passed, the fingerprints (a test

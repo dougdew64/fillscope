@@ -276,8 +276,9 @@ python3 -I tests/scripts/mutants.py --list   #   which would run, running none
 python3 -I tests/scripts/selection_check.py  # iterate.py and mutants.py choose exactly right
 ```
 **How long each takes** (measured on the development machine, with both builds already current):
-`run-tests.sh` about 4 minutes (2026-10-25); the selection check about 5 (2026-10-25, with its
-mutant cases); the mutation check, every mutant (`--all`, or anything the check's own code
+`run-tests.sh` about 4 minutes (2026-10-25); the selection check about 3 (2026-10-28, with its
+mutant cases; about 8 the first time, or after a change to headers much of the code includes,
+when its compiles aren't yet in ccache); the mutation check, every mutant (`--all`, or anything the check's own code
 depends on changed), about 17, for 210 mutants (2026-10-25), each a rebuild and a test run (2026-10-24: about
 10 minutes of rebuilds, and about 7 of the back end's system tests, which wait more than they
 compute). Run as it normally is, it runs only the mutants a change reached: after a change to the
@@ -286,8 +287,9 @@ seconds. A cold build adds several minutes to the first.
 Run as root (CI's container), the mutation check skips, and names, the mutants whose test needs a
 directory it can't write to, which root always can.
 Both work in a copy of the working tree, with a build of their own, so the files being edited, the
-build in use and the real pass record are never touched, whatever stops them. The selection check's
-copy is temporary; the mutation check keeps its copy and its record of caught mutants in
+build in use and the real pass record are never touched, whatever stops them. The selection check
+makes its copy afresh each run, in `build/selection/`, and deletes it afterwards; at the same path
+each time, so its compiles come from ccache (two runs at once wait for each other). The mutation check keeps its copy and its record of caught mutants in
 `build/mutants/` and updates the copy each run (two runs at once wait for each other). A mutant
 names the tests meant to catch it: CTest names, single Test Engine tests (`ui:`), single Node tests
 (`node:`), or the back end's GoogleTest tests (`lowlatency:`). `mutants.py` first checks that every

@@ -606,6 +606,14 @@ tree compiles afresh ([TROUBLESHOOTING.md](TROUBLESHOOTING.md), case 1). Shared 
 the source paths in the debug information, which the debugger tests check.
 **Done when:** a CI run after such a commit takes about what a run after any other does, the
 debugger tests passing, measured.
+**Status:** closed (2026-10-28), its premise measured wrong, and its done-when out of any cache's
+reach ([TROUBLESHOOTING.md](TROUBLESHOOTING.md), case 1, *Measured since*). A slow run's extra
+time is in the mutation check's mutants, each a source no tree has compiled before against the new
+headers, which sharing between trees can't save; the copies' own builds are a minute or two. What
+was found instead: the selection check made its two copies at new temporary paths each run, so it
+compiled both from nothing every run, each case's rebuild too. They are now at fixed paths
+(`build/selection/`), and the check takes 192 s instead of 493 here; `base_dir` is not used, and
+the debug information is as it was.
 
 ## Later
 The features still to build are in the backlog, [FEATURES.md](FEATURES.md); the next ones are

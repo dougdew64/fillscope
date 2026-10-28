@@ -97,13 +97,34 @@ nothing with the main build in ccache's eyes. The store is also full (5,069 MB o
 objects push out old ones as the run goes.
 
 **Fix.** The job's limit is now 90 minutes, with this reason beside it: the limit is there for a run
-that hangs, which 90 still catches. **Open:** sharing the cache between the main build and the
-checks' copies (ccache's `base_dir`) would remove most of the cost, but `-g` makes ccache hash the
-build directory by default, and turning that off changes the source paths in the debug information,
-which the debugger tests check.
+that hangs, which 90 still catches. Sharing the cache between the main build and the checks'
+copies (ccache's `base_dir`) looked as if it would remove most of the cost; measured, it wouldn't.
+
+**Measured since (2026-10-28).** Over six runs the mutation check was 23 to 40 minutes of a 40 to
+60 minute run, the gate 5 to 8 and the selection check 7 to 11; the slow runs were slow in the
+mutation check. Its log says nothing of where the time goes (it prints at the end), so the split
+was measured here:
+- **A whole tree built from nothing:** the mutation check's copy, with ccache off
+  (`CCACHE_DISABLE=1`, `FILLSCOPE_MUTANTS_DIR` set to a directory of its own, `--list`): 75 s on
+  8 cores. So sharing a copy's build with the main build saves a minute or two on CI's 4.
+- **The mutants:** the 19 whose names contain "slicer", run twice with ccache on and once off:
+  130 s with their compiles in the cache, 169 s without, 30% more. A mutant is a source no tree has
+  compiled before, so after a change to headers it includes, it is compiled afresh however the
+  cache is shared; CI's 23.5 to 33 minutes is the same proportion. That is the cost of checking
+  every mutant against the new code, not a fault.
+- **The selection check:** 493 s here. It made its copy, and the mutation check's copy for its last
+  cases, in new temporary directories each run: ccache tells compiles apart by their paths, so it
+  compiled both trees, and every case's rebuild, from nothing, every run. With both at fixed paths
+  (`build/selection/`), 519 s the first time and 192 s after.
+
+So `base_dir` stays unused, and the debug information unchanged; the selection check's copies are
+at fixed paths.
 
 **Lessons.** A control run (`gh run rerun`) separates "the code" from "the machine" in one step.
 Split a slow step into its parts before guessing. The cache step's log says what it restored.
+And measure a fix's cause before building it: the cure first written down here would have cost
+care with the debug information for a minute or two, and missed the selection check's 5 minutes
+lost every run (as measured here).
 
 ## Case 2: sanitizer tests time out beside the session test (2026-10-27)
 **Symptom.** The local gate, which had passed all day, failed in its sanitizer build: three or four

@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     # A run takes about 40 minutes when its ccache store, the newest saved, holds most of its
     # objects; after a commit that changes headers most of the code includes, it doesn't, and every
-    # tree (both builds, and the mutation and selection checks' copies, which share nothing with them)
-    # compiles afresh: two such runs (2026-10-27) took over 60. The limit is for a run that hangs.
+    # mutant compiles afresh: two such runs (2026-10-27) took over 60 (docs/TROUBLESHOOTING.md,
+    # case 1). The limit is for a run that hangs.
     timeout-minutes: 90
     container:
       # fedora:44, pinned by digest so the image can't change under the same name. Fedora's

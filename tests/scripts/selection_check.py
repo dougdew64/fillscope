@@ -11,7 +11,10 @@
 #
 # It works in a scratch copy of the working tree with a build and a pass record of its own
 # (scratch_tree.py), so the files being edited, the build in use and the real pass record are never
-# touched, whatever stops it.
+# touched, whatever stops it. The copy, and the mutation check's copy inside it, are made afresh
+# each time at the same paths, in build/selection/, so their compiles come from ccache; one run of
+# the check at a time uses them (a lock), and another waits.
+import fcntl
 import importlib.util
 import json
 import os
@@ -348,7 +351,17 @@ def main():
         signal.signal(signum, stop_on_signal)
     scratch_tree = SCRATCH_TREE
     root = pathlib.Path(__file__).resolve().parents[2]
-    copy_root = scratch_tree.make(root)
+    place = root / "build" / "selection"
+    place.mkdir(parents=True, exist_ok=True)
+    lock = open(place / ".lock", "w")  # kept open to the end: closing it would release the lock
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print(f"waiting for another selection check using {place}")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    copy_root = scratch_tree.make(root, place / "tree")
+    mutants_place = place / "mutants"
+    scratch_tree.remove(mutants_place)  # its copy is made afresh, its record empty, as each case needs
     failures = []
     try:
         build = scratch_tree.configure(copy_root, root)
@@ -374,7 +387,7 @@ def main():
             problem = failing_case(copy)
             if problem:
                 failures.append(problem)
-            mutants = Mutants(copy, build, pathlib.Path(scratch) / "mutants")
+            mutants = Mutants(copy, build, mutants_place)
             for file, probe, programs in MUTANT_CASES:
                 problem = mutant_case(mutants, file, probe, programs)
                 if problem:
@@ -384,6 +397,7 @@ def main():
                 failures.append(problem)
     finally:
         scratch_tree.remove(copy_root)
+        scratch_tree.remove(mutants_place)
     for failure in failures:
         print(f"PROBLEM: {failure}")
     total = len(CASES) + len(RUN_CASES) + 1 + len(MUTANT_CASES) + 1
