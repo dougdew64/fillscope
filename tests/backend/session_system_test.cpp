@@ -3,7 +3,8 @@
 // an order of each kind, recorded by tools/sessions/record_session.py and replayed. Every order the
 // maker and the taker send is checked against their rules, given the market data they had received;
 // each sliced order against its plan; the replay's truth, who sent each order and each side of each trade, against the
-// recording's requests; and the replay against itself, done again.
+// recording's requests; the scorer's targets (score/score.h) against the recording's requests too;
+// and the replay against itself, done again.
 //
 // The exchange records every request in the order its matcher took them; replayed, the recording
 // gives the market data and, for each request, where in the market data it came. A client decides
@@ -32,6 +33,7 @@
 #include "feed/feed_socket.h"
 #include "feed/market_data_file.h"
 #include "feed/market_update.h"
+#include "score/score.h"
 #include "support/test_support.h"
 #include "truth/truth.h"
 
@@ -49,6 +51,7 @@
 #include <format>
 #include <fstream>
 #include <map>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <string>
@@ -510,32 +513,44 @@ TEST_F(RecordedSession, EachSlicedOrderIsSentExactlyAsPlannedInItsPiecesAndGaps)
     }
 }
 
-// The truth marks exactly the slicer's trades: those it says the slicer was on a side of are those
-// whose incoming order the slicer's request sent, or whose resting order the slicer's request added,
-// as the recording says, worked out without the truth.
-TEST_F(RecordedSession, TheTruthMarksExactlyTheSlicersTrades) {
-    std::set<std::uint32_t> slicers;
-    for (const SlicedOrder& order : session_->sliced) {
-        slicers.insert(order.client);
-    }
+// The trades `clients` were on a side of, as the recording says, worked out without the truth: those
+// whose incoming order one of their requests sent, or whose resting order one of their requests added.
+std::set<std::uint64_t> trades_of(const Session& session, const std::set<std::uint32_t>& clients) {
     std::map<std::pair<std::uint32_t, std::uint64_t>, std::uint32_t> added_by;  // an order on the book: who added it
-    std::set<std::uint64_t> slicers_trades;
-    std::map<std::uint32_t, std::size_t> traded;  // the slicer's trades, by ticker
-    for (const ReplayStep& step : session_->steps.steps) {
+    std::set<std::uint64_t> trades;
+    for (const ReplayStep& step : session.steps.steps) {
         const Request request = decode(step.request);
         for (std::uint64_t seq = step.first_update; seq < step.first_update + step.update_count; ++seq) {
-            const MarketUpdate& update = session_->updates.at(seq - 1);
+            const MarketUpdate& update = session.updates.at(seq - 1);
             if (update.type == UpdateType::add) {
                 added_by[{update.ticker, update.order_id}] = request.client;
             } else if (update.type == UpdateType::trade) {
-                const MarketUpdate& resting = session_->updates.at(seq);  // its resting order's cancel or modify
-                const std::uint32_t resting_client = added_by.at({resting.ticker, resting.order_id});
-                if (slicers.contains(request.client) || slicers.contains(resting_client)) {
-                    slicers_trades.insert(seq);
-                    ++traded[update.ticker];
+                const MarketUpdate& resting = session.updates.at(seq);  // its resting order's cancel or modify
+                if (clients.contains(request.client) || clients.contains(added_by.at({resting.ticker, resting.order_id}))) {
+                    trades.insert(seq);
                 }
             }
         }
+    }
+    return trades;
+}
+
+std::set<std::uint32_t> slicers_of(const Session& session) {
+    std::set<std::uint32_t> slicers;
+    for (const SlicedOrder& order : session.sliced) {
+        slicers.insert(order.client);
+    }
+    return slicers;
+}
+
+// The truth marks exactly the slicer's trades: those it says the slicer was on a side of are those
+// the recording says it was (trades_of).
+TEST_F(RecordedSession, TheTruthMarksExactlyTheSlicersTrades) {
+    const std::set<std::uint32_t> slicers = slicers_of(*session_);
+    const std::set<std::uint64_t> slicers_trades = trades_of(*session_, slicers);
+    std::map<std::uint32_t, std::size_t> traded;  // the slicer's trades, by ticker
+    for (const std::uint64_t seq : slicers_trades) {
+        ++traded[session_->updates.at(seq - 1).ticker];
     }
     std::set<std::uint64_t> marked;
     for (const TradeTruth& trade : session_->truth->trades()) {
@@ -550,6 +565,44 @@ TEST_F(RecordedSession, TheTruthMarksExactlyTheSlicersTrades) {
         by_ticker += std::format(" {} on ticker {} ({}),", traded[order.ticker], order.ticker, order.kind);
     }
     std::printf("the truth marks %zu trades as the slicer's:%s\n", marked.size(), by_ticker.c_str());
+}
+
+// The scorer's targets (score/score.h) are the slicer and the taker, read from session.json, and the
+// trades it scores as theirs are those the recording says they were on a side of (trades_of). So
+// the targets' trades flagged exactly score perfectly; nothing flagged misses them all; everything
+// flagged falsely alarms on every other trade, the maker's and the random client's with each other.
+TEST_F(RecordedSession, TheScorersTargetsAreTheSlicersAndTheTakersTrades) {
+    const auto targets = read_targets(session_->directory.path / "session.json");
+    ASSERT_TRUE(targets) << targets.error();
+    std::set<std::uint32_t> expected = slicers_of(*session_);
+    expected.insert(kTaker);
+    ASSERT_EQ(*targets, expected);
+    const std::set<std::uint64_t> targets_trades = trades_of(*session_, *targets);
+    ASSERT_EQ(target_trades(*session_->truth, *targets), targets_trades);
+
+    std::set<std::uint64_t> every_trade;
+    for (const MarketUpdate& update : session_->updates) {
+        if (update.type == UpdateType::trade) {
+            every_trade.insert(update.seq);
+        }
+    }
+    const std::size_t others = every_trade.size() - targets_trades.size();
+    EXPECT_GT(others, 0u) << "no trade without a target, so nothing to alarm falsely on";
+    const auto score = [&](const std::set<std::uint64_t>& flagged) {
+        auto scored = score_flags(session_->updates, *session_->truth, *targets, flagged);
+        EXPECT_TRUE(scored) << scored.error();
+        return scored.value_or(Score{}).all;
+    };
+    const std::size_t trades = every_trade.size();
+    const std::size_t hit = targets_trades.size();
+    EXPECT_EQ(score(targets_trades), (Tally{.trades = trades, .targets = hit, .hits = hit, .misses = 0, .false_alarms = 0}));
+    EXPECT_EQ(score({}), (Tally{.trades = trades, .targets = hit, .hits = 0, .misses = hit, .false_alarms = 0}));
+    EXPECT_EQ(score(every_trade), (Tally{.trades = trades, .targets = hit, .hits = hit, .misses = 0, .false_alarms = others}));
+    std::printf("the scorer's targets: clients%s; %zu of the %zu trades are theirs\n",
+                std::accumulate(targets->begin(), targets->end(), std::string{},
+                                [](std::string said, std::uint32_t client) { return said + std::format(" {}", client); })
+                    .c_str(),
+                hit, trades);
 }
 
 // The recording, replayed again, gives the same market data, steps and truth, byte for byte.

@@ -32,7 +32,7 @@ set_tests_properties(backend_system_tests PROPERTIES RESOURCE_LOCK exchange)
 # replay's truth and the replay itself (session_system_test.cpp). The system tier: it runs an
 # exchange and four clients, on ports of its own, and holds the exchange's lock.
 add_executable(session_system_tests session_system_test.cpp)
-target_link_libraries(session_system_tests PRIVATE fillscope_answer fillscope_feed fillscope_truth GTest::gtest)
+target_link_libraries(session_system_tests PRIVATE fillscope_answer fillscope_feed fillscope_score fillscope_truth GTest::gtest)
 target_include_directories(session_system_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 target_compile_options(session_system_tests PRIVATE ${FILLSCOPE_WARNINGS})
 set(record_session ${PROJECT_SOURCE_DIR}/tools/sessions/record_session.py)

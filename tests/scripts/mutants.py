@@ -85,6 +85,7 @@ FEED_SOCKET = "src/feed/feed_socket.cpp"
 VIEWER_OPTIONS = "src/viewer/viewer_options.cpp"
 REPLAY = "backend/Chapter12/exchange/matcher/replay.cpp"
 TRUTH = "src/truth/truth.cpp"
+SCORE = "src/score/score.cpp"
 RECORDING = "backend/Chapter12/exchange/matcher/request_recording.cpp"
 CLIENT_REQUEST = "backend/Chapter12/exchange/order_server/client_request.h"
 ORDER_SERVER = "backend/Chapter12/exchange/order_server/order_server.h"
@@ -285,6 +286,42 @@ MUTANTS = [
      "lowlatency:SlicerTest.APieceIsCancelledAsSoonAsItIsAccepted"),
     # Slicing shown from the truth: each a way the viewer would show a trade as someone else's, or
     # one that hadn't happened yet.
+    # The detector's check (src/score/score.cpp), by its own tests and a real session's.
+    ("the taker isn't a target", SCORE,
+     [('return strategy == "SLICER" || strategy == "TAKER";', 'return strategy == "SLICER";')],
+     "Targets.AreTheClientsThatTradeOneSideAndSizeRepeatedly + Targets.AreReadFromTheSessionsClients"),
+    ("the maker is a target too", SCORE,
+     [('return strategy == "SLICER" || strategy == "TAKER";', 'return strategy == "SLICER" || strategy == "TAKER" || strategy == "MAKER";')],
+     "Targets.AreTheClientsThatTradeOneSideAndSizeRepeatedly + session_system_tests"),
+    ("a target's resting order met isn't its trade", SCORE,
+     [("        if (targets.contains(trade.incoming_client) || targets.contains(trade.resting_client)) {",
+       "        if (targets.contains(trade.incoming_client)) {")],
+     "TargetTrades.AreThoseATargetWasOnEitherSideOf + session_system_tests"),
+    ("the score counts only the incoming order's client", SCORE,
+     [("        const bool target = targets.contains(trade.incoming_client) || targets.contains(trade.resting_client);",
+       "        const bool target = targets.contains(trade.incoming_client);")],
+     "Score.ExactlyTheTargetsFlaggedIsPerfect + session_system_tests"),
+    ("a target's trade not flagged isn't a miss", SCORE,
+     [("            tally->misses += target && !flag ? 1 : 0;", "")],
+     "Score.NothingFlaggedMissesEveryTarget"),
+    ("a flag on no target's trade isn't a false alarm", SCORE,
+     [("            tally->false_alarms += !target && flag ? 1 : 0;", "")],
+     "Score.EverythingFlaggedHitsEveryTargetAndFalselyAlarmsOnTheRest + session_system_tests"),
+    ("every trade is scored on one ticker", SCORE,
+     [("&score.by_ticker[updates[trade.update - 1].ticker]", "&score.by_ticker[0]")],
+     "Score.SomeOfEachIsCountedOnEachTicker"),
+    ("a flag on an update that isn't a trade is taken", SCORE,
+     [("            return std::unexpected{std::format(\"update {} is flagged, but isn't a trade\", update)};", "")],
+     "Score.AFlagOnAnUpdateThatIsntATradeIsRefused"),
+    ("a truth with fewer trades is taken", SCORE,
+     [("    if (market_trades != truth.trades().size()) {", "    if (false) {")],
+     "Score.ATruthThatIsntTheMarketDatasIsRefused"),
+    ("a truth's trade at an update that isn't one is taken", SCORE,
+     [("            return std::unexpected{std::format(\"the truth has a trade at update {}, which the market data doesn't\", trade.update)};", "")],
+     "Score.ATruthThatIsntTheMarketDatasIsRefused"),
+    ("a session.json not a session's is read", SCORE,
+     [("        return std::unexpected{std::format(\"{} isn't a session's: {}\", session_json.string(), e.what())};", "")],
+     "Targets.CantBeReadFromAFileThatIsntASessions"),
     ("a trade the slicer took is shown as met", SESSION_TRUTH,
      [("                dot.slicer = TradeDot::Slicer::took;", "                dot.slicer = TradeDot::Slicer::met;")],
      "SessionTruthTest.EachTradeIsMarkedFromTheTruth"),

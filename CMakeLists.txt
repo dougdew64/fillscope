@@ -65,6 +65,13 @@ add_library(fillscope_truth STATIC src/truth/truth.cpp)
 target_include_directories(fillscope_truth PUBLIC src)
 target_compile_options(fillscope_truth PRIVATE ${FILLSCOPE_WARNINGS})
 
+# src/score: the detector's check, which trades are targets and a detector's hits, misses and false
+# alarms against them; it reads the truth, and calls no detector.
+add_library(fillscope_score STATIC src/score/score.cpp)
+target_include_directories(fillscope_score PUBLIC src)
+target_link_libraries(fillscope_score PUBLIC fillscope_feed fillscope_truth PRIVATE nlohmann_json::nlohmann_json)
+target_compile_options(fillscope_score PRIVATE ${FILLSCOPE_WARNINGS})
+
 # src/viewer: the Dear ImGui viewer.
 # The helpers the viewer and the answer tool share: the file a reader never sees half of.
 add_library(fillscope_common STATIC src/common/atomic_file.cpp)

@@ -113,6 +113,7 @@ add_subdirectory(feed)
 add_subdirectory(truth)
 add_subdirectory(viewer)
 add_subdirectory(vscode-debug-state)
+add_subdirectory(score)
 add_subdirectory(scripts)
 
 # One line per test program, tab-separated: name, tier, "always" or "-", program ("-" for a

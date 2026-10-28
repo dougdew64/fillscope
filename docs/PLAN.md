@@ -592,6 +592,11 @@ runs it over a replay and collects its flags; nothing else changes.
 **Done when:** unit tests score sets of flags made by hand (none, all, exactly the targets, and
 some of each) against a session made by hand, and the targets of a real recorded session are
 checked against its truth.
+**Status:** done (2026-10-28): the library `fillscope_score` ([ARCHITECTURE.md](ARCHITECTURE.md),
+§3, *The detector's check*), its `score_tests`, and a check in `session_system_tests` that a real
+session's targets are the slicer and the taker, and their trades those its recording's requests
+say they were on a side of (107 of 470, the first time). The flags are trades named by their
+update, all a detector can see; the adapter that runs the detector and collects them waits for it.
 
 ### 27. CI's build cache, shared with the checks' copies
 CI's mutation and selection checks build copies of the tree at other paths, which share nothing

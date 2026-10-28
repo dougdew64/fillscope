@@ -235,6 +235,7 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 | `backend/` | The trading system Fillscope observes: a fork of the one in Ghosh's book, a git submodule ([PLAN.md](PLAN.md)) | its own build file; programs `exchange_main`, `trading_main`, `exchange_replay` |
 | `src/feed/` | The exchange's market data as Fillscope reads it: decoding, receiving, and the books it describes | library `fillscope_feed` |
 | `src/truth/` | A replay's truth: which client sent each order, and each side of each trade (§3, *A replay's truth*) | library `fillscope_truth` |
+| `src/score/` | The detector's check: which trades are targets, and a detector's hits, misses and false alarms (§3, *The detector's check*) | library `fillscope_score` |
 | `src/viewer/` | The viewer: its core (no Dear ImGui) and its drawing | library `fillscope_viewer_core`, program `viewer` |
 | `course/` | The course's lessons, each an answer's scenario, and its manifest (§10) | played into the build's `course/` by the target `course` |
 | `src/answer/` | The answer tool: an answer's scenario played through the back end's replay, its claims checked, and the answer written for the viewer (§10) | library `fillscope_answer`, program `fillscope-answer` |
@@ -245,7 +246,8 @@ whatever you do at once, and other changes within a tenth of a second (§4).
 | `tests/` | One directory per area, mirroring the above | test programs per area, each in one cost tier |
 
 Dependencies point one way: the viewer and the answer tool depend on the feed, and all three use
-`src/common/`; the truth depends on nothing, and the feed never on it. Nothing in Fillscope links the back end: it is read only through its files, its market
+`src/common/`; the truth depends on nothing, and the feed never on it; the scorer depends on the
+truth and the feed's types, and nothing depends on it but its tests. Nothing in Fillscope links the back end: it is read only through its files, its market
 data among them. The answer tool runs one of its programs, `exchange_replay`, and the tests run
 them all.
 
@@ -382,6 +384,27 @@ them, and it accepts every new order; a request's updates are those its step say
 trade is followed at once by its resting order's update, a cancel if the trade filled it, a modify
 if not. In a session of about 30 s, that is about 770 orders and 340 trades, every kind of client on
 a side of some.
+
+**The detector's check** (`src/score/score.h`): how a slicing detector will be scored, defined
+before the detector exists, and by someone other than its author, so the detector can't be shaped
+to its test ([FEATURES.md](FEATURES.md), item 13). The detector's job is to find any client that
+trades repeatedly at one side and size. In a recorded session there are two: the planted slicer,
+and the liquidity taker, which always trades its one clip. So they are the targets, picked out by
+the strategy each client was started with, as `session.json` names it (`read_targets`). A trade is
+a target's if a target was on either side of it, the order that came in and took, or the one
+resting that was met; the truth says which (`target_trades`). A detector sees only the market data,
+so its flags name trades by their update. Given them, `score_flags` counts, over every trade in
+the session and on each ticker, the hits (flagged, a target's), the misses (a target's, not
+flagged) and the false alarms (flagged, no target's). It refuses a flag on an update that isn't a
+trade, and a truth whose trades aren't the market data's, rather than score them as something
+else. A score counts outcomes, not accuracy: most trades aren't a target's, so a detector that
+flagged nothing would be right about most trades and useless. The scorer calls no detector: once
+the owner's exists, a small adapter runs it over a replay's updates and hands its flags to
+`score_flags`. It is a library of its own, `fillscope_score`, using the truth and the feed's types,
+and nothing the viewer has. `score_tests` scores flags made by hand against a session made by hand;
+`session_system_tests` checks, on a real session, that the targets' trades are those the
+recording's requests say the slicer and the taker were on a side of, worked out without the truth.
+In a session of about 30 s, about a quarter of the trades are theirs (107 of 470, once).
 
 **Lockstep on a replay** ([DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md)): after each request,
 `exchange_replay` calls the back end's lockstep anchor, `fillscope_request_anchor(request_number,

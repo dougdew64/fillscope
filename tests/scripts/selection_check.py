@@ -36,7 +36,7 @@ VIEWER_PROGRAM = {"viewer_program_tests"}
 ALL = {"common_tests", "docs_tests",
        "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "viewer_replay_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
        "lowlatency_allocation_tests", "feed_tests", "time_shift_tests", "kept_file_tests",
-       "feed_system_tests", "replay_debugger_tests", "session_system_tests", "truth_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP | ANSWER | DEMO | VIEWER_PROGRAM
+       "feed_system_tests", "replay_debugger_tests", "session_system_tests", "truth_tests", "score_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP | ANSWER | DEMO | VIEWER_PROGRAM
 # The programs iterate.py runs every time, affected or not.
 ALWAYS = {"docs_tests", "attribution_report_check", "code_map_check"}
 
@@ -68,10 +68,12 @@ CASES = [
     ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
     ("src/viewer/viewer_state.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
     ("src/viewer/session_truth.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
-    # A replay's truth: read by its own tests, the system test that checks a session's, and the
-    # viewer, which shows a session's (and its tests and demos).
+    # A replay's truth: read by its own tests, the system test that checks a session's, the scorer,
+    # and the viewer, which shows a session's (and its tests and demos).
     ("src/truth/truth.cpp", CPP_PROBE,
-     {"truth_tests", "session_system_tests", "viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
+     {"truth_tests", "session_system_tests", "score_tests", "viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    # The detector's check: its own tests, and the system test that checks a real session's targets.
+    ("src/score/score.cpp", CPP_PROBE, {"score_tests", "session_system_tests"}),
     # The simulated exchange: the tests of what is kept, and the UI test of a long replay.
     ("tests/feed/simulated_exchange.h", CPP_PROBE, {"time_shift_tests", "kept_file_tests", "viewer_ui_tests", "viewer_replay_ui_tests"}),
     # The books: Fillscope's reading of the market data, which the viewer (its log's events among
@@ -82,7 +84,7 @@ CASES = [
      | ANSWER | DEMO | VIEWER_PROGRAM),
     ("tests/support/test_support.h", CPP_PROBE,
      {"feed_tests", "feed_system_tests", "viewer_ui_tests", "viewer_replay_ui_tests", "replay_debugger_tests", "answer_system_tests",
-      "course_system_tests", "session_system_tests", "truth_tests", "viewer_tests"} | DEMO),
+      "course_system_tests", "session_system_tests", "truth_tests", "score_tests", "viewer_tests"} | DEMO),
     ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
     ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
     ("docs/PLAN.md", TEXT_PROBE, {"docs_tests"}),
