@@ -65,6 +65,30 @@ inline nlohmann::json session_json() {
                   {"gap", 3}, {"gap_jitter", 0}, {"size_spread", 0}}}}}}}};
 }
 
+// The requests that made those updates, as the replay's steps file records them: who sent what, the
+// updates each made, and what the exchange answered when it matters here (a cancel's). Request 5 is
+// the slicer cancelling its first piece, which its trade had filled: rejected, no update.
+inline std::vector<ReplayStep> session_steps() {
+    const auto step = [](std::uint32_t client, std::uint32_t ticker, std::variant<NewOrder, Cancel> action, std::uint64_t first,
+                         std::uint32_t count, std::vector<ClientResponse> responses = {}) {
+        return ReplayStep{.request = encode_request(Request{.client = client, .action = action}, ticker),
+                          .first_update = first, .update_count = count, .responses = std::move(responses)};
+    };
+    const ClientResponse rejected{.type = ResponseType::cancel_rejected, .client = 6, .ticker = 1, .client_order_id = 1,
+                                  .market_order_id = kNoOrderId, .side = Side::none, .price = 0, .exec_qty = kNoQty,
+                                  .leaves_qty = kNoQty};
+    return {step(1, 1, NewOrder{.id = 101, .side = Side::sell, .price = 105, .qty = 10}, 1, 1),
+            step(5, 1, NewOrder{.id = 501, .side = Side::sell, .price = 106, .qty = 10}, 2, 1),
+            step(5, 1, NewOrder{.id = 502, .side = Side::buy, .price = 100, .qty = 10}, 3, 1),
+            step(6, 1, NewOrder{.id = 1, .side = Side::buy, .price = 105, .qty = 10}, 4, 2),
+            step(6, 1, Cancel{.id = 1}, 6, 0, {rejected}),
+            step(6, 1, NewOrder{.id = 2, .side = Side::buy, .price = 105, .qty = 5}, 6, 1),
+            step(5, 1, NewOrder{.id = 503, .side = Side::sell, .price = 105, .qty = 5}, 7, 2),
+            step(3, 1, NewOrder{.id = 301, .side = Side::buy, .price = 106, .qty = 4}, 9, 2),
+            step(5, 2, NewOrder{.id = 504, .side = Side::sell, .price = 50, .qty = 3}, 11, 1),
+            step(6, 2, NewOrder{.id = 3, .side = Side::buy, .price = 50, .qty = 3}, 12, 2)};
+}
+
 // The session, as read_session gives it.
 inline Session hand_session() {
     return Session{.market_data = {.recording = "requests.rec", .updates = session_updates()},
@@ -73,7 +97,8 @@ inline Session hand_session() {
                              .roles = {{1, "maker"}, {3, "taker"}, {5, "random"}, {6, "slicer"}},
                              .slicers = {6},
                              .slices = {{1, "buys 15 in pieces of 10, each 3 updates on this ticker after the last (equal pieces, "
-                                            "regular gaps)"}}}};
+                                            "regular gaps)"}},
+                             .steps = session_steps()}};
 }
 
 // Writes the session's three files into `directory`.
@@ -85,6 +110,9 @@ inline void write_session(const std::filesystem::path& directory, const nlohmann
     std::ofstream{directory / "truth.bin", std::ios::binary}.write(reinterpret_cast<const char*>(bytes.data()),
                                                                      static_cast<std::streamsize>(bytes.size()));
     std::ofstream{directory / "session.json"} << json.dump();
+    const auto steps = encode_steps_file(StepsFile{.recording = "requests.rec", .steps = session_steps()});
+    std::ofstream{directory / "steps.bin", std::ios::binary}.write(reinterpret_cast<const char*>(steps.data()),
+                                                                    static_cast<std::streamsize>(steps.size()));
 }
 
 }  // namespace fillscope::test

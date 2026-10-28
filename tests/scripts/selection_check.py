@@ -34,7 +34,7 @@ DEMO = {"viewer_demo", "viewer_live_demo", "viewer_time_shift_demo", "viewer_sli
 # The viewer program itself, run by its own test: its window and loop, its core, and the exchange.
 VIEWER_PROGRAM = {"viewer_program_tests"}
 ALL = {"common_tests", "docs_tests",
-       "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
+       "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "viewer_replay_ui_tests", "scripts_tests", "backend_system_tests", "lowlatency_tests",
        "lowlatency_allocation_tests", "feed_tests", "time_shift_tests", "kept_file_tests",
        "feed_system_tests", "replay_debugger_tests", "session_system_tests", "truth_tests"} | EXTENSION | ATTRIBUTION | CODE_MAP | ANSWER | DEMO | VIEWER_PROGRAM
 # The programs iterate.py runs every time, affected or not.
@@ -54,34 +54,34 @@ def ui_timeout_changed(text):
 
 # (file changed, probe, the programs that must be reported affected, and no others)
 CASES = [
-    ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
     # The loop main.cpp runs is in ViewerApp, which the UI tests and the demos run too.
-    ("src/viewer/viewer_app.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    ("src/viewer/viewer_app.cpp", CPP_PROBE, {"viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
     # The feed's socket, the atomic write and the answer tool's replay own their descriptors with
     # Fd, so everything that links them is affected, and the helpers' own tests.
     ("src/common/fd.h", CPP_PROBE,
-     {"common_tests", "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "feed_tests", "kept_file_tests", "feed_system_tests",
+     {"common_tests", "viewer_tests", "viewer_log_tests", "viewer_ui_tests", "viewer_replay_ui_tests", "feed_tests", "kept_file_tests", "feed_system_tests",
       "session_system_tests"}
      | ANSWER
      | DEMO | VIEWER_PROGRAM),
     # The viewer's core is linked by the viewer, its test programs and its demos, and by nothing else.
-    ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
-    ("src/viewer/viewer_state.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
-    ("src/viewer/session_truth.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    ("src/viewer/context.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    ("src/viewer/viewer_state.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    ("src/viewer/session_truth.cpp", CPP_PROBE, {"viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
     # A replay's truth: read by its own tests, the system test that checks a session's, and the
     # viewer, which shows a session's (and its tests and demos).
     ("src/truth/truth.cpp", CPP_PROBE,
-     {"truth_tests", "session_system_tests", "viewer_tests", "viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
+     {"truth_tests", "session_system_tests", "viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
     # The simulated exchange: the tests of what is kept, and the UI test of a long replay.
-    ("tests/feed/simulated_exchange.h", CPP_PROBE, {"time_shift_tests", "kept_file_tests", "viewer_ui_tests"}),
+    ("tests/feed/simulated_exchange.h", CPP_PROBE, {"time_shift_tests", "kept_file_tests", "viewer_ui_tests", "viewer_replay_ui_tests"}),
     # The books: Fillscope's reading of the market data, which the viewer (its log's events among
     # it), the answer tool and the system tests link.
     ("src/feed/book_builder.cpp", CPP_PROBE,
      {"feed_tests", "time_shift_tests", "kept_file_tests", "feed_system_tests", "viewer_tests", "viewer_log_tests",
-      "viewer_ui_tests", "session_system_tests"}
+      "viewer_ui_tests", "viewer_replay_ui_tests", "session_system_tests"}
      | ANSWER | DEMO | VIEWER_PROGRAM),
     ("tests/support/test_support.h", CPP_PROBE,
-     {"feed_tests", "feed_system_tests", "viewer_ui_tests", "replay_debugger_tests", "answer_system_tests",
+     {"feed_tests", "feed_system_tests", "viewer_ui_tests", "viewer_replay_ui_tests", "replay_debugger_tests", "answer_system_tests",
       "course_system_tests", "session_system_tests", "truth_tests", "viewer_tests"} | DEMO),
     ("tools/vscode-debug-state/src/debug_state.js", JS_PROBE, EXTENSION),
     ("tests/vscode-debug-state/debug_state.test.js", JS_PROBE, EXTENSION),
@@ -120,7 +120,7 @@ CASES = [
     # tier's tests run, so it affects that tier's programs and no others.
     ("CMakeLists.txt", TEXT_PROBE, set()),
     ("tests/viewer/CMakeLists.txt", TEXT_PROBE, set()),
-    ("tests/CMakeLists.txt", ui_timeout_changed, {"viewer_ui_tests"}),
+    ("tests/CMakeLists.txt", ui_timeout_changed, {"viewer_ui_tests", "viewer_replay_ui_tests"}),
     # The viewer's window and loop: the viewer program's own test, and nothing else.
     ("src/viewer/main.cpp", CPP_PROBE, VIEWER_PROGRAM),
     # A file no program lists. docs_tests may still link to it, which is why it always runs (below);
@@ -134,7 +134,7 @@ CASES = [
 # the slow tier runs only those that always run.
 RUN_CASES = [
     ("LICENSE", TEXT_PROBE, ALWAYS),
-    ("src/viewer/context.cpp", CPP_PROBE, ALWAYS | {"viewer_tests", "viewer_ui_tests"}),
+    ("src/viewer/context.cpp", CPP_PROBE, ALWAYS | {"viewer_tests", "viewer_ui_tests", "viewer_replay_ui_tests"}),
     ("tests/backend/replay_lldb_driver.py", TEXT_PROBE, ALWAYS),
 ]
 
@@ -151,7 +151,7 @@ MUTANT_CASES = [
     ("LICENSE", TEXT_PROBE, set()),
     # A build file's comment changes nothing a mutant's result depends on.
     ("CMakeLists.txt", TEXT_PROBE, set()),
-    ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests"} | DEMO | VIEWER_PROGRAM),
+    ("src/viewer/viewer_view.cpp", CPP_PROBE, {"viewer_ui_tests", "viewer_replay_ui_tests"} | DEMO | VIEWER_PROGRAM),
     ("backend/Chapter12/exchange/matcher/matching_engine.cpp", CPP_PROBE,
      {"backend_system_tests", "lowlatency_tests", "lowlatency_allocation_tests", "feed_system_tests",
       "replay_debugger_tests", "answer_system_tests", "course_system_tests", "session_system_tests"} | DEMO | VIEWER_PROGRAM),

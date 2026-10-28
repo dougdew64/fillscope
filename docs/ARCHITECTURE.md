@@ -576,6 +576,17 @@ the market data hasn't, or without one it has. The truth is shown in two places,
   that the colours are the recording's truth, which the market data doesn't say, and what the
   slicer's order on the ticker is. In a replay without a truth, the dots are drawn with no colours
   and it says there is none; live, it says the market data never names a client.
+- **What happened**, under the replay's controls, from the session's steps (`DIR/steps.bin`, the
+  replay's record of what each request did): the request that made the update on screen, said in
+  words ("the slicer (client 6) sent a buy of 30 at 172 on ticker 1"), each update it made said in
+  words, the one on screen marked, and its sender's next request on the ticker. A slicer's piece
+  reads as one event: a trade, the order it filled removed, another trade, its rest resting, then
+  the slicer's cancel. `< request` and `request >` go to the start of the previous and next
+  request, past those that made no update (a cancel rejected). The owner asked for it (2026-10-27)
+  after following a piece through its updates in the viewer only with explanations from outside
+  it (§3, *What one match makes*). The steps must be the market data's, each update made by one
+  request in order, or the session is refused.
+
 What the panel draws is `trade_dots`, a function of the market data and the truth, which the unit
 tests check; the UI tests step a session made by hand update by update, checking each dot drawn
 against what its truth says.
@@ -841,7 +852,8 @@ and a client and checks Fillscope's books against the exchange's snapshots, and 
 recovery (`feed_system_tests`), and that the exchange's recording of that run replays to the very
 updates that arrived. The viewer's core has unit tests that need no window (`viewer_tests`); the UI
 tests run the whole loop above with real clicks through the Dear ImGui Test Engine, with no window
-or GPU, including reading real multicast streams and moving through a replay (`viewer_ui_tests`).
+or GPU, including reading real multicast streams and moving through a replay (`viewer_ui_tests`, and
+`viewer_replay_ui_tests`, the same program's other half: [RUNNING.md](RUNNING.md)).
 Lockstep on a replay is tested under GDB and LLDB (`replay_debugger_tests`). The back end's own
 tests are in the fork (`backend/Chapter12/tests/`): `lowlatency_tests`, the matching, the market
 data, recording and replay, the order server, the queue, its sockets, the client's copy of the
@@ -967,7 +979,7 @@ the back end's one-test program (`lowlatency:LFQueue.WritingToAFullQueueStopsThe
   mutants, which would make that untrue. The comparison is of what the build produced, not of where the change was: a
   change to `common/macros.h` changes no mutant's file, but every back-end program's binary, so
   every back-end mutant runs, as it must, since the queue's full check is an `ASSERT`. A change to
-  the viewer's drawing code changes only `viewer_ui_tests`, and runs only the 18 of 192
+  the viewer's drawing code changes only the UI tests' program, and runs only the 18 of 192
   mutants that run it. `--all` runs every mutant; CI keeps no record, so it always does.
 - *A mutant's life.* A mutant is born with its test, as that test's proof, or from a bug once fixed,
   to keep it found, but only for a rule whose breaking could go unnoticed: a display that says
@@ -1024,7 +1036,8 @@ full check still runs in CI.
 
 ### One change, end to end
 You change how the viewer draws an order, in `src/viewer/viewer_view.cpp`. Between edits,
-`iterate.py` rebuilds and runs `viewer_ui_tests`, the one program whose binary changed, in seconds.
+`iterate.py` rebuilds and runs the UI tests (`viewer_ui_tests` and `viewer_replay_ui_tests`, two
+parts of the one program whose binary changed), in seconds.
 Before committing, `run-tests.sh` runs everything in both builds, about two minutes. The mutation
 check, run locally, runs the 18 mutants of the programs the change reached. After the push, CI
 runs everything again from a clean container, every mutant included, while work goes on.
@@ -1371,7 +1384,7 @@ took.
 
 **What tests it:** `viewer_tests`: the frames, loading (claims checked again, whose each order is,
 and every refusal: no answer, not an answer, stale, a replay file gone, a scenario that can't be
-read), a replaced file's new stamp, the context and the bar, and the options. `viewer_ui_tests`,
+read), a replaced file's new stamp, the context and the bar, and the options. `viewer_replay_ui_tests`,
 with real clicks on answers written by hand (`tests/support/answer_fixture.h`): waiting for an
 answer; stepping through one, forward and back, the books moving with the frames, a step's question
 before its explanation, and the context's step; a new answer replacing the shown one from its

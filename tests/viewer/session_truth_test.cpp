@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -56,6 +57,16 @@ TEST_F(SessionTruthTest, ASessionMissingAFileOrWithABadOneSaysWhy) {
     EXPECT_NE(read_session(dir_.path).error().find("isn't a session's"), std::string::npos);
     std::filesystem::remove(dir_.path / "truth.bin");
     EXPECT_NE(read_session(dir_.path).error().find("can't open " + (dir_.path / "truth.bin").string()), std::string::npos);
+    // Steps that aren't the market data's: one short.
+    test::write_session(dir_.path);
+    std::vector<ReplayStep> steps = test::session_steps();
+    steps.pop_back();
+    const auto bytes = encode_steps_file(StepsFile{.recording = "requests.rec", .steps = steps});
+    std::ofstream{dir_.path / "steps.bin", std::ios::binary | std::ios::trunc}.write(reinterpret_cast<const char*>(bytes.data()),
+                                                                                       static_cast<std::streamsize>(bytes.size()));
+    EXPECT_NE(read_session(dir_.path).error().find("its steps made 11 updates, the market data has 13"), std::string::npos);
+    std::filesystem::remove(dir_.path / "steps.bin");
+    EXPECT_NE(read_session(dir_.path).error().find("can't open " + (dir_.path / "steps.bin").string()), std::string::npos);
 }
 
 // Each trade on the ticker, in the window asked for, marked by whether the slicer's order came in
@@ -101,6 +112,61 @@ TEST_F(SessionTruthTest, TheNearestTradeEitherWayIsFound) {
     EXPECT_EQ(nearest_trade(u, 1, 4, W::forward, slicer), 7u) << "its resting order met counts";
     EXPECT_EQ(nearest_trade(u, 1, 7, W::forward, slicer), std::nullopt) << "9 isn't the slicer's";
     EXPECT_EQ(nearest_trade(u, 1, 13, W::back, slicer), 7u);
+}
+
+// The request that made an update, its updates said in words, and its sender's next request on the
+// ticker (support/session_fixture.h has the session's requests).
+TEST_F(SessionTruthTest, TheRequestBehindAnUpdateIsSaidInWords) {
+    const Session session = test::hand_session();
+    const auto& u = session.market_data.updates;
+    using Updates = std::vector<std::pair<std::uint64_t, std::string>>;
+    for (const std::uint64_t seq : {4, 5}) {  // one request, two updates
+        const auto shown = request_at(session.truth, u, seq);
+        ASSERT_TRUE(shown) << seq;
+        EXPECT_EQ(shown->number, 4u);
+        EXPECT_EQ(shown->request, "the slicer (client 6) sent a buy of 10 at 105 on ticker 1");
+        EXPECT_EQ(shown->updates,
+                  (Updates{{4, "trade: 10 traded at 105, the slicer (client 6) buying from the market maker (client 1)'s order 1"},
+                           {5, "order 1 removed: the trade filled it"}}));
+        EXPECT_EQ(shown->next, "Then, request 5: the slicer (client 6) tried to cancel an order on ticker 1, rejected: it was "
+                               "already gone");
+    }
+    auto shown = request_at(session.truth, u, 6);
+    ASSERT_TRUE(shown);
+    EXPECT_EQ(shown->number, 6u) << "request 5 made no update";
+    EXPECT_EQ(shown->updates, (Updates{{6, "order 5 added: a buy of 5 at 105, resting in the book"}}));
+    EXPECT_EQ(shown->next, std::nullopt) << "its next request is on ticker 2, not 1";
+    shown = request_at(session.truth, u, 8);
+    ASSERT_TRUE(shown);
+    EXPECT_EQ(shown->updates,
+              (Updates{{7, "trade: 5 traded at 105, the random client (client 5) selling from the slicer (client 6)'s order 5"},
+                       {8, "order 5 removed: the trade filled it"}}));
+    shown = request_at(session.truth, u, 10);
+    ASSERT_TRUE(shown);
+    EXPECT_EQ(shown->request, "the liquidity taker (client 3) sent a buy of 4 at 106 on ticker 1");
+    EXPECT_EQ(shown->updates[1], (std::pair<std::uint64_t, std::string>{10, "order 2 now 6: the trade took part of it"}));
+    shown = request_at(session.truth, u, 1);
+    ASSERT_TRUE(shown);
+    EXPECT_EQ(shown->updates, (Updates{{1, "order 1 added: a sell of 10 at 105, resting in the book"}}));
+    EXPECT_EQ(request_at(session.truth, u, 0), std::nullopt);
+    EXPECT_EQ(request_at(session.truth, u, 14), std::nullopt);
+    SessionTruth no_steps = session.truth;
+    no_steps.steps.clear();
+    EXPECT_EQ(request_at(no_steps, u, 4), std::nullopt);
+}
+
+// The start of the nearest request either way, skipping requests that made no update.
+TEST_F(SessionTruthTest, TheNearestRequestEitherWayIsFound) {
+    const SessionTruth truth = test::hand_session().truth;
+    using W = Way;
+    EXPECT_EQ(nearest_request(truth, 0, W::forward), 1u);
+    EXPECT_EQ(nearest_request(truth, 4, W::forward), 6u) << "request 5 made no update";
+    EXPECT_EQ(nearest_request(truth, 5, W::forward), 6u) << "from the middle of request 4";
+    EXPECT_EQ(nearest_request(truth, 12, W::forward), std::nullopt);
+    EXPECT_EQ(nearest_request(truth, 5, W::back), 4u) << "the start of the request on screen";
+    EXPECT_EQ(nearest_request(truth, 4, W::back), 3u);
+    EXPECT_EQ(nearest_request(truth, 9, W::back), 7u);
+    EXPECT_EQ(nearest_request(truth, 1, W::back), std::nullopt);
 }
 
 TEST_F(SessionTruthTest, AClientIsNamedWithItsRole) {

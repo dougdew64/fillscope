@@ -160,9 +160,21 @@ of two still timed out, since the power limit is the chip's. Running it with no 
 margins were thin, and something about the machine's state (likely its temperature, after hours of
 test runs) tipped them. Running the session alone removes the margin either way.
 
+**It came back, for one test, the same evening.** With the session test alone, `viewer_ui_tests`
+(the UI tests, one CTest test for the whole program, limit 10 s) still timed out, in two gate runs
+in a row, though alone it took 3.6 s as before. CTest's own output gives the order tests started
+(`Start N:` lines in the gate's log, the sanitizer build's section): it started first, beside the
+heaviest moment of the run, eight debugger tests starting GDB and LLDB, the TypeScript type check,
+the course's replays and the attribution check, all at once. CTest starts the tests that took
+longest last time first, so each timeout made the next run start it at the worst time. Raising the
+limit would hide a test that grows slow, which is what the limit is for, so the program was split
+in two parts, each a CTest test of its own (`viewer_ui_tests`, the live viewer's;
+`viewer_replay_ui_tests`, replays', answers' and sessions'; one program, the second run with
+`--replays`): 1.85 s and 1.83 s alone, half the time each.
+
 **Lessons.** Exclude one thing at a time from the same parallel run (`-E`, `-LE`) to find what
 interferes. Priority (nice) shares CPU time, not cores or power. On a laptop, sustained load lowers
-the clock.
+the clock. The order CTest starts tests in matters, and changes with their last times.
 
 ## Case 3: viewer windows open on the desktop (2026-10-27)
 **Symptom.** Viewer windows appeared on the owner's desktop during my work, though the tests never

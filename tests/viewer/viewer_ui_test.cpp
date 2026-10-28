@@ -10,7 +10,9 @@
 // Engine can't query them. Items with an ID (rows, buttons) are found and clicked through the Test
 // Engine; "**/" in a reference searches the whole window for an item with that label.
 //
-//   viewer_ui_tests [FILTER]     e.g. "^viewer/clicking" (Test Engine filter syntax)
+//   viewer_ui_tests                  the live viewer's tests
+//   viewer_ui_tests --replays        replays', answers' and sessions'
+//   viewer_ui_tests NAME             the tests whose names contain NAME, in either part
 //
 // Exits 0 only if at least one test ran and every test that ran passed.
 
@@ -168,8 +170,25 @@ void run_body(ImGuiTestContext* ctx) {
     }
 }
 
-// Registers a test that runs the viewer's loop, with `body` as its test function.
+// The program's tests are in two parts, each run by its own CTest test, so neither takes more than
+// half the time: the live viewer's (viewer_ui_tests, with no arguments), and replays', answers' and
+// sessions' (viewer_replay_ui_tests, run with --replays). As one program it took 3.6 s alone in the
+// sanitizer build, but over its 10 s beside the tests CTest starts with it (2026-10-27,
+// docs/TROUBLESHOOTING.md, case 2). Given a name to filter by, it registers both parts.
+enum class Part : std::uint8_t { live, replays, both };
+Part g_part = Part::live;
+
+// Registers a test that runs the viewer's loop, with `body` as its test function, in the live part;
+// replay_test, in the replays' part.
+ImGuiTest* register_test(ImGuiTestEngine* engine, const char* name, TestBody body);
 ImGuiTest* viewer_test(ImGuiTestEngine* engine, const char* name, TestBody body) {
+    return g_part == Part::replays ? nullptr : register_test(engine, name, std::move(body));
+}
+ImGuiTest* replay_test(ImGuiTestEngine* engine, const char* name, TestBody body) {
+    return g_part == Part::live ? nullptr : register_test(engine, name, std::move(body));
+}
+
+ImGuiTest* register_test(ImGuiTestEngine* engine, const char* name, TestBody body) {
     // The bodies live here, where their addresses stay fixed, for the tests' UserData to point at.
     static std::deque<TestBody> bodies;
     bodies.push_back(body);
@@ -882,7 +901,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
     // An answer (viewer --answer): the pane beside the market, stepped a frame at a time, the books
     // moving with it, a step's question shown before the step is played, and the context naming the
     // step. The answer file appears after the viewer starts, as when the assistant writes one.
-    viewer_test(engine, "an_answer_is_stepped_through", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "an_answer_is_stepped_through", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         const std::filesystem::path answer = scratch_root() / ctx->Test->Name / ".fillscope" / "answer.json";
         vars.app->watch_answer(answer);
@@ -961,7 +980,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
 
     // A new answer replaces the one shown, from its start; one that can't be shown says why and
     // leaves nothing of the last on screen; a claim the viewer finds false is marked so.
-    viewer_test(engine, "a_new_answer_replaces_the_shown_one", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "a_new_answer_replaces_the_shown_one", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         const std::filesystem::path answer = scratch_root() / ctx->Test->Name / ".fillscope" / "answer.json";
         fillscope::test::write_maker_and_taker(answer, "First question?");
@@ -999,7 +1018,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
     // question. Nothing is chosen at first, so no answer is shown, though the questions' file holds
     // one. Choosing a lesson shows it from its start, under its title rather than its question, and
     // the context names the lesson; choosing "Your latest question" shows the answer file watched.
-    viewer_test(engine, "a_lesson_is_chosen_from_the_course", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "a_lesson_is_chosen_from_the_course", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         const std::filesystem::path dir = scratch_root() / ctx->Test->Name;
         const std::filesystem::path built = dir / "course";
@@ -1063,7 +1082,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
     // and a click can then leave the book out of reach. A replay's file is named by its absolute
     // path, as long as the directory it is in, and is named twice: in the bar and above the replay's
     // controls.
-    viewer_test(engine, "a_long_file_name_wraps_rather_than_widening_the_window", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "a_long_file_name_wraps_rather_than_widening_the_window", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         const std::string deep = std::string(300, 'd') + "/a.dat";
         vars.app->open_replay(deep, fillscope::MarketDataFile{.recording = std::string(300, 'r'), .updates = {add(1, 10, Side::sell, 102, 3, 1)}});
@@ -1079,7 +1098,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(contains(vars.text, "Pointing at order 10 of ticker 0"));
     });
 
-    viewer_test(engine, "a_replay_goes_to_any_update", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "a_replay_goes_to_any_update", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         // add_book's six updates, then order 11 partly filled and order 12 cancelled.
         fillscope::MarketDataFile replay{
@@ -1124,7 +1143,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
 
     // A replay whose update 2 can't be applied (an order it never added): the books stay after update
     // 1, and the status and the bar say so; going forward again doesn't feed the update again.
-    viewer_test(engine, "a_replay_that_cant_be_followed_says_where_it_stopped", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "a_replay_that_cant_be_followed_says_where_it_stopped", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         fillscope::MarketDataFile replay{
             .recording = "runs/b.rec",
@@ -1150,7 +1169,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
     // shown ticker up to the update shown, and the slicer's as the truth says (support/session_fixture.h
     // gives it by hand: on ticker 1, update 4 the slicer took, 7 its resting order was met, 9 it
     // wasn't in; ticker 2's trade at 12 is never drawn there). The book names each order's client.
-    viewer_test(engine, "a_sessions_trades_are_drawn_from_its_truth_update_by_update", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "a_sessions_trades_are_drawn_from_its_truth_update_by_update", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         ctx->SetRef(fillscope::kViewerWindow);
         ctx->Yield(2);
@@ -1215,7 +1234,7 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
     // rate goes on from where it is. And the jumps go to the nearest trade either way, and with a
     // session's truth, the nearest of the slicer's (support/session_fixture.h: on ticker 1, trades at
     // 4, the slicer's, 7, the slicer's, and 9).
-    viewer_test(engine, "a_replay_plays_by_itself_and_jumps_to_trades", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "a_replay_plays_by_itself_and_jumps_to_trades", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         const auto t0 = std::chrono::steady_clock::time_point{} + std::chrono::hours{1};
         const auto at = [&](int ms) { return t0 + std::chrono::milliseconds{ms}; };
@@ -1288,10 +1307,29 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         click("2##ticker");
         vars.app->replay_to(0);
         jumps_to(fillscope::kReplayNextSlicer, 12);
+
+        // What happened: the request behind the update on screen, its updates, the one on screen
+        // marked, and its sender's next request; and the jumps by request, past one that made no
+        // update (5, the slicer's cancel of a piece already filled).
+        vars.app->replay_to(5);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "What happened, from the session's records"));
+        IM_CHECK(contains(vars.text, "Request 4: the slicer (client 6) sent a buy of 10 at 105 on ticker 1, which made 2 updates:"));
+        IM_CHECK(contains(vars.text, "  4: trade: 10 traded at 105, the slicer (client 6) buying from the market maker (client 1)'s order 1"));
+        IM_CHECK(contains(vars.text, "> 5: order 1 removed: the trade filled it"));
+        IM_CHECK(contains(vars.text, "Then, request 5: the slicer (client 6) tried to cancel an order on ticker 1, rejected: it was "
+                                     "already gone."));
+        jumps_to(fillscope::kReplayPrevRequest, 4);
+        jumps_to(fillscope::kReplayPrevRequest, 3);
+        jumps_to(fillscope::kReplayNextRequest, 4);
+        jumps_to(fillscope::kReplayNextRequest, 6);
+        vars.app->replay_to(0);
+        ctx->Yield(2);
+        IM_CHECK(contains(vars.text, "What happened: before the first request."));
     });
 
     // A replay without a truth draws its trades, none coloured, and says why.
-    viewer_test(engine, "a_replay_without_a_truth_says_it_has_none", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "a_replay_without_a_truth_says_it_has_none", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         vars.app->open_replay("runs/plain.dat", {.recording = "requests.rec", .updates = fillscope::test::session_updates()});
         vars.app->show_ticker(1);
@@ -1303,15 +1341,17 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
         IM_CHECK(!contains(vars.text, "(slicer)"));
         IM_CHECK_EQ(std::string{ctx->ItemInfo("**/##trade4").DebugLabel}, std::string{"4: 10 at 105, none"});
         IM_CHECK_EQ(std::string{ctx->ItemInfo("**/##trade7").DebugLabel}, std::string{"7: 5 at 105, none"});
-        // The trades' jumps, but not the slicer's: there is no truth to say which are its.
+        // The trades' jumps, but not the slicer's, nor the requests': there is no truth to say which
+        // are its, nor steps to say who sent what.
         IM_CHECK(ctx->ItemExists(std::format("**/{}", fillscope::kReplayNextTrade).c_str()));
         IM_CHECK(!ctx->ItemExists(std::format("**/{}", fillscope::kReplayNextSlicer).c_str()));
+        IM_CHECK(!contains(vars.text, "What happened"));
     });
 
     // A long replay, going anywhere in it in any order, shows the books as if played from update 1:
     // a jump back is rebuilt from the nearest checkpoint, a step forward applied. Its update 3,500
     // can't be applied, so past it the books stay after 3,499, stuck, as a replay played through does.
-    viewer_test(engine, "a_long_replay_goes_anywhere_as_if_played_from_the_start", [](ImGuiTestContext* ctx) {
+    replay_test(engine, "a_long_replay_goes_anywhere_as_if_played_from_the_start", [](ImGuiTestContext* ctx) {
         UiVars& vars = ctx->GetVars<UiVars>();
         constexpr std::uint64_t kUpdates = 5'000;
         constexpr std::uint64_t kBad = 3'500;
@@ -1395,7 +1435,10 @@ void register_viewer_tests(ImGuiTestEngine* engine) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    const char* filter = argc > 1 ? argv[1] : "all";
+    // No arguments: the live part. --replays: the other. A name: any test of that name, in either.
+    const bool replays = argc > 1 && std::string_view{argv[1]} == "--replays";
+    const char* filter = argc > (replays ? 2 : 1) ? argv[replays ? 2 : 1] : "all";
+    g_part = replays ? Part::replays : std::string_view{filter} == "all" ? Part::live : Part::both;
 
     ImGuiApp* app = ImGuiApp_ImplNull_Create();
     IMGUI_CHECKVERSION();

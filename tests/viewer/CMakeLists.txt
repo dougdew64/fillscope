@@ -11,7 +11,11 @@ add_executable(viewer_ui_tests viewer_ui_test.cpp ${VIEWER_UI_SOURCES})
 target_link_libraries(viewer_ui_tests PRIVATE fillscope_viewer_core imgui_te)
 target_include_directories(viewer_ui_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 target_compile_options(viewer_ui_tests PRIVATE ${FILLSCOPE_WARNINGS})
+# In two parts, each a CTest test of its own, so neither takes more than half the time
+# (viewer_ui_test.cpp says why): the live viewer's, and replays', answers' and sessions'.
 fillscope_test_program(viewer_ui_tests ui)
+fillscope_test_program(viewer_replay_ui_tests ui COMMAND $<TARGET_FILE:viewer_ui_tests> --replays
+  RUNTIME_DEPS $<TARGET_FILE:viewer_ui_tests>)
 
 # The demo (viewer_demo.cpp): lesson 6 of the course played in the viewer with real clicks, checked
 # at every frame. Headless here; `viewer_demo FILLSCOPE_ANSWER COURSE_DIR --watch` shows it in a

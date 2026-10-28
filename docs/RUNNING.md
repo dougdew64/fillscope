@@ -223,7 +223,10 @@ the slower program adds the tier to its name.
   recovery), an answer (its frames, its claims checked again, whose each order is, and every way
   one is refused), a recorded session's truth (read, refused when it isn't its market data's, each
   trade marked from it, each client named), and the command line.
-- **`viewer_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** the viewer's whole loop, as
+- **`viewer_ui_tests` and `viewer_replay_ui_tests` (Dear ImGui Test Engine, no window, `ui`):** one
+  program in two parts, each its own test, so neither takes more than half the time (the second is
+  the program run with `--replays`: replays', answers' and sessions' tests; given a name, it runs
+  that test in either part; TROUBLESHOOTING.md, case 2). The viewer's whole loop, as
   `ViewerApp` runs it for the program, with real clicks: the book's order on screen, choosing a
   ticker, pointing at orders and levels, following an order as it fills, clearing, the bar and the
   book's marks (as drawn: each item reports them to the Test Engine) saying exactly what the file
@@ -327,7 +330,9 @@ book names each order's client, and the trades panel beside it colours the slice
 (ARCHITECTURE.md, §4, *A session, and its truth*). Below a replay's slider, `play` moves it on by
 itself at 10, 100 or 1,000 updates a second (`pause`, or any step of your own, stops it), `< trade`
 and `trade >` go to the ticker's previous and next trade, and in a session `< slicer` and
-`slicer >` to the slicer's. `--at N` opens a replay or a session at update N, and `--ticker T` with
+`slicer >` to the slicer's. In a session, *What happened* below the controls says which request
+made the update on screen and what each of its updates was, and `< request` and `request >` go
+from request to request. `--at N` opens a replay or a session at update N, and `--ticker T` with
 ticker T shown; the slicer's orders are on tickers 1, 2 and 3.
 
 `--exit-after SECONDS` closes the viewer after that long; Ctrl-C and SIGTERM close it the same way,

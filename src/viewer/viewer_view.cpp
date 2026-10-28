@@ -300,6 +300,65 @@ void draw_time_shift(const ViewerView& view, ViewerActions& actions) {
     }
 }
 
+// With a session's steps: jumps by request, and what the request that made the update on screen did,
+// each of its updates said in words, the one on screen marked, then its sender's next request on
+// the ticker. It is the session's record, which the market data doesn't carry, and says so.
+void draw_request(const SessionTruth& truth, std::span<const MarketUpdate> updates, std::uint64_t at, ViewerActions& actions) {
+    for (const auto& [label, way] : {std::pair{kReplayPrevRequest, Way::back}, std::pair{kReplayNextRequest, Way::forward}}) {
+        ImGui::SameLine(0.0f, way == Way::back ? ImGui::GetFontSize() : -1.0f);
+        if (ImGui::SmallButton(label)) {
+            if (const auto target = nearest_request(truth, at, way)) {
+                actions.replay_to = *target;
+            }
+        }
+        tooltip([&] {
+            return std::format("To the start of the {} request: each request, a client's order or cancel, makes the updates that "
+                               "follow from it",
+                               way == Way::forward ? "next" : "this or the previous");
+        });
+    }
+    const auto shown = request_at(truth, updates, at);
+    if (!shown) {
+        wrapped("What happened: before the first request.");
+        return;
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    wrapped("What happened, from the session's records (the market data doesn't say who sent what):");
+    ImGui::PopStyleColor();
+    wrapped(std::format("Request {}: {}, which made {} update{}:", shown->number, shown->request, shown->updates.size(),
+                        shown->updates.size() == 1 ? "" : "s"));
+    ImGui::Indent();
+    // The update on screen, and those around it, at most kRequestUpdatesListed.
+    const std::size_t count = shown->updates.size();
+    std::size_t here = 0;
+    while (here < count && shown->updates[here].first != at) {
+        ++here;
+    }
+    const std::size_t first = count <= kRequestUpdatesListed ? 0 : std::min(here > 2 ? here - 2 : 0, count - kRequestUpdatesListed);
+    const std::size_t last = std::min(count, first + kRequestUpdatesListed);
+    if (first > 0) {
+        text(std::format("... {} before", first));
+    }
+    for (std::size_t i = first; i < last; ++i) {
+        const auto& [update, said] = shown->updates[i];
+        const bool on_screen = update == at;
+        if (on_screen) {
+            ImGui::PushStyleColor(ImGuiCol_Text, kSlicerColor);
+        }
+        wrapped(std::format("{} {}: {}", on_screen ? ">" : " ", update, said));
+        if (on_screen) {
+            ImGui::PopStyleColor();
+        }
+    }
+    if (last < count) {
+        text(std::format("... and {} more", count - last));
+    }
+    ImGui::Unindent();
+    if (shown->next) {
+        wrapped(std::format("{}.", *shown->next));
+    }
+}
+
 // A replay's position and controls. Each control asks for the books after one update; the loop
 // rebuilds them (ViewerApp::replay_to).
 void draw_replay(const ViewerView& view, ViewerActions& actions) {
@@ -378,6 +437,9 @@ void draw_replay(const ViewerView& view, ViewerActions& actions) {
     if (replay.truth) {
         jump(kReplayPrevSlicer, Way::back, &*replay.truth, "trade of the slicer's");
         jump(kReplayNextSlicer, Way::forward, &*replay.truth, "trade of the slicer's");
+    }
+    if (replay.truth && !replay.truth->steps.empty()) {
+        draw_request(*replay.truth, replay.updates, at, actions);
     }
 }
 
@@ -748,7 +810,7 @@ void draw_trades(const ViewerView& view, ViewerActions& actions) {
     const std::uint64_t window = std::min<std::uint64_t>(kTradesWindow, std::max<std::uint64_t>(replay.updates.size(), 2));
     const std::uint64_t from = to > window ? to - window + 1 : 1;  // the axis's first update
     const std::uint64_t axis_end = from + window - 1;
-    static const SessionTruth kNoTruth{.directory = {}, .truth = Truth{"", {}, {}}, .roles = {}, .slicers = {}, .slices = {}};
+    static const SessionTruth kNoTruth{.directory = {}, .truth = Truth{"", {}, {}}, .roles = {}, .slicers = {}, .slices = {}, .steps = {}};
     const std::vector<TradeDot> dots = trade_dots(replay.updates, truth ? *truth : kNoTruth, ticker, from, to);
     wrapped(to == 0 ? std::format("Trades on ticker {}: none yet, before the first update.", ticker)
                     : std::format("Trades on ticker {}, updates {} to {}: {}.", ticker, from, to, dots.size()));

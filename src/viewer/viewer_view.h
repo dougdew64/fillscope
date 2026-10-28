@@ -95,6 +95,13 @@ inline constexpr const char* kReplayPrevTrade = "< trade##replay_prev_trade";
 inline constexpr const char* kReplayNextTrade = "trade >##replay_next_trade";
 inline constexpr const char* kReplayPrevSlicer = "< slicer##replay_prev_slicer";
 inline constexpr const char* kReplayNextSlicer = "slicer >##replay_next_slicer";
+// With a session's steps, to the start of the previous and next request (`< request` and
+// `request >`); and below the controls, what the request on screen did.
+inline constexpr const char* kReplayPrevRequest = "< request##replay_prev_request";
+inline constexpr const char* kReplayNextRequest = "request >##replay_next_request";
+// How many of a request's updates are listed; a sweep through many orders lists these, and says
+// how many more.
+inline constexpr std::size_t kRequestUpdatesListed = 8;
 // Live, the time-shifting controls: pause, play, to the oldest kept, back one, forward one, a slider
 // over what is kept, and back to live.
 inline constexpr const char* kShiftPause = "pause##shift_pause";
