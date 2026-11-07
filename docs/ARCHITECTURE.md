@@ -16,7 +16,8 @@ Facts owned elsewhere are linked, not repeated: the debugger's rules in
 [DEBUGGER-LOCKSTEP.md](DEBUGGER-LOCKSTEP.md), commands and tests in [RUNNING.md](RUNNING.md), how
 problems with the tests and the system were tracked down in [TROUBLESHOOTING.md](TROUBLESHOOTING.md),
 why things were decided in [DECISIONS.md](DECISIONS.md), the back end's own changes and known issues in
-its README (`backend/README.md`).
+its README (`backend/README.md`). How the back end's code works, following one order through it, is
+in [BACKEND.md](BACKEND.md).
 
 Today the viewer shows the live order books of the back end, a fork of the trading system in
 Ghosh's book ([PLAN.md](PLAN.md)), rebuilt from the exchange's market data, and lets you point at
@@ -88,6 +89,9 @@ cancels its order and, once the cancel is confirmed, sends a new one, if the ris
   quantity by the best quantity on the side it took from. At its threshold or more, it trades its
   clip the same way, at the best price opposite, and cancels anything it has on the other side: a
   large trade is taken as a sign more will follow.
+
+How a client's threads, its trade engine, its order manager and its risk check carry these out is
+in [BACKEND.md](BACKEND.md) §1.
 
 `session_system_tests` (`tests/backend/session_system_test.cpp`; named `strategy_system_tests`
 until 2026-10-27, when it had grown from checking these strategies to checking a whole session)
