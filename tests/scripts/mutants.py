@@ -96,6 +96,7 @@ FEATURE_ENGINE = "backend/Chapter12/trading/strategy/feature_engine.h"
 CLIENT_BOOK = "backend/Chapter12/trading/strategy/market_order_book.cpp"
 CLIENT_BOOK_HEADER = "backend/Chapter12/trading/strategy/market_order_book.h"
 SLICER = "backend/Chapter12/trading/strategy/slicer.cpp"
+POSITION_KEEPER = "backend/Chapter12/trading/strategy/position_keeper.h"
 MATCHING_ENGINE = "backend/Chapter12/exchange/matcher/matching_engine.h"
 REPLAY_MAIN = "backend/Chapter12/exchange/exchange_replay.cpp"
 REQUEST_ANCHOR = "backend/Chapter12/exchange/matcher/lockstep_anchor.cpp"
@@ -926,6 +927,12 @@ MUTANTS = [
      [("        case Exchange::ClientResponseType::REJECTED: {\n          order->order_state_ = OMOrderState::DEAD;\n",
        "        case Exchange::ClientResponseType::REJECTED: {\n")],
      "lowlatency:OrderManager.ARejectedOrderIsDead"),
+    ("the position keeper's sums start as whatever the memory held", POSITION_KEEPER,
+     [("open_vwap_{};", "open_vwap_;")],
+     "lowlatency:PositionKeeper.AFirstFillIsAtItsOwnPrice"),
+    ("the random client logs its orders in the trade engine's logger again", TRADING_MAIN_SOURCE,
+     [("      send(new_request);", "      trade_engine->sendClientRequest(&new_request);")],
+     "session_system_tests"),
     ("a test claims its slot without locking it", TEST_SUPPORT,
      [("if (fd >= 0 && ::flock(fd, LOCK_EX | LOCK_NB) == 0) {", "if (fd >= 0) {")],
      "TestPort.ThisProcessHoldsItsSlot"),

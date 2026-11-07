@@ -44,6 +44,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -53,6 +54,7 @@
 #include <map>
 #include <numeric>
 #include <optional>
+#include <string_view>
 #include <set>
 #include <string>
 #include <thread>
@@ -603,6 +605,116 @@ TEST_F(RecordedSession, TheScorersTargetsAreTheSlicersAndTheTakersTrades) {
                                 [](std::string said, std::uint32_t client) { return said + std::format(" {}", client); })
                     .c_str(),
                 hit, trades);
+}
+
+// Every client's trade engine log is whole lines, each as one call to the logger writes it: a
+// logger's queue takes one writer, so a line is garbled only if a second thread wrote there too.
+// The random client's main thread once logged each order it sent in the engine's logger, while the
+// engine's thread logged there (827 of 14,688 lines garbled, in one session). A last line cut short
+// when its client was killed is said, and allowed.
+// The logger's time, HH:MM:SS.nnnnnnnnn, at the start of `text`.
+bool starts_with_time(std::string_view text) {
+    constexpr std::string_view shape = "dd:dd:dd.ddddddddd";
+    if (text.size() < shape.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < shape.size(); ++i) {
+        if (shape[i] == 'd' ? !std::isdigit(static_cast<unsigned char>(text[i])) : text[i] != shape[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Whether `line` is one the logger writes whole: a logged call (file:line function() time, then
+// perhaps more), a measurement (time RDTSC|TTT ...), or a line of the positions the engine logs as
+// it stops; with no control character in it.
+bool whole_log_line(std::string_view line) {
+    if (std::ranges::any_of(line, [](char c) { return static_cast<unsigned char>(c) < 0x20 && c != '\t'; })) {
+        return false;
+    }
+    if (line.empty() || line.starts_with("TickerId:") || line.starts_with("Total PnL:")) {
+        return true;
+    }
+    if (starts_with_time(line)) {
+        const std::string_view rest = line.substr(18);
+        return rest.starts_with(" RDTSC ") || rest.starts_with(" TTT ");
+    }
+    // file:line
+    const std::size_t space = line.find(' ');
+    const std::string_view where = line.substr(0, space);
+    const std::size_t colon = where.rfind(':');
+    if (space == std::string_view::npos || colon == std::string_view::npos || colon + 1 == where.size() ||
+        !std::ranges::all_of(where.substr(colon + 1), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); }) ||
+        !(where.substr(0, colon).ends_with(".h") || where.substr(0, colon).ends_with(".cpp"))) {
+        return false;
+    }
+    // function()
+    const std::string_view after = line.substr(space + 1);
+    const std::size_t next = after.find(' ');
+    if (next == std::string_view::npos || !after.substr(0, next).ends_with("()")) {
+        return false;
+    }
+    // time, then the end or a space
+    const std::string_view time = after.substr(next + 1);
+    return starts_with_time(time) && (time.size() == 18 || time[18] == ' ');
+}
+
+// A line as it can be printed: each control character as \xNN.
+std::string printable(std::string_view line) {
+    std::string out;
+    for (const char c : line) {
+        if (static_cast<unsigned char>(c) < 0x20) {
+            out += std::format("\\x{:02x}", static_cast<unsigned char>(c));
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
+TEST(WholeLogLine, TellsTheLoggersLinesFromGarbledOnes) {
+    EXPECT_TRUE(whole_log_line("/x/trade_engine.cpp:80 run() 16:36:47.403335049"));
+    EXPECT_TRUE(whole_log_line("/x/order_manager.h:25 onOrderUpdate() 21:26:01.669155164 MEClientResponse [type:FILLED]"));
+    EXPECT_TRUE(whole_log_line("21:26:28.267536783 RDTSC Trading_OrderManager_moveOrders 66228"));
+    EXPECT_TRUE(whole_log_line("21:25:59.758169879 TTT T9_TradeEngine_LFQueue_read 1793154359758169782"));
+    EXPECT_TRUE(whole_log_line("TickerId:0 Position{pos:0}"));
+    EXPECT_TRUE(whole_log_line(""));
+    EXPECT_FALSE(whole_log_line(":5000 side:SELL qty:28 price:167]"));
+    EXPECT_FALSE(whole_log_line("/x/Chap2e:2 12 00t6a8in1/ s 8tTT T eTy0_ ertd ur e _ ine_ine F.ueue:25r ite"));
+    EXPECT_FALSE(whole_log_line("/x/trade_engine.cpp:80 run() 16:36:47.4033"));
+    EXPECT_FALSE(whole_log_line(std::string_view{"/x/trade_engine.cpp:80 run() 16:36:47.403335049 a\0b", 52}));
+    EXPECT_EQ(printable(std::string_view{"a\0b\x1b", 4}), "a\\x00b\\x1b");
+}
+
+TEST_F(RecordedSession, EachTradeEnginesLogIsWholeLines) {
+    ASSERT_FALSE(session_->sliced.empty());
+    for (const std::uint32_t client : {kMaker, kTaker, kRandom, session_->sliced.front().client}) {
+        const auto file = session_->directory.path / std::format("trading_engine_{}.log", client);
+        std::ifstream in{file};
+        ASSERT_TRUE(in) << file;
+        const std::string text{std::istreambuf_iterator<char>{in}, {}};
+        // The session kills its clients (SIGKILL), so a log can end part-way through the line its
+        // logger was writing: a last line without its newline is cut, not garbled.
+        const std::size_t end = text.ends_with('\n') ? text.size() : text.rfind('\n') + 1;
+        if (end < text.size()) {
+            std::printf("%s ends part-way through a line, as its client was killed: %s\n", file.string().c_str(),
+                        printable(std::string_view{text}.substr(end, 120)).c_str());
+        }
+        std::size_t lines = 0;
+        std::size_t garbled = 0;
+        std::string first;
+        for (std::size_t at = 0; at < end; ++lines) {
+            const std::size_t newline = text.find('\n', at);
+            const std::string_view line = std::string_view{text}.substr(at, newline - at);
+            if (!whole_log_line(line) && garbled++ == 0) {
+                first = std::format("line {}: {}", lines + 1, printable(line.substr(0, 400)));
+            }
+            at = newline + 1;
+        }
+        EXPECT_GT(lines, 100u) << file;
+        EXPECT_EQ(garbled, 0u) << file << ": " << garbled << " of " << lines << " lines garbled; the first, " << first;
+    }
 }
 
 // The recording, replayed again, gives the same market data, steps and truth, byte for byte.
